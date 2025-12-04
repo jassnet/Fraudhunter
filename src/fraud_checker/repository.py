@@ -8,7 +8,14 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, List
 
-from .models import AggregatedRow, ClickLog, IpUaRollup
+from .models import (
+    AggregatedRow,
+    ClickLog,
+    ConversionIpUaRollup,
+    ConversionLog,
+    ConversionWithClickInfo,
+    IpUaRollup,
+)
 
 
 class SQLiteRepository:
@@ -86,6 +93,69 @@ class SQLiteRepository:
                     "CREATE INDEX IF NOT EXISTS idx_click_raw_program ON click_raw(program_id, click_time);"
                 )
                 self.raw_schema_created = True
+
+    def ensure_conversion_schema(self) -> None:
+        """成果ログ用のスキーマを作成"""
+        with self._connect() as conn:
+            # 成果ログ生データ
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS conversion_raw (
+                    id TEXT PRIMARY KEY,
+                    cid TEXT,
+                    conversion_time TEXT NOT NULL,
+                    click_time TEXT,
+                    media_id TEXT,
+                    program_id TEXT,
+                    user_id TEXT,
+                    postback_ipaddress TEXT,
+                    postback_useragent TEXT,
+                    entry_ipaddress TEXT,
+                    entry_useragent TEXT,
+                    state TEXT,
+                    raw_payload TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversion_raw_time ON conversion_raw(conversion_time);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversion_raw_cid ON conversion_raw(cid);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversion_raw_media ON conversion_raw(media_id, conversion_time);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversion_raw_program ON conversion_raw(program_id, conversion_time);"
+            )
+
+            # 成果のIP/UA日次集計（エントリー時のIP/UAベース = 実ユーザー）
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS conversion_ipua_daily (
+                    date TEXT NOT NULL,
+                    media_id TEXT NOT NULL,
+                    program_id TEXT NOT NULL,
+                    ipaddress TEXT NOT NULL,
+                    useragent TEXT NOT NULL,
+                    conversion_count INTEGER NOT NULL,
+                    first_time TEXT NOT NULL,
+                    last_time TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (date, media_id, program_id, ipaddress, useragent)
+                );
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversion_ipua_daily_date ON conversion_ipua_daily(date);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversion_ipua_daily_date_ip ON conversion_ipua_daily(date, ipaddress);"
+            )
 
     def ingest_clicks(
         self, clicks: Iterable[ClickLog], *, target_date: date, store_raw: bool
@@ -379,3 +449,304 @@ class SQLiteRepository:
     @staticmethod
     def _from_iso(text: str) -> datetime:
         return datetime.fromisoformat(text)
+
+    # ==================== 成果ログ関連メソッド ====================
+
+    def ingest_conversions(
+        self, conversions: Iterable[ConversionLog], *, target_date: date
+    ) -> int:
+        """成果ログを取り込む"""
+        self.ensure_conversion_schema()
+        count = 0
+        with self._connect() as conn:
+            self._clear_conversions_date(conn, target_date)
+            for conv in conversions:
+                if conv.conversion_time.date() != target_date:
+                    continue
+                self._insert_conversion_raw(conn, conv)
+                # エントリー時（実ユーザー）のIP/UAが設定されている場合のみ集計に追加
+                if conv.entry_ipaddress and conv.entry_useragent:
+                    self._upsert_conversion_aggregate(conn, conv)
+                count += 1
+        return count
+
+    def _clear_conversions_date(self, conn: sqlite3.Connection, target_date: date) -> None:
+        if self._table_exists("conversion_raw", conn):
+            conn.execute(
+                "DELETE FROM conversion_raw WHERE substr(conversion_time, 1, 10) = ?",
+                (target_date.isoformat(),),
+            )
+        if self._table_exists("conversion_ipua_daily", conn):
+            conn.execute(
+                "DELETE FROM conversion_ipua_daily WHERE date = ?",
+                (target_date.isoformat(),),
+            )
+
+    def _insert_conversion_raw(self, conn: sqlite3.Connection, conv: ConversionLog) -> None:
+        now = datetime.utcnow().isoformat()
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO conversion_raw (
+                id, cid, conversion_time, click_time, media_id, program_id, user_id,
+                postback_ipaddress, postback_useragent, entry_ipaddress, entry_useragent,
+                state, raw_payload, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                conv.conversion_id,
+                conv.cid,
+                self._iso(conv.conversion_time),
+                self._iso(conv.click_time) if conv.click_time else None,
+                conv.media_id,
+                conv.program_id,
+                conv.user_id,
+                conv.postback_ipaddress,
+                conv.postback_useragent,
+                conv.entry_ipaddress,
+                conv.entry_useragent,
+                conv.state,
+                json.dumps(conv.raw_payload) if conv.raw_payload is not None else None,
+                now,
+                now,
+            ),
+        )
+
+    def _upsert_conversion_aggregate(self, conn: sqlite3.Connection, conv: ConversionLog) -> None:
+        """エントリー時（実ユーザー）のIP/UAで成果を集計"""
+        if not conv.entry_ipaddress or not conv.entry_useragent:
+            return
+        now = datetime.utcnow().isoformat()
+        conn.execute(
+            """
+            INSERT INTO conversion_ipua_daily (
+                date, media_id, program_id, ipaddress, useragent,
+                conversion_count, first_time, last_time, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(date, media_id, program_id, ipaddress, useragent) DO UPDATE SET
+                conversion_count = conversion_ipua_daily.conversion_count + 1,
+                first_time = MIN(conversion_ipua_daily.first_time, excluded.first_time),
+                last_time = MAX(conversion_ipua_daily.last_time, excluded.last_time),
+                updated_at = excluded.updated_at
+            """,
+            (
+                conv.conversion_time.date().isoformat(),
+                conv.media_id,
+                conv.program_id,
+                conv.entry_ipaddress,
+                conv.entry_useragent,
+                1,
+                self._iso(conv.conversion_time),
+                self._iso(conv.conversion_time),
+                now,
+                now,
+            ),
+        )
+
+    def lookup_click_by_cid(self, cid: str) -> tuple[str, str, datetime] | None:
+        """
+        cidからクリック時点のIP/UAを検索する。
+        click_rawテーブルから検索し、見つかればIP, UA, click_timeを返す。
+        """
+        if not self._table_exists("click_raw"):
+            return None
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                SELECT ipaddress, useragent, click_time
+                FROM click_raw
+                WHERE id = ?
+                """,
+                (cid,),
+            )
+            row = cur.fetchone()
+            if row:
+                return row[0], row[1], self._from_iso(row[2])
+            return None
+
+    def lookup_clicks_by_cids(self, cids: List[str]) -> dict[str, tuple[str, str, datetime]]:
+        """
+        複数のcidからクリック時点のIP/UAをバッチ検索する。
+        戻り値: {cid: (ipaddress, useragent, click_time)}
+        """
+        if not cids or not self._table_exists("click_raw"):
+            return {}
+        result: dict[str, tuple[str, str, datetime]] = {}
+        with self._connect() as conn:
+            # SQLiteのIN句の制限を考慮してバッチ処理
+            batch_size = 500
+            for i in range(0, len(cids), batch_size):
+                batch = cids[i : i + batch_size]
+                placeholders = ",".join("?" * len(batch))
+                cur = conn.execute(
+                    f"""
+                    SELECT id, ipaddress, useragent, click_time
+                    FROM click_raw
+                    WHERE id IN ({placeholders})
+                    """,
+                    batch,
+                )
+                for row in cur.fetchall():
+                    result[row[0]] = (row[1], row[2], self._from_iso(row[3]))
+        return result
+
+    def enrich_conversions_with_click_info(
+        self, conversions: List[ConversionLog]
+    ) -> List[ConversionWithClickInfo]:
+        """
+        成果ログにクリック時点のIP/UA情報を突合して付加する。
+        cidがないか、クリックログが見つからない成果はスキップされる。
+        """
+        # cidを持つ成果のみ抽出
+        cids = [c.cid for c in conversions if c.cid]
+        if not cids:
+            return []
+
+        # バッチでクリック情報を取得
+        click_info_map = self.lookup_clicks_by_cids(cids)
+
+        result: List[ConversionWithClickInfo] = []
+        for conv in conversions:
+            if not conv.cid or conv.cid not in click_info_map:
+                continue
+            ip, ua, click_time = click_info_map[conv.cid]
+            # ConversionLogにクリック情報を設定
+            conv.click_ipaddress = ip
+            conv.click_useragent = ua
+            result.append(
+                ConversionWithClickInfo(
+                    conversion=conv,
+                    click_ipaddress=ip,
+                    click_useragent=ua,
+                    click_time=click_time,
+                )
+            )
+        return result
+
+    def fetch_conversion_rollups(self, target_date: date) -> List[ConversionIpUaRollup]:
+        """日付指定で成果のIP/UAロールアップを取得"""
+        if not self._table_exists("conversion_ipua_daily"):
+            return []
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                SELECT
+                    date,
+                    ipaddress,
+                    useragent,
+                    SUM(conversion_count) AS total_conversions,
+                    COUNT(DISTINCT media_id) AS media_count,
+                    COUNT(DISTINCT program_id) AS program_count,
+                    MIN(first_time) AS first_time,
+                    MAX(last_time) AS last_time
+                FROM conversion_ipua_daily
+                WHERE date = ?
+                GROUP BY date, ipaddress, useragent
+                """,
+                (target_date.isoformat(),),
+            )
+            rows = cur.fetchall()
+        return [self._to_conversion_rollup(r) for r in rows]
+
+    def fetch_suspicious_conversion_rollups(
+        self,
+        target_date: date,
+        *,
+        conversion_threshold: int = 5,
+        media_threshold: int = 2,
+        program_threshold: int = 2,
+        browser_only: bool = False,
+        exclude_datacenter_ip: bool = False,
+    ) -> List[ConversionIpUaRollup]:
+        """疑わしい成果のIP/UAロールアップを抽出"""
+        if not self._table_exists("conversion_ipua_daily"):
+            return []
+
+        browser_filter = ""
+        if browser_only:
+            browser_filter = """
+                AND (
+                    useragent LIKE '%Chrome/%'
+                    OR useragent LIKE '%Firefox/%'
+                    OR useragent LIKE '%Safari/%'
+                    OR useragent LIKE '%Edg/%'
+                    OR useragent LIKE '%Edge/%'
+                    OR useragent LIKE '%Opera/%'
+                    OR useragent LIKE '%OPR/%'
+                    OR useragent LIKE '%MSIE %'
+                    OR useragent LIKE '%Trident/%'
+                )
+                AND useragent NOT LIKE '%bot%'
+                AND useragent NOT LIKE '%Bot%'
+                AND useragent NOT LIKE '%crawler%'
+                AND useragent NOT LIKE '%Crawler%'
+            """
+
+        datacenter_filter = ""
+        if exclude_datacenter_ip:
+            datacenter_filter = """
+                AND ipaddress NOT LIKE '35.%'
+                AND ipaddress NOT LIKE '34.%'
+                AND ipaddress NOT LIKE '13.%'
+                AND ipaddress NOT LIKE '52.%'
+                AND ipaddress NOT LIKE '54.%'
+            """
+
+        query = f"""
+            SELECT
+                date,
+                ipaddress,
+                useragent,
+                SUM(conversion_count) AS total_conversions,
+                COUNT(DISTINCT media_id) AS media_count,
+                COUNT(DISTINCT program_id) AS program_count,
+                MIN(first_time) AS first_time,
+                MAX(last_time) AS last_time
+            FROM conversion_ipua_daily
+            WHERE date = ?
+            {browser_filter}
+            {datacenter_filter}
+            GROUP BY date, ipaddress, useragent
+            HAVING
+                SUM(conversion_count) >= ?
+                OR COUNT(DISTINCT media_id) >= ?
+                OR COUNT(DISTINCT program_id) >= ?
+        """
+
+        with self._connect() as conn:
+            cur = conn.execute(
+                query,
+                (
+                    target_date.isoformat(),
+                    conversion_threshold,
+                    media_threshold,
+                    program_threshold,
+                ),
+            )
+            rows = cur.fetchall()
+        return [self._to_conversion_rollup(r) for r in rows]
+
+    def _to_conversion_rollup(self, row: tuple) -> ConversionIpUaRollup:
+        return ConversionIpUaRollup(
+            date=date.fromisoformat(row[0]),
+            ipaddress=row[1],
+            useragent=row[2],
+            conversion_count=row[3],
+            media_count=row[4],
+            program_count=row[5],
+            first_conversion_time=self._from_iso(row[6]),
+            last_conversion_time=self._from_iso(row[7]),
+        )
+
+    def update_conversion_click_info(self, conversion_id: str, ip: str, ua: str) -> None:
+        """成果ログにクリック時点のIP/UAを更新"""
+        if not self._table_exists("conversion_raw"):
+            return
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE conversion_raw
+                SET click_ipaddress = ?, click_useragent = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (ip, ua, datetime.utcnow().isoformat(), conversion_id),
+            )

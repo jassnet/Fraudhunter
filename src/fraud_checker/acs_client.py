@@ -7,7 +7,7 @@ from urllib.parse import urljoin
 
 import requests
 
-from .models import ClickLog
+from .models import ClickLog, ConversionLog
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +80,11 @@ class AcsHttpClient:
             or record.get("created_at", "")
         )
         click_time = self._parse_datetime(click_time_raw)
+        # track_cid を優先（成果ログの check_log_raw と突合するため）
+        # track_cid がない場合は id にフォールバック
+        click_id = record.get("track_cid") or record.get("id")
         return ClickLog(
-            click_id=record.get("id"),
+            click_id=click_id,
             click_time=click_time,
             media_id=record.get("media_id") or record.get("mediaId") or "",
             program_id=record.get("program_id") or record.get("programId") or "",
@@ -91,6 +94,95 @@ class AcsHttpClient:
             or record.get("user_agent")
             or "",
             referrer=record.get("referrer") or record.get("referer"),
+            raw_payload=record,
+        )
+
+    def fetch_conversion_logs(
+        self, target_date: date, page: int, limit: int
+    ) -> Iterable[ConversionLog]:
+        """
+        成果ログ（action_log_raw）を取得する。
+        ポストバック経由の成果を取得するためのメソッド。
+        """
+        url = urljoin(self.base_url, "action_log_raw/search")
+        offset = (page - 1) * limit
+        params = {
+            "limit": limit,
+            "offset": offset,
+            # 成果発生日時（regist_unix）で検索
+            "regist_unix": "between_date",
+            "regist_unix_A_Y": target_date.year,
+            "regist_unix_A_M": target_date.month,
+            "regist_unix_A_D": target_date.day,
+            "regist_unix_B_Y": target_date.year,
+            "regist_unix_B_M": target_date.month,
+            "regist_unix_B_D": target_date.day,
+        }
+        logger.info("ACS conversion request %s params=%s", url, params)
+        response = self.session.get(
+            url,
+            headers={"X-Auth-Token": self.token},
+            params=params,
+            timeout=30,
+        )
+
+        if response.status_code != 200:
+            logger.error(
+                "ACS returned %s for %s: %s",
+                response.status_code,
+                response.url,
+                response.text,
+            )
+            response.raise_for_status()
+
+        try:
+            body = response.json()
+        except ValueError:
+            logger.error("ACS response was not JSON: %s", response.text)
+            raise
+
+        records = body.get("records", [])
+        logger.info(
+            "ACS conversion response status=%s records=%s",
+            response.status_code,
+            len(records),
+        )
+        if records:
+            logger.debug("ACS first conversion record sample=%s", records[0])
+        return [self._to_conversion(record) for record in records]
+
+    def _to_conversion(self, record: dict) -> ConversionLog:
+        """APIレスポンスをConversionLogに変換"""
+        # 成果発生日時
+        regist_time_raw = (
+            record.get("regist_unix")
+            or record.get("regist_time")
+            or record.get("created_at", "")
+        )
+        conversion_time = self._parse_datetime(regist_time_raw)
+
+        # クリック日時（あれば）
+        click_time_raw = record.get("click_unix") or record.get("click_time")
+        click_time = self._parse_datetime(click_time_raw) if click_time_raw else None
+
+        # cid（check_log_raw）: クリックIDへの参照（将来のクリックベース検知用に残置）
+        cid = record.get("check_log_raw") or record.get("cid")
+
+        return ConversionLog(
+            conversion_id=record.get("id", ""),
+            cid=cid,
+            conversion_time=conversion_time,
+            click_time=click_time,
+            media_id=record.get("media") or record.get("media_id") or "",
+            program_id=record.get("promotion") or record.get("program_id") or "",
+            user_id=record.get("user") or record.get("user_id"),
+            # ポストバック経由の場合、これらはポストバックサーバーのIP/UA
+            postback_ipaddress=record.get("ipaddress") or record.get("ip"),
+            postback_useragent=record.get("useragent") or record.get("ua"),
+            # エントリー時（実ユーザー）のIP/UA - 成果ログから直接取得
+            entry_ipaddress=record.get("entry_ipaddress"),
+            entry_useragent=record.get("entry_useragent"),
+            state=record.get("state"),
             raw_payload=record,
         )
 

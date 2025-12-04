@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from .env import load_env
-from .suspicious import SuspiciousRuleSet
+from .suspicious import ConversionSuspiciousRuleSet, SuspiciousRuleSet
 
 DEFAULT_PAGE_SIZE = 500
 DEFAULT_CLICK_THRESHOLD = 50
@@ -17,6 +17,13 @@ DEFAULT_BURST_WINDOW_SECONDS = 600
 DEFAULT_LOG_ENDPOINT = "track_log/search"
 DEFAULT_BROWSER_ONLY = False
 DEFAULT_EXCLUDE_DATACENTER_IP = False
+
+# 成果ログ用のデフォルト値
+DEFAULT_CONVERSION_THRESHOLD = 5  # 同一IP/UAからの成果数
+DEFAULT_CONV_MEDIA_THRESHOLD = 2  # 複数媒体
+DEFAULT_CONV_PROGRAM_THRESHOLD = 2  # 複数案件
+DEFAULT_BURST_CONVERSION_THRESHOLD = 3  # 短時間での成果数
+DEFAULT_BURST_CONVERSION_WINDOW_SECONDS = 1800  # 30分
 
 
 @dataclass
@@ -170,6 +177,65 @@ def resolve_rules(
         media_threshold=media,
         program_threshold=program,
         burst_click_threshold=burst_clicks,
+        burst_window_seconds=burst_window,
+        browser_only=browser,
+        exclude_datacenter_ip=exclude_dc,
+    )
+
+
+def resolve_conversion_rules(
+    *,
+    conversion_threshold: Optional[int] = None,
+    media_threshold: Optional[int] = None,
+    program_threshold: Optional[int] = None,
+    burst_conversion_threshold: Optional[int] = None,
+    burst_window_seconds: Optional[int] = None,
+    browser_only: Optional[bool] = None,
+    exclude_datacenter_ip: Optional[bool] = None,
+) -> ConversionSuspiciousRuleSet:
+    """成果ベースの不正検知ルールを解決"""
+    load_env()
+    conv = (
+        conversion_threshold
+        if conversion_threshold is not None
+        else _env_int("FRAUD_CONVERSION_THRESHOLD", DEFAULT_CONVERSION_THRESHOLD)
+    )
+    media = (
+        media_threshold
+        if media_threshold is not None
+        else _env_int("FRAUD_CONV_MEDIA_THRESHOLD", DEFAULT_CONV_MEDIA_THRESHOLD)
+    )
+    program = (
+        program_threshold
+        if program_threshold is not None
+        else _env_int("FRAUD_CONV_PROGRAM_THRESHOLD", DEFAULT_CONV_PROGRAM_THRESHOLD)
+    )
+    burst_convs = (
+        burst_conversion_threshold
+        if burst_conversion_threshold is not None
+        else _env_int("FRAUD_BURST_CONVERSION_THRESHOLD", DEFAULT_BURST_CONVERSION_THRESHOLD)
+    )
+    burst_window = (
+        burst_window_seconds
+        if burst_window_seconds is not None
+        else _env_int("FRAUD_BURST_CONVERSION_WINDOW_SECONDS", DEFAULT_BURST_CONVERSION_WINDOW_SECONDS)
+    )
+    browser = (
+        browser_only
+        if browser_only is not None
+        else _env_bool("FRAUD_BROWSER_ONLY", DEFAULT_BROWSER_ONLY)
+    )
+    exclude_dc = (
+        exclude_datacenter_ip
+        if exclude_datacenter_ip is not None
+        else _env_bool("FRAUD_EXCLUDE_DATACENTER_IP", DEFAULT_EXCLUDE_DATACENTER_IP)
+    )
+
+    return ConversionSuspiciousRuleSet(
+        conversion_threshold=conv,
+        media_threshold=media,
+        program_threshold=program,
+        burst_conversion_threshold=burst_convs,
         burst_window_seconds=burst_window,
         browser_only=browser,
         exclude_datacenter_ip=exclude_dc,

@@ -11,13 +11,18 @@ from .acs_client import AcsHttpClient
 from .config import (
     AcsSettings,
     resolve_acs_settings,
+    resolve_conversion_rules,
     resolve_db_path,
     resolve_rules,
     resolve_store_raw,
 )
-from .ingestion import ClickLogIngestor
+from .ingestion import ClickLogIngestor, ConversionIngestor
 from .repository import SQLiteRepository
-from .suspicious import SuspiciousDetector
+from .suspicious import (
+    CombinedSuspiciousDetector,
+    ConversionSuspiciousDetector,
+    SuspiciousDetector,
+)
 
 
 def _parse_date(value: str) -> date:
@@ -102,6 +107,96 @@ def build_parser() -> argparse.ArgumentParser:
         help="Exclude known datacenter IPs (Google, AWS, Azure, GCP)",
     )
 
+    # 成果ログ取り込みコマンド
+    ingest_conv = sub.add_parser(
+        "ingest-conversions",
+        help="Fetch conversion logs and match with click logs for IP/UA",
+    )
+    ingest_conv.add_argument("--date", required=True, help="Target date (YYYY-MM-DD)")
+    ingest_conv.add_argument("--db", help="SQLite DB path (defaults to FRAUD_DB_PATH)")
+    ingest_conv.add_argument("--base-url", help="ACS base URL (defaults to ACS_BASE_URL)")
+    ingest_conv.add_argument("--access-key", help="ACS access key (defaults to ACS_ACCESS_KEY)")
+    ingest_conv.add_argument("--secret-key", help="ACS secret key (defaults to ACS_SECRET_KEY)")
+    ingest_conv.add_argument("--page-size", type=int, help="Page size for ACS API")
+
+    # 成果ベースの不正検知コマンド
+    susp_conv = sub.add_parser(
+        "suspicious-conversions",
+        help="List suspicious IP/UA based on conversion patterns (using click-time IP/UA)",
+    )
+    susp_conv.add_argument("--date", required=True, help="Target date (YYYY-MM-DD)")
+    susp_conv.add_argument("--db", help="SQLite DB path (defaults to FRAUD_DB_PATH)")
+    susp_conv.add_argument(
+        "--conversion-threshold",
+        type=int,
+        help="Min conversions per IP/UA (default: 5)",
+    )
+    susp_conv.add_argument(
+        "--media-threshold",
+        type=int,
+        help="Min media count per IP/UA (default: 2)",
+    )
+    susp_conv.add_argument(
+        "--program-threshold",
+        type=int,
+        help="Min program count per IP/UA (default: 2)",
+    )
+    susp_conv.add_argument(
+        "--burst-conversion-threshold",
+        type=int,
+        help="Min conversions for burst detection (default: 3)",
+    )
+    susp_conv.add_argument(
+        "--burst-window-seconds",
+        type=int,
+        help="Burst window in seconds (default: 1800)",
+    )
+    susp_conv.add_argument(
+        "--browser-only",
+        action="store_true",
+        default=None,
+        help="Only include browser-derived UA/IP",
+    )
+    susp_conv.add_argument(
+        "--exclude-datacenter-ip",
+        action="store_true",
+        default=None,
+        help="Exclude known datacenter IPs",
+    )
+
+    # クリック＋成果の両方を処理するコマンド
+    daily_full = sub.add_parser(
+        "daily-full",
+        help="Run daily ingest for clicks AND conversions, then combined suspicious report",
+    )
+    daily_full.add_argument(
+        "--days-ago", type=int, default=1, help="How many days ago (default: 1)"
+    )
+    daily_full.add_argument("--db", help="SQLite DB path")
+    daily_full.add_argument("--base-url", help="ACS base URL")
+    daily_full.add_argument("--endpoint", help="ACS log endpoint for clicks")
+    daily_full.add_argument("--access-key", help="ACS access key")
+    daily_full.add_argument("--secret-key", help="ACS secret key")
+    daily_full.add_argument("--page-size", type=int, help="Page size for ACS API")
+    daily_full.add_argument(
+        "--store-raw",
+        action="store_true",
+        default=None,
+        help="Persist raw click logs (required for conversion matching)",
+    )
+    # クリック用の閾値
+    daily_full.add_argument("--click-threshold", type=int, help="Click threshold")
+    daily_full.add_argument("--media-threshold", type=int, help="Media threshold (clicks)")
+    daily_full.add_argument("--program-threshold", type=int, help="Program threshold (clicks)")
+    daily_full.add_argument("--burst-click-threshold", type=int, help="Burst click threshold")
+    daily_full.add_argument("--burst-window-seconds", type=int, help="Burst window (clicks)")
+    # 成果用の閾値
+    daily_full.add_argument("--conversion-threshold", type=int, help="Conversion threshold")
+    daily_full.add_argument("--conv-media-threshold", type=int, help="Media threshold (conversions)")
+    daily_full.add_argument("--conv-program-threshold", type=int, help="Program threshold (conversions)")
+    daily_full.add_argument("--browser-only", action="store_true", default=None)
+    daily_full.add_argument("--exclude-datacenter-ip", action="store_true", default=None)
+
     return parser
 
 
@@ -123,6 +218,12 @@ def main(
             return _cmd_suspicious(args)
         if args.command == "daily":
             return _cmd_daily(args, acs_client_factory)
+        if args.command == "ingest-conversions":
+            return _cmd_ingest_conversions(args, acs_client_factory)
+        if args.command == "suspicious-conversions":
+            return _cmd_suspicious_conversions(args)
+        if args.command == "daily-full":
+            return _cmd_daily_full(args, acs_client_factory)
     except ValueError as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 2
@@ -248,6 +349,192 @@ def _cmd_daily(args: argparse.Namespace, acs_client_factory: Optional[Callable])
             f"window={(finding.last_time - finding.first_time)} "
             f"reasons={'; '.join(finding.reasons)}"
         )
+    return 0
+
+
+def _cmd_ingest_conversions(
+    args: argparse.Namespace, acs_client_factory: Optional[Callable]
+) -> int:
+    """成果ログを取り込み、クリックログと突合"""
+    target_date = _parse_date(args.date)
+    db_path = resolve_db_path(args.db)
+    acs_settings = resolve_acs_settings(
+        base_url=args.base_url,
+        access_key=args.access_key,
+        secret_key=args.secret_key,
+        page_size=args.page_size,
+        log_endpoint=None,  # 成果ログはaction_log_rawを使用
+    )
+
+    repository = SQLiteRepository(db_path)
+    repository.ensure_conversion_schema()
+
+    factory = acs_client_factory or (
+        lambda settings: AcsHttpClient(
+            base_url=settings.base_url,
+            access_key=settings.access_key,
+            secret_key=settings.secret_key,
+        )
+    )
+    client = factory(acs_settings)
+    ingestor = ConversionIngestor(
+        client=client,
+        repository=repository,
+        page_size=acs_settings.page_size,
+    )
+
+    total, enriched = ingestor.run_for_date(target_date)
+    print(
+        f"Ingested {total} conversion(s) for {target_date.isoformat()}, "
+        f"{enriched} matched with click IP/UA"
+    )
+    return 0
+
+
+def _cmd_suspicious_conversions(args: argparse.Namespace) -> int:
+    """成果ベースの不正検知"""
+    target_date = _parse_date(args.date)
+    db_path = resolve_db_path(args.db)
+    rules = resolve_conversion_rules(
+        conversion_threshold=args.conversion_threshold,
+        media_threshold=args.media_threshold,
+        program_threshold=args.program_threshold,
+        burst_conversion_threshold=args.burst_conversion_threshold,
+        burst_window_seconds=args.burst_window_seconds,
+        browser_only=args.browser_only,
+        exclude_datacenter_ip=args.exclude_datacenter_ip,
+    )
+
+    repository = SQLiteRepository(db_path)
+    detector = ConversionSuspiciousDetector(repository, rules)
+    findings = detector.find_for_date(target_date)
+
+    for finding in findings:
+        window = finding.last_conversion_time - finding.first_conversion_time
+        print(
+            f"{finding.date} {finding.ipaddress} UA='{finding.useragent}' "
+            f"conversions={finding.conversion_count} media={finding.media_count} "
+            f"programs={finding.program_count} window={window} "
+            f"reasons={'; '.join(finding.reasons)}"
+        )
+    print(
+        f"Found {len(findings)} suspicious conversion IP/UA for {target_date.isoformat()}"
+    )
+    return 0
+
+
+def _cmd_daily_full(
+    args: argparse.Namespace, acs_client_factory: Optional[Callable]
+) -> int:
+    """クリック＋成果の両方を取り込み、統合検知を実行"""
+    target_date = date.today() - timedelta(days=args.days_ago)
+    db_path = resolve_db_path(args.db)
+    # 成果と突合するためにstore_rawは必須
+    store_raw = resolve_store_raw(args.store_raw)
+    if not store_raw:
+        print(
+            "[warning] --store-raw is recommended for conversion matching. "
+            "Set FRAUD_STORE_RAW=true or pass --store-raw"
+        )
+        store_raw = True  # 強制的に有効化
+
+    acs_settings = resolve_acs_settings(
+        base_url=args.base_url,
+        access_key=args.access_key,
+        secret_key=args.secret_key,
+        page_size=args.page_size,
+        log_endpoint=args.endpoint,
+    )
+    click_rules = resolve_rules(
+        click_threshold=args.click_threshold,
+        media_threshold=args.media_threshold,
+        program_threshold=args.program_threshold,
+        burst_click_threshold=args.burst_click_threshold,
+        burst_window_seconds=args.burst_window_seconds,
+        browser_only=args.browser_only,
+        exclude_datacenter_ip=args.exclude_datacenter_ip,
+    )
+    conversion_rules = resolve_conversion_rules(
+        conversion_threshold=args.conversion_threshold,
+        media_threshold=args.conv_media_threshold,
+        program_threshold=args.conv_program_threshold,
+        browser_only=args.browser_only,
+        exclude_datacenter_ip=args.exclude_datacenter_ip,
+    )
+
+    repository = SQLiteRepository(db_path)
+    repository.ensure_schema(store_raw=store_raw)
+    repository.ensure_conversion_schema()
+
+    factory = acs_client_factory or (
+        lambda settings: AcsHttpClient(
+            base_url=settings.base_url,
+            access_key=settings.access_key,
+            secret_key=settings.secret_key,
+            endpoint_path=settings.log_endpoint,
+        )
+    )
+    client = factory(acs_settings)
+
+    # 1. クリックログ取り込み
+    click_ingestor = ClickLogIngestor(
+        client=client,
+        repository=repository,
+        page_size=acs_settings.page_size,
+        store_raw=store_raw,
+    )
+    click_count = click_ingestor.run_for_date(target_date)
+    print(f"Ingested {click_count} click(s)")
+
+    # 2. 成果ログ取り込み（クリックと突合）
+    conv_ingestor = ConversionIngestor(
+        client=client,
+        repository=repository,
+        page_size=acs_settings.page_size,
+    )
+    conv_total, conv_enriched = conv_ingestor.run_for_date(target_date)
+    print(f"Ingested {conv_total} conversion(s), {conv_enriched} matched with click IP/UA")
+
+    # 3. 統合検知
+    combined = CombinedSuspiciousDetector(
+        repository=repository,
+        click_rules=click_rules,
+        conversion_rules=conversion_rules,
+    )
+    click_findings, conv_findings, high_risk = combined.find_for_date(target_date)
+
+    print(f"\n=== Daily Full Report for {target_date.isoformat()} ===")
+    print(f"Clicks ingested: {click_count}")
+    print(f"Conversions ingested: {conv_total} (matched: {conv_enriched})")
+    print(f"Suspicious clicks: {len(click_findings)}")
+    print(f"Suspicious conversions: {len(conv_findings)}")
+    print(f"HIGH RISK (both click & conversion): {len(high_risk)}")
+
+    if high_risk:
+        print("\n--- HIGH RISK IP/UA (flagged in both clicks AND conversions) ---")
+        for ip_ua in high_risk:
+            print(f"  {ip_ua}")
+
+    if click_findings:
+        print("\n--- Suspicious Clicks ---")
+        for f in click_findings[:10]:  # 上位10件
+            print(
+                f"  {f.ipaddress} clicks={f.total_clicks} media={f.media_count} "
+                f"programs={f.program_count} reasons={'; '.join(f.reasons)}"
+            )
+        if len(click_findings) > 10:
+            print(f"  ... and {len(click_findings) - 10} more")
+
+    if conv_findings:
+        print("\n--- Suspicious Conversions ---")
+        for f in conv_findings[:10]:  # 上位10件
+            print(
+                f"  {f.ipaddress} conversions={f.conversion_count} media={f.media_count} "
+                f"programs={f.program_count} reasons={'; '.join(f.reasons)}"
+            )
+        if len(conv_findings) > 10:
+            print(f"  ... and {len(conv_findings) - 10} more")
+
     return 0
 
 
