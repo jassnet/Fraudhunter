@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
 import logging
@@ -197,6 +197,52 @@ def build_parser() -> argparse.ArgumentParser:
     daily_full.add_argument("--browser-only", action="store_true", default=None)
     daily_full.add_argument("--exclude-datacenter-ip", action="store_true", default=None)
 
+    # リフレッシュコマンド（最新24時間のデータを取り込み）
+    refresh = sub.add_parser(
+        "refresh",
+        help="Fetch the latest 24 hours of data and merge with existing data (no duplicates)",
+    )
+    refresh.add_argument(
+        "--hours",
+        type=int,
+        default=24,
+        help="How many hours back to fetch (default: 24)",
+    )
+    refresh.add_argument("--db", help="SQLite DB path")
+    refresh.add_argument("--base-url", help="ACS base URL")
+    refresh.add_argument("--endpoint", help="ACS log endpoint for clicks")
+    refresh.add_argument("--access-key", help="ACS access key")
+    refresh.add_argument("--secret-key", help="ACS secret key")
+    refresh.add_argument("--page-size", type=int, help="Page size for ACS API")
+    refresh.add_argument(
+        "--store-raw",
+        action="store_true",
+        default=None,
+        help="Persist raw click logs (required for duplicate detection)",
+    )
+    refresh.add_argument(
+        "--clicks-only",
+        action="store_true",
+        help="Only refresh click logs (skip conversions)",
+    )
+    refresh.add_argument(
+        "--conversions-only",
+        action="store_true",
+        help="Only refresh conversion logs (skip clicks)",
+    )
+    # 検知も実行するオプション
+    refresh.add_argument(
+        "--detect",
+        action="store_true",
+        help="Run suspicious detection after refresh",
+    )
+    refresh.add_argument("--click-threshold", type=int, help="Click threshold for detection")
+    refresh.add_argument("--media-threshold", type=int, help="Media threshold for detection")
+    refresh.add_argument("--program-threshold", type=int, help="Program threshold for detection")
+    refresh.add_argument("--conversion-threshold", type=int, help="Conversion threshold")
+    refresh.add_argument("--browser-only", action="store_true", default=None)
+    refresh.add_argument("--exclude-datacenter-ip", action="store_true", default=None)
+
     return parser
 
 
@@ -224,6 +270,8 @@ def main(
             return _cmd_suspicious_conversions(args)
         if args.command == "daily-full":
             return _cmd_daily_full(args, acs_client_factory)
+        if args.command == "refresh":
+            return _cmd_refresh(args, acs_client_factory)
     except ValueError as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 2
@@ -535,6 +583,132 @@ def _cmd_daily_full(
         if len(conv_findings) > 10:
             print(f"  ... and {len(conv_findings) - 10} more")
 
+    return 0
+
+
+def _cmd_refresh(
+    args: argparse.Namespace, acs_client_factory: Optional[Callable]
+) -> int:
+    """最新データを取り込み、既存データとマージ（重複なし）"""
+    end_time = datetime.utcnow()
+    start_time = end_time - timedelta(hours=args.hours)
+    
+    db_path = resolve_db_path(args.db)
+    store_raw = resolve_store_raw(args.store_raw)
+    
+    # 重複検出のためにstore_rawを推奨
+    if not store_raw and not args.conversions_only:
+        print(
+            "[warning] --store-raw is recommended for duplicate detection in clicks. "
+            "Set FRAUD_STORE_RAW=true or pass --store-raw"
+        )
+        store_raw = True
+    
+    acs_settings = resolve_acs_settings(
+        base_url=args.base_url,
+        access_key=args.access_key,
+        secret_key=args.secret_key,
+        page_size=args.page_size,
+        log_endpoint=args.endpoint,
+    )
+
+    repository = SQLiteRepository(db_path)
+    repository.ensure_schema(store_raw=store_raw)
+    repository.ensure_conversion_schema()
+
+    factory = acs_client_factory or (
+        lambda settings: AcsHttpClient(
+            base_url=settings.base_url,
+            access_key=settings.access_key,
+            secret_key=settings.secret_key,
+            endpoint_path=settings.log_endpoint,
+        )
+    )
+    client = factory(acs_settings)
+
+    print(f"\n=== Refresh: {start_time.isoformat()} to {end_time.isoformat()} ===")
+    print(f"(Last {args.hours} hours)")
+
+    click_new = 0
+    click_skip = 0
+    conv_new = 0
+    conv_skip = 0
+    conv_valid = 0
+
+    # クリックログの取り込み
+    if not args.conversions_only:
+        click_ingestor = ClickLogIngestor(
+            client=client,
+            repository=repository,
+            page_size=acs_settings.page_size,
+            store_raw=store_raw,
+        )
+        click_new, click_skip = click_ingestor.run_for_time_range(start_time, end_time)
+        print(f"Clicks: {click_new} new, {click_skip} skipped (already in DB)")
+
+    # 成果ログの取り込み
+    if not args.clicks_only:
+        conv_ingestor = ConversionIngestor(
+            client=client,
+            repository=repository,
+            page_size=acs_settings.page_size,
+        )
+        conv_new, conv_skip, conv_valid = conv_ingestor.run_for_time_range(
+            start_time, end_time
+        )
+        print(
+            f"Conversions: {conv_new} new, {conv_skip} skipped (already in DB), "
+            f"{conv_valid} with valid entry IP/UA"
+        )
+
+    # 検知を実行（オプション）
+    if args.detect:
+        # 対象日付を特定（時間範囲に含まれる日付）
+        dates_to_check = set()
+        current = start_time.date()
+        while current <= end_time.date():
+            dates_to_check.add(current)
+            current += timedelta(days=1)
+        
+        click_rules = resolve_rules(
+            click_threshold=args.click_threshold,
+            media_threshold=args.media_threshold,
+            program_threshold=args.program_threshold,
+            browser_only=args.browser_only,
+            exclude_datacenter_ip=args.exclude_datacenter_ip,
+        )
+        conversion_rules = resolve_conversion_rules(
+            conversion_threshold=args.conversion_threshold,
+            media_threshold=args.media_threshold,
+            program_threshold=args.program_threshold,
+            browser_only=args.browser_only,
+            exclude_datacenter_ip=args.exclude_datacenter_ip,
+        )
+        
+        print("\n--- Suspicious Detection ---")
+        for target_date in sorted(dates_to_check):
+            combined = CombinedSuspiciousDetector(
+                repository=repository,
+                click_rules=click_rules,
+                conversion_rules=conversion_rules,
+            )
+            click_findings, conv_findings, high_risk = combined.find_for_date(target_date)
+            
+            if click_findings or conv_findings or high_risk:
+                print(f"\n{target_date.isoformat()}:")
+                print(f"  Suspicious clicks: {len(click_findings)}")
+                print(f"  Suspicious conversions: {len(conv_findings)}")
+                print(f"  HIGH RISK (both): {len(high_risk)}")
+                
+                if high_risk:
+                    for ip_ua in high_risk[:5]:
+                        print(f"    - {ip_ua}")
+                    if len(high_risk) > 5:
+                        print(f"    ... and {len(high_risk) - 5} more")
+
+    print("\n=== Refresh Complete ===")
+    print(f"Total: {click_new + conv_new} new records added, {click_skip + conv_skip} duplicates skipped")
+    
     return 0
 
 

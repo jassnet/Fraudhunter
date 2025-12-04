@@ -750,3 +750,119 @@ class SQLiteRepository:
                 """,
                 (ip, ua, datetime.utcnow().isoformat(), conversion_id),
             )
+
+    # ==================== マージ機能（重複チェック付き取り込み） ====================
+
+    def get_existing_click_ids(self, click_ids: List[str]) -> set[str]:
+        """
+        指定されたclick_idのうち、既にDBに存在するものを返す。
+        click_rawテーブルが存在しない場合は空setを返す。
+        """
+        if not click_ids or not self._table_exists("click_raw"):
+            return set()
+        
+        result: set[str] = set()
+        with self._connect() as conn:
+            batch_size = 500
+            for i in range(0, len(click_ids), batch_size):
+                batch = click_ids[i : i + batch_size]
+                placeholders = ",".join("?" * len(batch))
+                cur = conn.execute(
+                    f"SELECT id FROM click_raw WHERE id IN ({placeholders})",
+                    batch,
+                )
+                for row in cur.fetchall():
+                    result.add(row[0])
+        return result
+
+    def get_existing_conversion_ids(self, conversion_ids: List[str]) -> set[str]:
+        """
+        指定されたconversion_idのうち、既にDBに存在するものを返す。
+        """
+        if not conversion_ids or not self._table_exists("conversion_raw"):
+            return set()
+        
+        result: set[str] = set()
+        with self._connect() as conn:
+            batch_size = 500
+            for i in range(0, len(conversion_ids), batch_size):
+                batch = conversion_ids[i : i + batch_size]
+                placeholders = ",".join("?" * len(batch))
+                cur = conn.execute(
+                    f"SELECT id FROM conversion_raw WHERE id IN ({placeholders})",
+                    batch,
+                )
+                for row in cur.fetchall():
+                    result.add(row[0])
+        return result
+
+    def merge_clicks(
+        self, clicks: Iterable[ClickLog], *, store_raw: bool
+    ) -> tuple[int, int]:
+        """
+        クリックログをマージ（重複チェック付き）。
+        既存データはスキップし、新規データのみ追加する。
+        
+        Returns:
+            tuple[int, int]: (新規追加件数, スキップ件数)
+        """
+        self.ensure_schema(store_raw=store_raw)
+        clicks_list = list(clicks)
+        
+        # 既存IDをチェック
+        if store_raw:
+            all_ids = [c.click_id for c in clicks_list if c.click_id]
+            existing_ids = self.get_existing_click_ids(all_ids)
+        else:
+            existing_ids = set()
+        
+        new_count = 0
+        skip_count = 0
+        
+        with self._connect() as conn:
+            for click in clicks_list:
+                # store_rawの場合、IDで重複チェック
+                if store_raw and click.click_id and click.click_id in existing_ids:
+                    skip_count += 1
+                    continue
+                
+                if store_raw:
+                    self._insert_raw(conn, click)
+                self._upsert_aggregate(conn, click)
+                new_count += 1
+        
+        return new_count, skip_count
+
+    def merge_conversions(
+        self, conversions: Iterable[ConversionLog]
+    ) -> tuple[int, int]:
+        """
+        成果ログをマージ（重複チェック付き）。
+        既存データはスキップし、新規データのみ追加する。
+        
+        Returns:
+            tuple[int, int]: (新規追加件数, スキップ件数)
+        """
+        self.ensure_conversion_schema()
+        conversions_list = list(conversions)
+        
+        # 既存IDをチェック
+        all_ids = [c.conversion_id for c in conversions_list if c.conversion_id]
+        existing_ids = self.get_existing_conversion_ids(all_ids)
+        
+        new_count = 0
+        skip_count = 0
+        
+        with self._connect() as conn:
+            for conv in conversions_list:
+                if conv.conversion_id and conv.conversion_id in existing_ids:
+                    skip_count += 1
+                    continue
+                
+                self._insert_conversion_raw(conn, conv)
+                # エントリー時（実ユーザー）のIP/UAが設定されている場合のみ集計に追加
+                if conv.entry_ipaddress and conv.entry_useragent:
+                    self._upsert_conversion_aggregate(conn, conv)
+                new_count += 1
+        
+        return new_count, skip_count

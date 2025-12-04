@@ -122,6 +122,31 @@ python -m fraud_checker.cli daily-full \
 4. 成果ベースの不正検知
 5. 両方で検出された高リスクIP/UAの特定
 
+### オンデマンドリフレッシュ（最新データ取り込み）
+
+```bash
+python -m fraud_checker.cli refresh \
+  --db /var/lib/fraud/fraud_checker.db \
+  --base-url https://acs.example.com/api \
+  --access-key YOUR_KEY --secret-key YOUR_SECRET
+```
+
+`refresh` は現在時刻から指定時間（デフォルト24時間）前のデータを取得し、**日次バッチと重複しないように**マージします：
+
+- **重複チェック**: IDベースで既存データをチェックし、新規データのみ追加
+- **集計テーブル**: 新規データの分だけ集計を更新（UPSERT）
+
+オプション:
+- `--hours 12`: 取得する時間範囲（デフォルト: 24時間）
+- `--clicks-only`: クリックログのみ取り込み
+- `--conversions-only`: 成果ログのみ取り込み
+- `--detect`: 取り込み後にフラウド検知も実行
+
+```bash
+# 例: 最新12時間のデータを取り込み、検知も実行
+python -m fraud_checker.cli refresh --hours 12 --detect
+```
+
 ---
 
 ## 成果ログのIP/UA取得方式

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Iterable, Protocol
 
 from .models import ClickLog, ConversionLog
@@ -16,6 +16,16 @@ class AcsClient(Protocol):
 
     def fetch_conversion_logs(
         self, target_date: date, page: int, limit: int
+    ) -> Iterable[ConversionLog]:
+        ...
+
+    def fetch_click_logs_for_time_range(
+        self, start_time: datetime, end_time: datetime, page: int, limit: int
+    ) -> Iterable[ClickLog]:
+        ...
+
+    def fetch_conversion_logs_for_time_range(
+        self, start_time: datetime, end_time: datetime, page: int, limit: int
     ) -> Iterable[ConversionLog]:
         ...
 
@@ -62,6 +72,48 @@ class ClickLogIngestor:
         return self.repository.ingest_clicks(
             all_clicks, target_date=target_date, store_raw=self.store_raw
         )
+
+    def run_for_time_range(
+        self, start_time: datetime, end_time: datetime
+    ) -> tuple[int, int]:
+        """
+        指定された時間範囲のクリックログを取得し、既存データとマージする。
+        
+        日次バッチとの重複を避けるため、IDベースで重複チェックを行い、
+        新規データのみを追加する。
+        
+        Returns:
+            tuple[int, int]: (新規追加件数, スキップ件数)
+        """
+        self.repository.ensure_schema(store_raw=self.store_raw)
+        page = 1
+        all_clicks: list[ClickLog] = []
+        
+        while True:
+            batch = list(
+                self.client.fetch_click_logs_for_time_range(
+                    start_time, end_time, page, self.page_size
+                )
+            )
+            if not batch:
+                break
+            all_clicks.extend(batch)
+            if len(batch) < self.page_size:
+                break
+            page += 1
+
+        logger.info(
+            "Fetched %d clicks for time range %s to %s",
+            len(all_clicks),
+            start_time.isoformat(),
+            end_time.isoformat(),
+        )
+
+        if not all_clicks:
+            return 0, 0
+
+        # マージ処理（重複チェック付き）
+        return self.repository.merge_clicks(all_clicks, store_raw=self.store_raw)
 
 
 class ConversionIngestor:
@@ -132,3 +184,53 @@ class ConversionIngestor:
         )
 
         return total_count, valid_entry_count
+
+    def run_for_time_range(
+        self, start_time: datetime, end_time: datetime
+    ) -> tuple[int, int, int]:
+        """
+        指定された時間範囲の成果ログを取得し、既存データとマージする。
+        
+        日次バッチとの重複を避けるため、IDベースで重複チェックを行い、
+        新規データのみを追加する。
+        
+        Returns:
+            tuple[int, int, int]: (新規追加件数, スキップ件数, entry IP/UA有効件数)
+        """
+        self.repository.ensure_conversion_schema()
+        page = 1
+        all_conversions: list[ConversionLog] = []
+        
+        while True:
+            batch = list(
+                self.client.fetch_conversion_logs_for_time_range(
+                    start_time, end_time, page, self.page_size
+                )
+            )
+            if not batch:
+                break
+            all_conversions.extend(batch)
+            if len(batch) < self.page_size:
+                break
+            page += 1
+
+        logger.info(
+            "Fetched %d conversions for time range %s to %s",
+            len(all_conversions),
+            start_time.isoformat(),
+            end_time.isoformat(),
+        )
+
+        if not all_conversions:
+            return 0, 0, 0
+
+        # entry IP/UAが有効な件数をカウント
+        valid_entry_count = sum(
+            1 for c in all_conversions 
+            if c.entry_ipaddress and c.entry_useragent
+        )
+
+        # マージ処理（重複チェック付き）
+        new_count, skip_count = self.repository.merge_conversions(all_conversions)
+        
+        return new_count, skip_count, valid_entry_count

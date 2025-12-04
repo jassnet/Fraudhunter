@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
-from typing import Iterable, Optional
+from datetime import date, datetime, timedelta
+from typing import Iterable, List, Optional, Tuple
 from urllib.parse import urljoin
 
 import requests
@@ -185,6 +185,127 @@ class AcsHttpClient:
             state=record.get("state"),
             raw_payload=record,
         )
+
+    def fetch_click_logs_for_time_range(
+        self, start_time: datetime, end_time: datetime, page: int, limit: int
+    ) -> Iterable[ClickLog]:
+        """
+        時間範囲でクリックログを取得する。
+        
+        APIは日付単位なので、start_time〜end_timeにまたがる日付のデータを取得し、
+        時間でフィルタリングして返す。
+        """
+        # 日付範囲を計算（最大2日にまたがる可能性）
+        start_date = start_time.date()
+        end_date = end_time.date()
+        
+        url = urljoin(self.base_url, self.endpoint_path)
+        offset = (page - 1) * limit
+        params = {
+            "limit": limit,
+            "offset": offset,
+            "regist_unix": "between_date",
+            "regist_unix_A_Y": start_date.year,
+            "regist_unix_A_M": start_date.month,
+            "regist_unix_A_D": start_date.day,
+            "regist_unix_B_Y": end_date.year,
+            "regist_unix_B_M": end_date.month,
+            "regist_unix_B_D": end_date.day,
+        }
+        logger.info("ACS time range request %s params=%s", url, params)
+        response = self.session.get(
+            url,
+            headers={"X-Auth-Token": self.token},
+            params=params,
+            timeout=30,
+        )
+
+        if response.status_code != 200:
+            logger.error(
+                "ACS returned %s for %s: %s", response.status_code, response.url, response.text
+            )
+            response.raise_for_status()
+
+        try:
+            body = response.json()
+        except ValueError as exc:
+            logger.error("ACS response was not JSON: %s", response.text)
+            raise
+
+        records = body.get("records", [])
+        logger.info("ACS response status=%s records=%s", response.status_code, len(records))
+        
+        # 時間範囲でフィルタリング
+        result = []
+        for record in records:
+            click = self._to_click(record)
+            if start_time <= click.click_time <= end_time:
+                result.append(click)
+        
+        logger.info("Filtered to %d records within time range", len(result))
+        return result
+
+    def fetch_conversion_logs_for_time_range(
+        self, start_time: datetime, end_time: datetime, page: int, limit: int
+    ) -> Iterable[ConversionLog]:
+        """
+        時間範囲で成果ログを取得する。
+        """
+        start_date = start_time.date()
+        end_date = end_time.date()
+        
+        url = urljoin(self.base_url, "action_log_raw/search")
+        offset = (page - 1) * limit
+        params = {
+            "limit": limit,
+            "offset": offset,
+            "regist_unix": "between_date",
+            "regist_unix_A_Y": start_date.year,
+            "regist_unix_A_M": start_date.month,
+            "regist_unix_A_D": start_date.day,
+            "regist_unix_B_Y": end_date.year,
+            "regist_unix_B_M": end_date.month,
+            "regist_unix_B_D": end_date.day,
+        }
+        logger.info("ACS conversion time range request %s params=%s", url, params)
+        response = self.session.get(
+            url,
+            headers={"X-Auth-Token": self.token},
+            params=params,
+            timeout=30,
+        )
+
+        if response.status_code != 200:
+            logger.error(
+                "ACS returned %s for %s: %s",
+                response.status_code,
+                response.url,
+                response.text,
+            )
+            response.raise_for_status()
+
+        try:
+            body = response.json()
+        except ValueError:
+            logger.error("ACS response was not JSON: %s", response.text)
+            raise
+
+        records = body.get("records", [])
+        logger.info(
+            "ACS conversion response status=%s records=%s",
+            response.status_code,
+            len(records),
+        )
+        
+        # 時間範囲でフィルタリング
+        result = []
+        for record in records:
+            conv = self._to_conversion(record)
+            if start_time <= conv.conversion_time <= end_time:
+                result.append(conv)
+        
+        logger.info("Filtered to %d conversions within time range", len(result))
+        return result
 
     @staticmethod
     def _parse_datetime(value) -> datetime:
