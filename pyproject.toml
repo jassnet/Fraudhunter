@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fraud_checker"
+version = "0.1.0"
+description = "ACS click log ingestion and IP/UA aggregation pipeline"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Fraud Checker Dev" }
+]
+dependencies = [
+  "requests>=2.32.0",
+  "python-dotenv>=1.0.0"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fraud_checker"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/fraud_checker", "README.md", "examples", "Docs", "pyproject.toml"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4.0",
+  "pytest-cov>=4.1.0"
+]
+
+[tool.pytest.ini_options]
+addopts = "-q --disable-warnings"
+testpaths = ["tests"]
+pythonpath = ["src"]
