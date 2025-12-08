@@ -3,11 +3,11 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { OverviewChart } from "@/components/overview-chart";
-import { Activity, MousePointerClick, Target, AlertTriangle, ArrowUpRight, ArrowDownRight, RefreshCw, Download, Play } from "lucide-react";
+import { Activity, MousePointerClick, Target, AlertTriangle, ArrowUpRight, ArrowDownRight, RefreshCw, Play } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { fetchSummary, fetchDailyStats, refreshData, getJobStatus } from "@/lib/api";
+import { fetchSummary, fetchDailyStats } from "@/lib/api";
 import { RefreshDialog } from "@/components/refresh-dialog";
 
 interface SummaryData {
@@ -99,14 +99,34 @@ export default function DashboardPage() {
       <div className="flex-1 space-y-4 p-8 pt-6">
         <Card className="border-destructive">
           <CardHeader>
-            <CardTitle className="text-destructive">エラー</CardTitle>
+            <CardTitle className="text-destructive">接続エラー</CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground mb-4">{error}</p>
-            <p className="text-sm text-muted-foreground mb-4">
-              バックエンドAPIを起動してください：<br />
-              <code className="bg-muted px-2 py-1 rounded">py -m uvicorn fraud_checker.api:app --reload</code>
-            </p>
+          <CardContent className="space-y-4">
+            <p className="text-muted-foreground">{error}</p>
+            
+            <div className="space-y-2">
+              <p className="text-sm font-medium">解決方法:</p>
+              <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-2">
+                <li>
+                  プロジェクトルートで以下を実行:
+                  <code className="ml-2 bg-muted px-2 py-1 rounded text-xs">python dev.py</code>
+                </li>
+                <li>
+                  または、バックエンドのみ起動:
+                  <code className="ml-2 bg-muted px-2 py-1 rounded text-xs">cd backend && python -m uvicorn fraud_checker.api:app --reload --app-dir ./src</code>
+                </li>
+              </ol>
+            </div>
+
+            <div className="text-sm text-muted-foreground border-t pt-4 mt-4">
+              <p className="font-medium mb-2">チェックリスト:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li><code className="bg-muted px-1 rounded">.env</code> ファイルが設定されているか</li>
+                <li><code className="bg-muted px-1 rounded">FRAUD_DB_PATH</code>、<code className="bg-muted px-1 rounded">ACS_*</code> 環境変数が設定されているか</li>
+                <li>ポート 8000 が使用可能か</li>
+              </ul>
+            </div>
+
             <Button onClick={handleRefresh}>
               <RefreshCw className="mr-2 h-4 w-4" />
               再試行

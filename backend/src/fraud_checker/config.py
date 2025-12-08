@@ -8,7 +8,12 @@ from typing import Optional
 from .env import load_env
 from .suspicious import ConversionSuspiciousRuleSet, SuspiciousRuleSet
 
+# ページサイズ設定（ACS APIの上限は500）
+# 大量データの場合は500で取得し、メモリ使用量とAPIコール数のバランスを取る
 DEFAULT_PAGE_SIZE = 500
+
+# HTTPタイムアウト設定（秒）
+DEFAULT_HTTP_TIMEOUT = 30
 DEFAULT_CLICK_THRESHOLD = 50
 DEFAULT_MEDIA_THRESHOLD = 3
 DEFAULT_PROGRAM_THRESHOLD = 3
@@ -76,13 +81,16 @@ def resolve_db_path(explicit: Optional[str]) -> Path:
 
 def resolve_acs_settings(
     *,
-    base_url: Optional[str],
-    access_key: Optional[str],
-    secret_key: Optional[str],
-    page_size: Optional[int],
+    base_url: Optional[str] = None,
+    access_key: Optional[str] = None,
+    secret_key: Optional[str] = None,
+    page_size: Optional[int] = None,
     log_endpoint: Optional[str] = None,
 ) -> AcsSettings:
     load_env()
+    # If env vars not set, try forcing reload (handles uvicorn worker process issues)
+    if not os.getenv("ACS_BASE_URL"):
+        load_env(force=True)
     resolved_base_url = _require(base_url or os.getenv("ACS_BASE_URL"), "ACS_BASE_URL or --base-url")
     if not resolved_base_url.startswith("http"):
         raise ValueError("ACS_BASE_URL must be a full URL (e.g. https://acs.example.com).")

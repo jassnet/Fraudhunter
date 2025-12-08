@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { MainNav } from "@/components/main-nav";
 import { ModeToggle } from "@/components/mode-toggle";
+import { MobileNav } from "@/components/mobile-nav";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -27,6 +28,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <div className="flex h-screen overflow-hidden bg-background">
+            {/* デスクトップサイドバー */}
             <aside className="hidden w-64 overflow-y-auto border-r bg-muted/40 md:block">
               <div className="flex h-full flex-col gap-2">
                 <div className="flex h-14 items-center border-b px-6 font-semibold lg:h-[60px]">
@@ -43,9 +45,23 @@ export default function RootLayout({
                 </div>
               </div>
             </aside>
-            <main className="flex-1 overflow-y-auto">
-              {children}
-            </main>
+            
+            {/* モバイルヘッダー + メインコンテンツ */}
+            <div className="flex flex-1 flex-col overflow-hidden">
+              {/* モバイルヘッダー */}
+              <header className="flex h-14 items-center gap-4 border-b bg-muted/40 px-4 md:hidden">
+                <MobileNav />
+                <span className="font-semibold">Fraud Checker v2</span>
+                <div className="ml-auto">
+                  <ModeToggle />
+                </div>
+              </header>
+              
+              {/* メインコンテンツ */}
+              <main className="flex-1 overflow-y-auto">
+                {children}
+              </main>
+            </div>
           </div>
         </ThemeProvider>
       </body>

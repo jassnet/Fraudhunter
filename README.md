@@ -1,269 +1,197 @@
-# fraud_checker
+# Fraud Checker v2
 
-ACS click logs & conversion logs → SQLite aggregation → suspicious IP/UA detection.
+FastAPI + Next.js stack for click/conversion ingestion and fraud detection.
 
-成果ログには `entry_ipaddress` / `entry_useragent`（実ユーザーのIP/UA）が含まれており、これを直接使用してフラウド検知を行います。ポストバック経由の成果でも、実ユーザーのIP/UAで検知が可能です。
+## Project Structure
+- `backend/` – Python package (`fraud_checker`), CLI, tests, examples, docs.
+- `frontend/` – Next.js dashboard UI.
+- `dev.py` / `start.sh` / `start.bat` – one-command dev runner.
+- `.env` – shared environment (read from repo root or `backend/.env`).
 
-The codebase is structured as a src layout package (`src/fraud_checker`). Install in editable mode and run everything as a module (`python -m fraud_checker.cli ...`).
+## Quick Start
 
-## Setup
-
-```
+### 1. Backend Setup
+```bash
+cd backend
 python -m pip install -e ".[dev]"
 ```
 
-Place a `.env` file in the project root (same level as `pyproject.toml`). Required variables:
-
-- `ACS_BASE_URL` (full URL such as `https://acs.example.com/api`)
-- `ACS_ACCESS_KEY`
-- `ACS_SECRET_KEY`
-- or `ACS_TOKEN` (`access_key:secret_key` combined)
-- `FRAUD_DB_PATH` (SQLite path, absolute path recommended)
-
-Optional overrides:
-
-### クリックログ用
-- `FRAUD_PAGE_SIZE` (default 500; ACS limit)
-- `FRAUD_STORE_RAW` (`true`/`false`) - クリックログの生データ保存（将来のクリックベース拡張用）
-- `FRAUD_CLICK_THRESHOLD` (default 50)
-- `FRAUD_MEDIA_THRESHOLD` (default 3)
-- `FRAUD_PROGRAM_THRESHOLD` (default 3)
-- `FRAUD_BURST_CLICK_THRESHOLD` (default 20)
-- `FRAUD_BURST_WINDOW_SECONDS` (default 600)
-- `ACS_LOG_ENDPOINT` (default `track_log/search`)
-
-### 成果ログ用
-- `FRAUD_CONVERSION_THRESHOLD` (default 5) - 同一IP/UAからの成果数閾値
-- `FRAUD_CONV_MEDIA_THRESHOLD` (default 2) - 複数媒体閾値
-- `FRAUD_CONV_PROGRAM_THRESHOLD` (default 2) - 複数案件閾値
-- `FRAUD_BURST_CONVERSION_THRESHOLD` (default 3) - バースト成果数
-- `FRAUD_BURST_CONVERSION_WINDOW_SECONDS` (default 1800) - バースト時間窓（30分）
-
-### 共通
-- `FRAUD_BROWSER_ONLY` (`true`/`false`) - ブラウザ由来のUA/IPのみ
-- `FRAUD_EXCLUDE_DATACENTER_IP` (`true`/`false`) - データセンターIP除外
-
-The CLI loads `.env` automatically on startup.
-
----
-
-## CLI commands
-
-Always run as a module:
-
-### クリックログ取り込み
-
+### 2. Frontend Setup
 ```bash
-python -m fraud_checker.cli ingest --date 2024-01-01 \
-  --base-url https://acs.example.com/api \
-  --access-key YOUR_KEY --secret-key YOUR_SECRET \
-  --endpoint track_log/search \
-  --db /var/lib/fraud/fraud_checker.db \
-  --page-size 500
+cd frontend
+npm install
 ```
 
-### クリックベースの不正検知
+### 3. Environment Configuration
 
-```bash
-python -m fraud_checker.cli suspicious --date 2024-01-01 \
-  --db /var/lib/fraud/fraud_checker.db \
-  --click-threshold 50 \
-  --media-threshold 3 \
-  --program-threshold 3 \
-  --burst-click-threshold 20 \
-  --burst-window-seconds 600
+Create `.env` file at the repo root:
+
+```env
+# === 必須設定 ===
+# SQLiteデータベースのパス（絶対パス推奨）
+FRAUD_DB_PATH=C:/path/to/fraud_checker.db
+
+# ACS API設定
+ACS_BASE_URL=https://your-acs-domain.com/api
+ACS_ACCESS_KEY=your_access_key
+ACS_SECRET_KEY=your_secret_key
+# または ACS_TOKEN=access_key:secret_key 形式でも可
+
+# === オプション設定 ===
+# ページサイズ（デフォルト: 500, ACS APIの上限）
+# FRAUD_PAGE_SIZE=500
+
+# 生データ保存（デフォルト: false）
+# FRAUD_STORE_RAW=true
+
+# クリック検知閾値
+# FRAUD_CLICK_THRESHOLD=50        # 1日のクリック数上限
+# FRAUD_MEDIA_THRESHOLD=3         # 重複媒体数上限
+# FRAUD_PROGRAM_THRESHOLD=3       # 重複案件数上限
+# FRAUD_BURST_CLICK_THRESHOLD=20  # バースト検知クリック数
+# FRAUD_BURST_WINDOW_SECONDS=600  # バースト検知時間窓（秒）
+
+# 成果検知閾値
+# FRAUD_CONVERSION_THRESHOLD=5            # 1日の成果数上限
+# FRAUD_CONV_MEDIA_THRESHOLD=2            # 重複媒体数上限
+# FRAUD_CONV_PROGRAM_THRESHOLD=2          # 重複案件数上限
+# FRAUD_BURST_CONVERSION_THRESHOLD=3      # バースト検知成果数
+# FRAUD_BURST_CONVERSION_WINDOW_SECONDS=1800  # バースト検知時間窓（秒）
+
+# フィルタ設定
+# FRAUD_BROWSER_ONLY=false           # ブラウザのみ検知
+# FRAUD_EXCLUDE_DATACENTER_IP=false  # データセンターIP除外
+
+# ACS APIエンドポイント（通常変更不要）
+# ACS_LOG_ENDPOINT=track_log/search
 ```
 
-### 成果ログ取り込み
-
+### 4. Run (backend + frontend)
 ```bash
-python -m fraud_checker.cli ingest-conversions --date 2024-01-01 \
-  --db /var/lib/fraud/fraud_checker.db \
-  --base-url https://acs.example.com/api \
-  --access-key YOUR_KEY --secret-key YOUR_SECRET
+python dev.py
 ```
 
-成果ログには `entry_ipaddress` / `entry_useragent`（実ユーザーのIP/UA）が含まれており、これを直接使用して集計します。クリックログとの突合は不要です。
+- Backend: http://localhost:8000 (API docs at /docs)
+- Frontend: http://localhost:3000
 
-### 成果ベースの不正検知
+## Operation Guide
 
-```bash
-python -m fraud_checker.cli suspicious-conversions --date 2024-01-01 \
-  --db /var/lib/fraud/fraud_checker.db \
-  --conversion-threshold 5 \
-  --media-threshold 2 \
-  --program-threshold 2
-```
+### 日次運用フロー
 
-### デイリーバッチ（クリックのみ）
+1. **データ取り込み**
+   - ダッシュボードの「データ取込」ボタンをクリック
+   - 「リフレッシュ」タブで過去N時間分を取り込み（推奨: 24時間）
+   - または「日付指定」タブで特定日を指定して取り込み
 
-```bash
-python -m fraud_checker.cli daily \
-  --days-ago 1 \
-  --db /var/lib/fraud/fraud_checker.db \
-  --base-url https://acs.example.com/api \
-  --access-key YOUR_KEY --secret-key YOUR_SECRET
-```
+2. **マスタ同期**（初回または定期的に）
+   - 設定ページ > マスタデータ > 「ACSから同期」ボタン
+   - 媒体名・案件名・アフィリエイター名の表示に必要
 
-### デイリーバッチ（クリック＋成果の統合検知）
+3. **不正検知確認**
+   - サイドメニュー > 不正クリック検知 / 不正成果検知
+   - 日付を選択して検知結果を確認
+   - 詳細ボタンで関連媒体・案件を確認
+   - 必要に応じてCSV出力
 
-```bash
-python -m fraud_checker.cli daily-full \
-  --days-ago 1 \
-  --db /var/lib/fraud/fraud_checker.db \
-  --base-url https://acs.example.com/api \
-  --access-key YOUR_KEY --secret-key YOUR_SECRET
-```
+4. **閾値調整**
+   - 設定ページで検知閾値を調整
+   - 変更は「変更を保存」で即時反映
 
-`daily-full` は以下を一括実行します：
-1. クリックログ取り込み
-2. 成果ログ取り込み（entry IP/UAを使用）
-3. クリックベースの不正検知
-4. 成果ベースの不正検知
-5. 両方で検出された高リスクIP/UAの特定
-
-### オンデマンドリフレッシュ（最新データ取り込み）
+### CLI操作（バッチ処理向け）
 
 ```bash
-python -m fraud_checker.cli refresh \
-  --db /var/lib/fraud/fraud_checker.db \
-  --base-url https://acs.example.com/api \
-  --access-key YOUR_KEY --secret-key YOUR_SECRET
-```
+cd backend
 
-`refresh` は現在時刻から指定時間（デフォルト24時間）前のデータを取得し、**日次バッチと重複しないように**マージします：
+# クリックログ取り込み
+python -m fraud_checker.cli ingest --date 2024-01-01
 
-- **重複チェック**: IDベースで既存データをチェックし、新規データのみ追加
-- **集計テーブル**: 新規データの分だけ集計を更新（UPSERT）
+# 成果ログ取り込み
+python -m fraud_checker.cli ingest-conversions --date 2024-01-01
 
-オプション:
-- `--hours 12`: 取得する時間範囲（デフォルト: 24時間）
-- `--clicks-only`: クリックログのみ取り込み
-- `--conversions-only`: 成果ログのみ取り込み
-- `--detect`: 取り込み後にフラウド検知も実行
+# 不正クリック検知
+python -m fraud_checker.cli suspicious --date 2024-01-01
 
-```bash
-# 例: 最新12時間のデータを取り込み、検知も実行
+# 不正成果検知
+python -m fraud_checker.cli suspicious-conversions --date 2024-01-01
+
+# 日次バッチ（昨日のデータ取り込み＋検知）
+python -m fraud_checker.cli daily --days-ago 1
+
+# フルバッチ（クリック＋成果の取り込みと検知）
+python -m fraud_checker.cli daily-full --days-ago 1
+
+# リフレッシュ（過去N時間の差分取り込み）
 python -m fraud_checker.cli refresh --hours 12 --detect
 ```
 
----
+## Troubleshooting
 
-## 成果ログのIP/UA取得方式
+### 接続エラー
 
-```
-[成果ログ（action_log_raw）]
-         |
-         | entry_ipaddress / entry_useragent
-         | （実ユーザーのIP/UA）
-         ↓
-    成果ベースのフラウド検知
-```
+**症状**: ダッシュボードに「接続エラー」が表示される
 
-成果ログには以下の2種類のIP/UAが含まれています：
+**解決方法**:
+1. バックエンドが起動しているか確認
+   ```bash
+   python dev.py
+   ```
+2. `.env` ファイルが正しく設定されているか確認
+3. ポート 8000 が使用可能か確認
 
-| フィールド | 説明 | 用途 |
-|-----------|------|------|
-| `ipaddress` / `useragent` | ポストバックサーバーのIP/UA | 参考情報 |
-| `entry_ipaddress` / `entry_useragent` | **実ユーザーのIP/UA** | **フラウド検知に使用** |
+### ジョブ競合エラー（409）
 
-ポストバック経由の成果でも、`entry_ipaddress` / `entry_useragent` には実ユーザー（成果発生時のブラウザ）のIP/UAが記録されているため、正確なフラウド検知が可能です。
+**症状**: 「Another job is already running」エラー
 
----
+**解決方法**:
+1. 現在実行中のジョブが完了するまで待機（通常数分）
+2. バックエンドを再起動してジョブ状態をリセット
+3. 大量データの場合は日付を分割して取り込み
 
-## Examples & Tests
+### データが表示されない
 
-### Local example (no network)
+**症状**: 不正検知一覧にデータが表示されない
 
-Run an end-to-end dry run with stubbed data and in-memory SQLite:
+**解決方法**:
+1. データ取り込みが完了しているか確認
+2. 日付選択で正しい日付が選ばれているか確認
+3. 閾値設定が厳しすぎないか確認（設定ページで調整）
 
-```bash
-python -m fraud_checker.examples.local_example
-```
+### マスタ名が表示されない
 
-Set `FRAUD_DB_PATH` to a file path beforehand if you want to inspect the resulting DB.
+**症状**: 媒体名・案件名がIDのまま表示される
 
-### API接続テスト
+**解決方法**:
+1. 設定ページ > マスタデータ > 「ACSから同期」を実行
+2. 同期完了後、ページを再読み込み
 
-クリックログ取得の接続確認:
-```bash
-python examples/fetch_access_log_sample.py --date 2024-01-01
-```
+## API Reference
 
-成果ログ取得の接続確認:
-```bash
-python examples/fetch_conversion_sample.py --date 2024-01-01
-```
+主要エンドポイント:
 
-### 統合テスト（実際のAPI使用）
+| エンドポイント | メソッド | 説明 |
+|--------------|---------|------|
+| `/api/summary` | GET | ダッシュボードサマリー |
+| `/api/suspicious/clicks` | GET | 不正クリック一覧 |
+| `/api/suspicious/conversions` | GET | 不正成果一覧 |
+| `/api/ingest/clicks` | POST | クリックログ取り込み |
+| `/api/ingest/conversions` | POST | 成果ログ取り込み |
+| `/api/refresh` | POST | リフレッシュ取り込み |
+| `/api/sync/masters` | POST | マスタ同期 |
+| `/api/settings` | GET/POST | 設定取得/保存 |
+| `/api/job/status` | GET | ジョブ状態確認 |
 
-全機能の統合テスト:
-```bash
-python examples/test_real_api.py --date 2024-01-01 -v
-```
-
-オプション:
-- `--date`: 対象日付（省略時は昨日）
-- `--db`: テスト用DBパス（省略時は一時ファイル）
-- `--keep-db`: テスト後もDBを保持
-- `-v, --verbose`: 詳細表示
-- `--test`: 実行するテスト（all/click/conversion/ingestion/detection/full）
-
-### E2Eフルフローテスト
-
-クリック→成果→検知の完全フローテスト:
-```bash
-python examples/e2e_full_flow.py --date 2024-01-01 --db ./test_e2e.db
-```
-
-オプション:
-- `--date`: 対象日付（省略時は昨日）
-- `--db`: DBパス（必須）
-- `--page-size`: APIページサイズ
-- `--click-threshold`: クリック検知閾値
-- `--conversion-threshold`: 成果検知閾値
-
----
-
-## ACS API assumptions
-
-### クリックログ
-- Endpoint: `/track_log/search` by default (joined with `ACS_BASE_URL`)
-- Auth header: `X-Auth-Token: {access_key}:{secret_key}`
-- Query params: `limit` (<=500), `offset` (0-based), `regist_unix=between_date` と `regist_unix_A_Y/M/D` / `regist_unix_B_Y/M/D` で日付絞り込み
-- Track Log は `ipaddress` / `useragent` / `referrer` を含む
-
-### 成果ログ
-- Endpoint: `/action_log_raw/search`
-- Query params: 同様に `regist_unix=between_date` で日付絞り込み
-- 重要フィールド：
-  - `id`: 成果ID
-  - `check_log_raw`: cid（クリックIDへの参照、将来の拡張用）
-  - `entry_ipaddress`: **実ユーザーのIP**（フラウド検知に使用）
-  - `entry_useragent`: **実ユーザーのUA**（フラウド検知に使用）
-  - `ipaddress` / `useragent`: ポストバックサーバーのIP/UA（参考情報）
-
----
-
-## Data model
-
-### クリックログ関連
-- `click_raw` (オプション): クリックログ生データ。将来のクリックベース拡張用。
-- `click_ipua_daily`: IP/UA×媒体×案件×日付の集計テーブル
-  - Primary key: (`date`, `media_id`, `program_id`, `ipaddress`, `useragent`)
-
-### 成果ログ関連
-- `conversion_raw`: 成果ログ生データ
-  - `cid`: クリックIDへの参照（将来の拡張用）
-  - `entry_ipaddress`, `entry_useragent`: 実ユーザーのIP/UA（フラウド検知に使用）
-  - `postback_ipaddress`, `postback_useragent`: ポストバックサーバーのIP/UA（参考情報）
-- `conversion_ipua_daily`: 成果のIP/UA×媒体×案件×日付の集計（実ユーザーのIP/UAベース）
-  - Primary key: (`date`, `media_id`, `program_id`, `ipaddress`, `useragent`)
-
----
+詳細は http://localhost:8000/docs を参照。
 
 ## Tests
-
 ```bash
+cd backend
 python -m pytest
 ```
+
+## License
+
+Proprietary - Internal Use Only
+
+---
+
+More backend details live in `backend/README.md`.

@@ -21,12 +21,14 @@ class AcsHttpClient:
         *,
         endpoint_path: str = "access_log/search",
         session: Optional[requests.Session] = None,
+        timeout: int = 30,
     ):
         # Normalize base URL to avoid double slashes when joining paths.
         self.base_url = base_url.rstrip("/") + "/"
         self.session = session or requests.Session()
         self.token = f"{access_key}:{secret_key}"
         self.endpoint_path = endpoint_path.lstrip("/")
+        self.timeout = timeout
 
     def fetch_click_logs(self, target_date: date, page: int, limit: int) -> Iterable[ClickLog]:
         url = urljoin(self.base_url, self.endpoint_path)
@@ -48,7 +50,7 @@ class AcsHttpClient:
             url,
             headers={"X-Auth-Token": self.token},
             params=params,
-            timeout=30,
+            timeout=self.timeout,
         )
 
         if response.status_code != 200:
@@ -123,7 +125,7 @@ class AcsHttpClient:
             url,
             headers={"X-Auth-Token": self.token},
             params=params,
-            timeout=30,
+            timeout=self.timeout,
         )
 
         if response.status_code != 200:
@@ -217,7 +219,7 @@ class AcsHttpClient:
             url,
             headers={"X-Auth-Token": self.token},
             params=params,
-            timeout=30,
+            timeout=self.timeout,
         )
 
         if response.status_code != 200:
@@ -272,7 +274,7 @@ class AcsHttpClient:
             url,
             headers={"X-Auth-Token": self.token},
             params=params,
-            timeout=30,
+            timeout=self.timeout,
         )
 
         if response.status_code != 200:
@@ -328,3 +330,142 @@ class AcsHttpClient:
                         pass
         # Last resort: now() to avoid crashes; record is still stored in raw_payload.
         return datetime.utcnow()
+
+    # ========== マスタデータ取得 ==========
+
+    def fetch_media_master(self, page: int = 1, limit: int = 500) -> List[dict]:
+        """媒体マスタを取得"""
+        url = urljoin(self.base_url, "media/search")
+        offset = (page - 1) * limit
+        params = {"limit": limit, "offset": offset}
+        
+        logger.info("ACS media master request %s params=%s", url, params)
+        response = self.session.get(
+            url,
+            headers={"X-Auth-Token": self.token},
+            params=params,
+            timeout=self.timeout,
+        )
+
+        if response.status_code != 200:
+            logger.error("ACS returned %s: %s", response.status_code, response.text)
+            response.raise_for_status()
+
+        body = response.json()
+        records = body.get("records", [])
+        logger.info("ACS media master response: %d records", len(records))
+        
+        return [
+            {
+                "id": r.get("id", ""),
+                "name": r.get("name", ""),
+                "user": r.get("user"),
+                "state": r.get("state"),
+            }
+            for r in records
+        ]
+
+    def fetch_promotion_master(self, page: int = 1, limit: int = 500) -> List[dict]:
+        """案件マスタを取得"""
+        url = urljoin(self.base_url, "promotion/search")
+        offset = (page - 1) * limit
+        params = {"limit": limit, "offset": offset}
+        
+        logger.info("ACS promotion master request %s params=%s", url, params)
+        response = self.session.get(
+            url,
+            headers={"X-Auth-Token": self.token},
+            params=params,
+            timeout=self.timeout,
+        )
+
+        if response.status_code != 200:
+            logger.error("ACS returned %s: %s", response.status_code, response.text)
+            response.raise_for_status()
+
+        body = response.json()
+        records = body.get("records", [])
+        logger.info("ACS promotion master response: %d records", len(records))
+        
+        return [
+            {
+                "id": r.get("id", ""),
+                "name": r.get("name", ""),
+                "state": r.get("state"),
+            }
+            for r in records
+        ]
+
+    def fetch_user_master(self, page: int = 1, limit: int = 500) -> List[dict]:
+        """ユーザー（アフィリエイター）マスタを取得"""
+        url = urljoin(self.base_url, "user/search")
+        offset = (page - 1) * limit
+        params = {"limit": limit, "offset": offset}
+        
+        logger.info("ACS user master request %s params=%s", url, params)
+        response = self.session.get(
+            url,
+            headers={"X-Auth-Token": self.token},
+            params=params,
+            timeout=self.timeout,
+        )
+
+        if response.status_code != 200:
+            logger.error("ACS returned %s: %s", response.status_code, response.text)
+            response.raise_for_status()
+
+        body = response.json()
+        records = body.get("records", [])
+        logger.info("ACS user master response: %d records", len(records))
+        
+        return [
+            {
+                "id": r.get("id", ""),
+                "name": r.get("name", ""),
+                "company": r.get("company"),
+                "state": r.get("state"),
+            }
+            for r in records
+        ]
+
+    def fetch_all_media_master(self) -> List[dict]:
+        """全媒体マスタを取得（ページング付き）"""
+        all_media = []
+        page = 1
+        while True:
+            batch = self.fetch_media_master(page=page, limit=500)
+            if not batch:
+                break
+            all_media.extend(batch)
+            if len(batch) < 500:
+                break
+            page += 1
+        return all_media
+
+    def fetch_all_promotion_master(self) -> List[dict]:
+        """全案件マスタを取得（ページング付き）"""
+        all_promos = []
+        page = 1
+        while True:
+            batch = self.fetch_promotion_master(page=page, limit=500)
+            if not batch:
+                break
+            all_promos.extend(batch)
+            if len(batch) < 500:
+                break
+            page += 1
+        return all_promos
+
+    def fetch_all_user_master(self) -> List[dict]:
+        """全ユーザーマスタを取得（ページング付き）"""
+        all_users = []
+        page = 1
+        while True:
+            batch = self.fetch_user_master(page=page, limit=500)
+            if not batch:
+                break
+            all_users.extend(batch)
+            if len(batch) < 500:
+                break
+            page += 1
+        return all_users

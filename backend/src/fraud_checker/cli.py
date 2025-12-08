@@ -371,6 +371,7 @@ def _cmd_daily(args: argparse.Namespace, acs_client_factory: Optional[Callable])
             base_url=settings.base_url,
             access_key=settings.access_key,
             secret_key=settings.secret_key,
+            endpoint_path=settings.log_endpoint,
         )
     )
     client = factory(acs_settings)

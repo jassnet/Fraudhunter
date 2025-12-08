@@ -1,7 +1,6 @@
 "use client"
 
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { useTheme } from "next-themes"
 
 interface OverviewChartProps {
   data: {
@@ -12,8 +11,6 @@ interface OverviewChartProps {
 }
 
 export function OverviewChart({ data }: OverviewChartProps) {
-  const { theme } = useTheme()
-
   return (
     <ResponsiveContainer width="100%" height={350}>
       <LineChart data={data}>

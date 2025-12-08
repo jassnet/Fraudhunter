@@ -65,6 +65,12 @@ class SQLiteRepository:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_click_ipua_daily_date_ip ON click_ipua_daily(date, ipaddress);"
             )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_click_ipua_daily_media ON click_ipua_daily(date, media_id);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_click_ipua_daily_program ON click_ipua_daily(date, program_id);"
+            )
 
             if store_raw:
                 conn.execute(
@@ -155,6 +161,12 @@ class SQLiteRepository:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_conversion_ipua_daily_date_ip ON conversion_ipua_daily(date, ipaddress);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversion_ipua_daily_media ON conversion_ipua_daily(date, media_id);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversion_ipua_daily_program ON conversion_ipua_daily(date, program_id);"
             )
 
     def ingest_clicks(
@@ -866,3 +878,433 @@ class SQLiteRepository:
                 new_count += 1
         
         return new_count, skip_count
+
+    # ========== マスタ管理 ==========
+
+    def ensure_master_schema(self) -> None:
+        """マスタデータ用スキーマを作成"""
+        with self._connect() as conn:
+            # 媒体マスタ
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS master_media (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    user_id TEXT,
+                    state TEXT,
+                    updated_at TEXT NOT NULL
+                );
+            """)
+            # 案件（プロモーション）マスタ
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS master_promotion (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    state TEXT,
+                    updated_at TEXT NOT NULL
+                );
+            """)
+            # アフィリエイター（ユーザー）マスタ
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS master_user (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    company TEXT,
+                    state TEXT,
+                    updated_at TEXT NOT NULL
+                );
+            """)
+
+    def upsert_media(self, media_id: str, name: str, user_id: str | None = None, state: str | None = None) -> None:
+        """媒体マスタをUpsert"""
+        self.ensure_master_schema()
+        now = datetime.utcnow().isoformat()
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO master_media (id, name, user_id, state, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    user_id = excluded.user_id,
+                    state = excluded.state,
+                    updated_at = excluded.updated_at
+            """, (media_id, name, user_id, state, now))
+
+    def upsert_promotion(self, promotion_id: str, name: str, state: str | None = None) -> None:
+        """案件マスタをUpsert"""
+        self.ensure_master_schema()
+        now = datetime.utcnow().isoformat()
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO master_promotion (id, name, state, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    state = excluded.state,
+                    updated_at = excluded.updated_at
+            """, (promotion_id, name, state, now))
+
+    def upsert_user(self, user_id: str, name: str, company: str | None = None, state: str | None = None) -> None:
+        """ユーザーマスタをUpsert"""
+        self.ensure_master_schema()
+        now = datetime.utcnow().isoformat()
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO master_user (id, name, company, state, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    company = excluded.company,
+                    state = excluded.state,
+                    updated_at = excluded.updated_at
+            """, (user_id, name, company, state, now))
+
+    def bulk_upsert_media(self, media_list: List[dict]) -> int:
+        """媒体マスタを一括Upsert"""
+        self.ensure_master_schema()
+        now = datetime.utcnow().isoformat()
+        count = 0
+        with self._connect() as conn:
+            for m in media_list:
+                conn.execute("""
+                    INSERT INTO master_media (id, name, user_id, state, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
+                        user_id = excluded.user_id,
+                        state = excluded.state,
+                        updated_at = excluded.updated_at
+                """, (m.get("id"), m.get("name", ""), m.get("user"), m.get("state"), now))
+                count += 1
+        return count
+
+    def bulk_upsert_promotions(self, promo_list: List[dict]) -> int:
+        """案件マスタを一括Upsert"""
+        self.ensure_master_schema()
+        now = datetime.utcnow().isoformat()
+        count = 0
+        with self._connect() as conn:
+            for p in promo_list:
+                conn.execute("""
+                    INSERT INTO master_promotion (id, name, state, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
+                        state = excluded.state,
+                        updated_at = excluded.updated_at
+                """, (p.get("id"), p.get("name", ""), p.get("state"), now))
+                count += 1
+        return count
+
+    def bulk_upsert_users(self, user_list: List[dict]) -> int:
+        """ユーザーマスタを一括Upsert"""
+        self.ensure_master_schema()
+        now = datetime.utcnow().isoformat()
+        count = 0
+        with self._connect() as conn:
+            for u in user_list:
+                conn.execute("""
+                    INSERT INTO master_user (id, name, company, state, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
+                        company = excluded.company,
+                        state = excluded.state,
+                        updated_at = excluded.updated_at
+                """, (u.get("id"), u.get("name", ""), u.get("company"), u.get("state"), now))
+                count += 1
+        return count
+
+    def get_media_name(self, media_id: str) -> str | None:
+        """媒体IDから名前を取得"""
+        with self._connect() as conn:
+            cur = conn.execute("SELECT name FROM master_media WHERE id = ?", (media_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def get_promotion_name(self, promotion_id: str) -> str | None:
+        """案件IDから名前を取得"""
+        with self._connect() as conn:
+            cur = conn.execute("SELECT name FROM master_promotion WHERE id = ?", (promotion_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def get_user_name(self, user_id: str) -> str | None:
+        """ユーザーIDから名前を取得"""
+        with self._connect() as conn:
+            cur = conn.execute("SELECT name FROM master_user WHERE id = ?", (user_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+    def get_media_names_bulk(self, media_ids: List[str]) -> dict[str, str]:
+        """媒体IDの一括名前解決"""
+        if not media_ids:
+            return {}
+        self.ensure_master_schema()
+        placeholders = ",".join("?" * len(media_ids))
+        with self._connect() as conn:
+            cur = conn.execute(
+                f"SELECT id, name FROM master_media WHERE id IN ({placeholders})",
+                tuple(media_ids)
+            )
+            return {row[0]: row[1] for row in cur.fetchall()}
+
+    def get_promotion_names_bulk(self, promotion_ids: List[str]) -> dict[str, str]:
+        """案件IDの一括名前解決"""
+        if not promotion_ids:
+            return {}
+        self.ensure_master_schema()
+        placeholders = ",".join("?" * len(promotion_ids))
+        with self._connect() as conn:
+            cur = conn.execute(
+                f"SELECT id, name FROM master_promotion WHERE id IN ({placeholders})",
+                tuple(promotion_ids)
+            )
+            return {row[0]: row[1] for row in cur.fetchall()}
+
+    def get_user_names_bulk(self, user_ids: List[str]) -> dict[str, str]:
+        """ユーザーIDの一括名前解決"""
+        if not user_ids:
+            return {}
+        self.ensure_master_schema()
+        placeholders = ",".join("?" * len(user_ids))
+        with self._connect() as conn:
+            cur = conn.execute(
+                f"SELECT id, name FROM master_user WHERE id IN ({placeholders})",
+                tuple(user_ids)
+            )
+            return {row[0]: row[1] for row in cur.fetchall()}
+
+    def get_all_masters(self) -> dict:
+        """全マスタの件数を取得"""
+        self.ensure_master_schema()
+        with self._connect() as conn:
+            media_count = conn.execute("SELECT COUNT(*) FROM master_media").fetchone()[0]
+            promo_count = conn.execute("SELECT COUNT(*) FROM master_promotion").fetchone()[0]
+            user_count = conn.execute("SELECT COUNT(*) FROM master_user").fetchone()[0]
+        return {
+            "media_count": media_count,
+            "promotion_count": promo_count,
+            "user_count": user_count,
+        }
+
+    def get_suspicious_click_details(
+        self, target_date: date, ipaddress: str, useragent: str
+    ) -> List[dict]:
+        """特定IP/UAのクリック詳細（関連媒体・案件）を取得"""
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT 
+                    c.media_id,
+                    c.program_id,
+                    SUM(c.click_count) as click_count,
+                    m.name as media_name,
+                    p.name as program_name
+                FROM click_ipua_daily c
+                LEFT JOIN master_media m ON c.media_id = m.id
+                LEFT JOIN master_promotion p ON c.program_id = p.id
+                WHERE c.date = ? AND c.ipaddress = ? AND c.useragent = ?
+                GROUP BY c.media_id, c.program_id
+                ORDER BY click_count DESC
+            """, (target_date.isoformat(), ipaddress, useragent))
+            rows = cur.fetchall()
+        return [
+            {
+                "media_id": row[0],
+                "program_id": row[1],
+                "click_count": row[2],
+                "media_name": row[3] or row[0],  # 名前がない場合はIDをフォールバック
+                "program_name": row[4] or row[1],
+            }
+            for row in rows
+        ]
+
+    def get_suspicious_conversion_details(
+        self, target_date: date, ipaddress: str, useragent: str
+    ) -> List[dict]:
+        """特定IP/UAの成果詳細（関連媒体・案件）を取得"""
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT 
+                    c.media_id,
+                    c.program_id,
+                    SUM(c.conversion_count) as conversion_count,
+                    m.name as media_name,
+                    p.name as program_name
+                FROM conversion_ipua_daily c
+                LEFT JOIN master_media m ON c.media_id = m.id
+                LEFT JOIN master_promotion p ON c.program_id = p.id
+                WHERE c.date = ? AND c.ipaddress = ? AND c.useragent = ?
+                GROUP BY c.media_id, c.program_id
+                ORDER BY conversion_count DESC
+            """, (target_date.isoformat(), ipaddress, useragent))
+            rows = cur.fetchall()
+        return [
+            {
+                "media_id": row[0],
+                "program_id": row[1],
+                "conversion_count": row[2],
+                "media_name": row[3] or row[0],
+                "program_name": row[4] or row[1],
+            }
+            for row in rows
+        ]
+
+    def get_suspicious_clicks_with_names(self, target_date: date, limit: int = 500, offset: int = 0) -> tuple[List[dict], int]:
+        """
+        不正疑いクリックを名前付きで取得（ページング対応）
+        Returns: (data_list, total_count)
+        """
+        self.ensure_master_schema()
+        
+        # まず総件数を取得
+        with self._connect() as conn:
+            count_query = """
+                SELECT COUNT(*) FROM (
+                    SELECT ipaddress, useragent
+                    FROM click_ipua_daily
+                    WHERE date = ?
+                    GROUP BY ipaddress, useragent
+                    HAVING SUM(click_count) >= 50
+                        OR COUNT(DISTINCT media_id) >= 3
+                        OR COUNT(DISTINCT program_id) >= 3
+                )
+            """
+            total = conn.execute(count_query, (target_date.isoformat(),)).fetchone()[0]
+            
+            # データ取得（関連媒体・案件を含む）
+            query = """
+                SELECT 
+                    c.date,
+                    c.ipaddress,
+                    c.useragent,
+                    SUM(c.click_count) as total_clicks,
+                    COUNT(DISTINCT c.media_id) as media_count,
+                    COUNT(DISTINCT c.program_id) as program_count,
+                    MIN(c.first_time) as first_time,
+                    MAX(c.last_time) as last_time,
+                    GROUP_CONCAT(DISTINCT c.media_id) as media_ids,
+                    GROUP_CONCAT(DISTINCT c.program_id) as program_ids
+                FROM click_ipua_daily c
+                WHERE c.date = ?
+                GROUP BY c.ipaddress, c.useragent
+                HAVING SUM(c.click_count) >= 50
+                    OR COUNT(DISTINCT c.media_id) >= 3
+                    OR COUNT(DISTINCT c.program_id) >= 3
+                ORDER BY total_clicks DESC
+                LIMIT ? OFFSET ?
+            """
+            rows = conn.execute(query, (target_date.isoformat(), limit, offset)).fetchall()
+        
+        # 名前解決
+        all_media_ids = set()
+        all_program_ids = set()
+        for row in rows:
+            if row[8]:  # media_ids
+                all_media_ids.update(row[8].split(","))
+            if row[9]:  # program_ids
+                all_program_ids.update(row[9].split(","))
+        
+        media_names = self.get_media_names_bulk(list(all_media_ids))
+        program_names = self.get_promotion_names_bulk(list(all_program_ids))
+        
+        result = []
+        for row in rows:
+            media_ids = row[8].split(",") if row[8] else []
+            program_ids = row[9].split(",") if row[9] else []
+            
+            result.append({
+                "date": row[0],
+                "ipaddress": row[1],
+                "useragent": row[2],
+                "total_clicks": row[3],
+                "media_count": row[4],
+                "program_count": row[5],
+                "first_time": row[6],
+                "last_time": row[7],
+                "media_ids": media_ids,
+                "program_ids": program_ids,
+                "media_names": [media_names.get(mid, mid) for mid in media_ids],
+                "program_names": [program_names.get(pid, pid) for pid in program_ids],
+            })
+        
+        return result, total
+
+    def get_suspicious_conversions_with_names(self, target_date: date, limit: int = 500, offset: int = 0) -> tuple[List[dict], int]:
+        """
+        不正疑い成果を名前付きで取得（ページング対応）
+        Returns: (data_list, total_count)
+        """
+        self.ensure_master_schema()
+        
+        # まず総件数を取得
+        with self._connect() as conn:
+            count_query = """
+                SELECT COUNT(*) FROM (
+                    SELECT ipaddress, useragent
+                    FROM conversion_ipua_daily
+                    WHERE date = ?
+                    GROUP BY ipaddress, useragent
+                    HAVING SUM(conversion_count) >= 5
+                        OR COUNT(DISTINCT media_id) >= 2
+                        OR COUNT(DISTINCT program_id) >= 2
+                )
+            """
+            total = conn.execute(count_query, (target_date.isoformat(),)).fetchone()[0]
+            
+            # データ取得
+            query = """
+                SELECT 
+                    c.date,
+                    c.ipaddress,
+                    c.useragent,
+                    SUM(c.conversion_count) as total_conversions,
+                    COUNT(DISTINCT c.media_id) as media_count,
+                    COUNT(DISTINCT c.program_id) as program_count,
+                    MIN(c.first_time) as first_time,
+                    MAX(c.last_time) as last_time,
+                    GROUP_CONCAT(DISTINCT c.media_id) as media_ids,
+                    GROUP_CONCAT(DISTINCT c.program_id) as program_ids
+                FROM conversion_ipua_daily c
+                WHERE c.date = ?
+                GROUP BY c.ipaddress, c.useragent
+                HAVING SUM(c.conversion_count) >= 5
+                    OR COUNT(DISTINCT c.media_id) >= 2
+                    OR COUNT(DISTINCT c.program_id) >= 2
+                ORDER BY total_conversions DESC
+                LIMIT ? OFFSET ?
+            """
+            rows = conn.execute(query, (target_date.isoformat(), limit, offset)).fetchall()
+        
+        # 名前解決
+        all_media_ids = set()
+        all_program_ids = set()
+        for row in rows:
+            if row[8]:
+                all_media_ids.update(row[8].split(","))
+            if row[9]:
+                all_program_ids.update(row[9].split(","))
+        
+        media_names = self.get_media_names_bulk(list(all_media_ids))
+        program_names = self.get_promotion_names_bulk(list(all_program_ids))
+        
+        result = []
+        for row in rows:
+            media_ids = row[8].split(",") if row[8] else []
+            program_ids = row[9].split(",") if row[9] else []
+            
+            result.append({
+                "date": row[0],
+                "ipaddress": row[1],
+                "useragent": row[2],
+                "total_conversions": row[3],
+                "media_count": row[4],
+                "program_count": row[5],
+                "first_time": row[6],
+                "last_time": row[7],
+                "media_ids": media_ids,
+                "program_ids": program_ids,
+                "media_names": [media_names.get(mid, mid) for mid in media_ids],
+                "program_names": [program_names.get(pid, pid) for pid in program_ids],
+            })
+        
+        return result, total
