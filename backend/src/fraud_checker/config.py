@@ -75,8 +75,11 @@ def resolve_db_path(explicit: Optional[str]) -> Path:
     load_env()
     env_val = os.getenv("FRAUD_DB_PATH")
     value = explicit or env_val
-    path_text = _require(value, "FRAUD_DB_PATH or --db")
-    return Path(path_text)
+    if value:
+        return Path(value)
+    # Default to fraud_checker.db in the project root (2 levels up from backend/src)
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    return project_root / "fraud_checker.db"
 
 
 def resolve_acs_settings(

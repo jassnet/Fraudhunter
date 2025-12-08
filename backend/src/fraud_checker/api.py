@@ -120,12 +120,6 @@ class JobStatusResponse(BaseModel):
 # ========== Helper Functions ==========
 
 
-def get_job_store() -> JobStatusStore:
-    """Get persistent job status store"""
-    db_path = resolve_db_path(None)
-    return JobStatusStore(db_path)
-
-
 def execute_query(repo: SQLiteRepository, query: str, params: tuple = ()):
     """Execute a query and return results as list of dicts"""
     import sqlite3

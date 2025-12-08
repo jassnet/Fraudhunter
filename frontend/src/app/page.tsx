@@ -37,6 +37,15 @@ interface DailyStats {
   conversions: number;
 }
 
+const getYesterdayDateString = () => {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export default function DashboardPage() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
@@ -44,17 +53,21 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [showRefreshDialog, setShowRefreshDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const targetDate = getYesterdayDateString();
 
   const fetchData = async () => {
     setError(null);
     try {
       const [summaryData, dailyData] = await Promise.all([
-        fetchSummary(),
+        fetchSummary(targetDate),
         fetchDailyStats()
       ]);
       
       setSummary(summaryData);
-      setDailyStats(dailyData.data || []);
+      const filteredDailyStats = (dailyData.data || []).filter(
+        (item: DailyStats) => item.date <= targetDate
+      );
+      setDailyStats(filteredDailyStats);
     } catch (err) {
       console.error("Failed to fetch dashboard data", err);
       setError("データの取得に失敗しました。バックエンドが起動しているか確認してください。");

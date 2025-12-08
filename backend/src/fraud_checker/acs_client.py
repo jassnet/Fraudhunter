@@ -192,10 +192,7 @@ class AcsHttpClient:
         self, start_time: datetime, end_time: datetime, page: int, limit: int
     ) -> Iterable[ClickLog]:
         """
-        時間範囲でクリックログを取得する。
-        
-        APIは日付単位なので、start_time〜end_timeにまたがる日付のデータを取得し、
-        時間でフィルタリングして返す。
+        時間範囲でクリックログを取得する（フィルタは呼び出し側で実施）。
         """
         # 日付範囲を計算（最大2日にまたがる可能性）
         start_date = start_time.date()
@@ -236,22 +233,13 @@ class AcsHttpClient:
 
         records = body.get("records", [])
         logger.info("ACS response status=%s records=%s", response.status_code, len(records))
-        
-        # 時間範囲でフィルタリング
-        result = []
-        for record in records:
-            click = self._to_click(record)
-            if start_time <= click.click_time <= end_time:
-                result.append(click)
-        
-        logger.info("Filtered to %d records within time range", len(result))
-        return result
+        return [self._to_click(record) for record in records]
 
     def fetch_conversion_logs_for_time_range(
         self, start_time: datetime, end_time: datetime, page: int, limit: int
     ) -> Iterable[ConversionLog]:
         """
-        時間範囲で成果ログを取得する。
+        時間範囲で成果ログを取得する（フィルタは呼び出し側で実施）。
         """
         start_date = start_time.date()
         end_date = end_time.date()
@@ -298,16 +286,7 @@ class AcsHttpClient:
             response.status_code,
             len(records),
         )
-        
-        # 時間範囲でフィルタリング
-        result = []
-        for record in records:
-            conv = self._to_conversion(record)
-            if start_time <= conv.conversion_time <= end_time:
-                result.append(conv)
-        
-        logger.info("Filtered to %d conversions within time range", len(result))
-        return result
+        return [self._to_conversion(record) for record in records]
 
     @staticmethod
     def _parse_datetime(value) -> datetime:

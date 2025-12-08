@@ -97,7 +97,13 @@ class ClickLogIngestor:
             )
             if not batch:
                 break
-            all_clicks.extend(batch)
+
+            # 時刻フィルタを適用
+            filtered = [
+                click for click in batch if start_time <= click.click_time <= end_time
+            ]
+            all_clicks.extend(filtered)
+
             if len(batch) < self.page_size:
                 break
             page += 1
@@ -209,7 +215,13 @@ class ConversionIngestor:
             )
             if not batch:
                 break
-            all_conversions.extend(batch)
+
+            # 時刻フィルタを適用
+            filtered = [
+                conv for conv in batch if start_time <= conv.conversion_time <= end_time
+            ]
+            all_conversions.extend(filtered)
+
             if len(batch) < self.page_size:
                 break
             page += 1

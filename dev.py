@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent
 BACKEND_DIR = ROOT / "backend"
 FRONTEND_DIR = ROOT / "frontend"
 
-BACKEND_PORT = os.getenv("BACKEND_PORT", "8000")
+BACKEND_PORT = os.getenv("BACKEND_PORT", "8001")
 FRONTEND_PORT = os.getenv("FRONTEND_PORT", "3000")
 
 
