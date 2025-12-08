@@ -237,6 +237,26 @@ export default function SettingsPage() {
                     min={1}
                   />
                 </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="min_click_to_conv_seconds">クリック→成果 最短経過時間（秒）</Label>
+                  <Input
+                    id="min_click_to_conv_seconds"
+                    type="number"
+                    value={settings.min_click_to_conv_seconds}
+                    onChange={(e) => updateField('min_click_to_conv_seconds', parseInt(e.target.value) || 0)}
+                    min={0}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="max_click_to_conv_seconds">クリック→成果 最長経過時間（秒）</Label>
+                  <Input
+                    id="max_click_to_conv_seconds"
+                    type="number"
+                    value={settings.max_click_to_conv_seconds}
+                    onChange={(e) => updateField('max_click_to_conv_seconds', parseInt(e.target.value) || 0)}
+                    min={0}
+                  />
+                </div>
               </CardContent>
             </Card>
 
