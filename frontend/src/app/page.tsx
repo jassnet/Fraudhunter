@@ -132,7 +132,7 @@ export default function DashboardPage() {
   const conversionTrend = calculateTrend(summary.stats.conversions.total, summary.stats.conversions.prev_total);
 
   return (
-    <div className="flex flex-col h-full space-y-4 p-8 pt-6 overflow-hidden">
+    <div className="flex flex-col min-h-full space-y-4 p-4 pt-4 md:p-8 md:pt-6 overflow-auto">
       <div className="flex items-center justify-between space-y-2 shrink-0">
         <div className="flex items-center space-x-2 ml-auto">
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>

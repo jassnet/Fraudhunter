@@ -27,7 +27,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <div className="flex h-screen overflow-hidden bg-background">
+          <div className="flex h-screen overflow-auto bg-background">
             {/* デスクトップサイドバー */}
             <aside className="hidden w-64 overflow-y-auto border-r bg-muted/40 md:block">
               <div className="flex h-full flex-col gap-2">
@@ -47,7 +47,7 @@ export default function RootLayout({
             </aside>
             
             {/* モバイルヘッダー + メインコンテンツ */}
-            <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex flex-1 flex-col">
               {/* モバイルヘッダー */}
               <header className="flex h-14 items-center gap-4 border-b bg-muted/40 px-4 md:hidden">
                 <MobileNav />
@@ -58,7 +58,7 @@ export default function RootLayout({
               </header>
               
               {/* メインコンテンツ */}
-              <main className="flex-1 overflow-hidden">
+              <main className="flex-1 overflow-auto">
                 {children}
               </main>
             </div>
