@@ -1,8 +1,13 @@
 from datetime import date, datetime, timedelta, timezone
 
-from fraud_checker.models import ClickLog
+from fraud_checker.models import ClickLog, ConversionLog
 from fraud_checker.repository import SQLiteRepository
-from fraud_checker.suspicious import SuspiciousDetector, SuspiciousRuleSet
+from fraud_checker.suspicious import (
+    ConversionSuspiciousDetector,
+    ConversionSuspiciousRuleSet,
+    SuspiciousDetector,
+    SuspiciousRuleSet,
+)
 
 
 def _click(
@@ -24,6 +29,33 @@ def _click(
         ipaddress=ip,
         useragent=ua,
         referrer=None,
+        raw_payload=None,
+    )
+
+
+def _conversion(
+    idx: int,
+    *,
+    conv_date: date,
+    click_offset: int,
+    conv_offset: int,
+    ip: str = "5.5.5.5",
+    ua: str = "UA-conv",
+):
+    base = datetime.combine(conv_date, datetime.min.time(), tzinfo=timezone.utc)
+    return ConversionLog(
+        conversion_id=f"cv{idx}",
+        cid=f"cid{idx}",
+        conversion_time=base + timedelta(seconds=conv_offset),
+        click_time=base + timedelta(seconds=click_offset),
+        media_id="m1",
+        program_id="p1",
+        user_id="u1",
+        postback_ipaddress="203.0.113.1",
+        postback_useragent="leafworks/1.0",
+        entry_ipaddress=ip,
+        entry_useragent=ua,
+        state="2",
         raw_payload=None,
     )
 
@@ -299,3 +331,32 @@ def test_exclude_datacenter_ip_filter(tmp_path):
     assert "52.199.47.143" not in keys_no_dc  # AWS IP: 除外
     assert "172.253.218.61" not in keys_no_dc  # Google IP: 除外
     assert "203.0.113.50" in keys_no_dc  # 一般IP: 検知される
+
+
+def test_conversion_time_gap_rules(tmp_path):
+    """クリック→成果までの時間が短すぎる場合に検知されること"""
+    repo = SQLiteRepository(tmp_path / "conv_gap.db")
+    repo.ensure_conversion_schema()
+    target = date(2024, 1, 20)
+
+    conversions = [
+        _conversion(
+            idx=1,
+            conv_date=target,
+            click_offset=0,
+            conv_offset=30,  # 30秒で成果発生
+        )
+    ]
+    repo.ingest_conversions(conversions, target_date=target)
+
+    rules = ConversionSuspiciousRuleSet(
+        conversion_threshold=10,  # 件数では検知しない設定にする
+        min_click_to_conv_seconds=60,
+        max_click_to_conv_seconds=3600,
+    )
+    detector = ConversionSuspiciousDetector(repo, rules)
+    findings = detector.find_for_date(target)
+
+    assert len(findings) == 1
+    assert any("click_to_conversion_seconds <=" in r for r in findings[0].reasons)
+    assert findings[0].min_click_to_conv_seconds == 30

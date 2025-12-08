@@ -92,3 +92,6 @@ class ConversionIpUaRollup:
 class SuspiciousConversionFinding(ConversionIpUaRollup):
     """疑わしい成果のIP/UA"""
     reasons: List[str]
+    # クリック→成果までの経過秒（最小・最大）。click_timeがない場合はNone。
+    min_click_to_conv_seconds: Optional[float] = None
+    max_click_to_conv_seconds: Optional[float] = None

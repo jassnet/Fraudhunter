@@ -6,7 +6,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Dict
 
 from .models import (
     AggregatedRow,
@@ -658,6 +658,46 @@ class SQLiteRepository:
             )
             rows = cur.fetchall()
         return [self._to_conversion_rollup(r) for r in rows]
+
+    def fetch_click_to_conversion_gaps(self, target_date: date) -> Dict[tuple[str, str], Dict[str, float]]:
+        """
+        クリック→成果までの経過秒（最小・最大）をIP/UA単位で集計する。
+        click_time が存在するレコードのみ対象。
+        """
+        if not self._table_exists("conversion_raw"):
+            return {}
+
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                SELECT entry_ipaddress, entry_useragent, conversion_time, click_time
+                FROM conversion_raw
+                WHERE substr(conversion_time, 1, 10) = ?
+                  AND click_time IS NOT NULL
+                  AND entry_ipaddress IS NOT NULL
+                  AND entry_useragent IS NOT NULL
+                """,
+                (target_date.isoformat(),),
+            )
+            rows = cur.fetchall()
+
+        stats: Dict[tuple[str, str], Dict[str, float]] = {}
+        for entry_ip, entry_ua, conv_time_text, click_time_text in rows:
+            try:
+                conv_dt = self._from_iso(conv_time_text)
+                click_dt = self._from_iso(click_time_text)
+            except Exception:
+                # パースに失敗した場合はスキップ（raw_payloadには残る）
+                continue
+            gap_seconds = (conv_dt - click_dt).total_seconds()
+            key = (entry_ip, entry_ua)
+            if key not in stats:
+                stats[key] = {"min": gap_seconds, "max": gap_seconds, "count": 1}
+            else:
+                stats[key]["min"] = min(stats[key]["min"], gap_seconds)
+                stats[key]["max"] = max(stats[key]["max"], gap_seconds)
+                stats[key]["count"] += 1
+        return stats
 
     def fetch_suspicious_conversion_rollups(
         self,

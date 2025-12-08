@@ -152,6 +152,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Burst window in seconds (default: 1800)",
     )
     susp_conv.add_argument(
+        "--min-click-to-conv-seconds",
+        type=int,
+        help="Minimum allowed seconds from click to conversion",
+    )
+    susp_conv.add_argument(
+        "--max-click-to-conv-seconds",
+        type=int,
+        help="Maximum allowed seconds from click to conversion",
+    )
+    susp_conv.add_argument(
         "--browser-only",
         action="store_true",
         default=None,
@@ -194,6 +204,16 @@ def build_parser() -> argparse.ArgumentParser:
     daily_full.add_argument("--conversion-threshold", type=int, help="Conversion threshold")
     daily_full.add_argument("--conv-media-threshold", type=int, help="Media threshold (conversions)")
     daily_full.add_argument("--conv-program-threshold", type=int, help="Program threshold (conversions)")
+    daily_full.add_argument(
+        "--min-click-to-conv-seconds",
+        type=int,
+        help="Minimum allowed seconds from click to conversion",
+    )
+    daily_full.add_argument(
+        "--max-click-to-conv-seconds",
+        type=int,
+        help="Maximum allowed seconds from click to conversion",
+    )
     daily_full.add_argument("--browser-only", action="store_true", default=None)
     daily_full.add_argument("--exclude-datacenter-ip", action="store_true", default=None)
 
@@ -240,6 +260,16 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--media-threshold", type=int, help="Media threshold for detection")
     refresh.add_argument("--program-threshold", type=int, help="Program threshold for detection")
     refresh.add_argument("--conversion-threshold", type=int, help="Conversion threshold")
+    refresh.add_argument(
+        "--min-click-to-conv-seconds",
+        type=int,
+        help="Minimum allowed seconds from click to conversion",
+    )
+    refresh.add_argument(
+        "--max-click-to-conv-seconds",
+        type=int,
+        help="Maximum allowed seconds from click to conversion",
+    )
     refresh.add_argument("--browser-only", action="store_true", default=None)
     refresh.add_argument("--exclude-datacenter-ip", action="store_true", default=None)
 
@@ -450,6 +480,8 @@ def _cmd_suspicious_conversions(args: argparse.Namespace) -> int:
         program_threshold=args.program_threshold,
         burst_conversion_threshold=args.burst_conversion_threshold,
         burst_window_seconds=args.burst_window_seconds,
+        min_click_to_conv_seconds=args.min_click_to_conv_seconds,
+        max_click_to_conv_seconds=args.max_click_to_conv_seconds,
         browser_only=args.browser_only,
         exclude_datacenter_ip=args.exclude_datacenter_ip,
     )
@@ -507,6 +539,8 @@ def _cmd_daily_full(
         conversion_threshold=args.conversion_threshold,
         media_threshold=args.conv_media_threshold,
         program_threshold=args.conv_program_threshold,
+        min_click_to_conv_seconds=args.min_click_to_conv_seconds,
+        max_click_to_conv_seconds=args.max_click_to_conv_seconds,
         browser_only=args.browser_only,
         exclude_datacenter_ip=args.exclude_datacenter_ip,
     )
@@ -682,6 +716,8 @@ def _cmd_refresh(
             conversion_threshold=args.conversion_threshold,
             media_threshold=args.media_threshold,
             program_threshold=args.program_threshold,
+            min_click_to_conv_seconds=args.min_click_to_conv_seconds,
+            max_click_to_conv_seconds=args.max_click_to_conv_seconds,
             browser_only=args.browser_only,
             exclude_datacenter_ip=args.exclude_datacenter_ip,
         )

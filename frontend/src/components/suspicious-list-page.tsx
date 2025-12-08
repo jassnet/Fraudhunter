@@ -146,6 +146,7 @@ export default function SuspiciousListPage({
       ipLabel,
       "User Agent",
       countLabel,
+      ...(metricKey === "total_conversions" ? ["最短経過時間(秒)", "最長経過時間(秒)"] : []),
       "媒体",
       "案件",
       "判定理由",
@@ -155,6 +156,10 @@ export default function SuspiciousListPage({
       item.ipaddress,
       `"${item.useragent.replace(/"/g, '""')}"`,
       item[metricKey] ?? 0,
+      ...(metricKey === "total_conversions" ? [
+        item.min_click_to_conv_seconds ?? "",
+        item.max_click_to_conv_seconds ?? ""
+      ] : []),
       `"${(item.media_names || []).join(", ")}"`,
       `"${(item.program_names || []).join(", ")}"`,
       `"${(item.reasons_formatted || item.reasons || []).join(", ")}"`,
@@ -242,6 +247,9 @@ export default function SuspiciousListPage({
                       <TableHead className="w-[140px]">{ipLabel}</TableHead>
                       <TableHead className="max-w-[200px]">User Agent</TableHead>
                       <TableHead className="text-right">{countLabel}</TableHead>
+                      {metricKey === "total_conversions" && (
+                        <TableHead className="text-center">経過時間</TableHead>
+                      )}
                       <TableHead className="text-center">媒体</TableHead>
                       <TableHead className="text-center">案件</TableHead>
                       <TableHead>判定理由</TableHead>
@@ -267,6 +275,23 @@ export default function SuspiciousListPage({
                           <TableCell className="text-right font-bold">
                             {item[metricKey] ?? 0}
                           </TableCell>
+                          {metricKey === "total_conversions" && (
+                            <TableCell className="text-center text-xs font-mono">
+                              {item.min_click_to_conv_seconds !== null &&
+                              item.min_click_to_conv_seconds !== undefined ? (
+                                <span>
+                                  {Math.round(item.min_click_to_conv_seconds)}s
+                                  {item.max_click_to_conv_seconds !== null &&
+                                  item.max_click_to_conv_seconds !== undefined &&
+                                  item.max_click_to_conv_seconds !== item.min_click_to_conv_seconds
+                                    ? ` - ${Math.round(item.max_click_to_conv_seconds)}s`
+                                    : ""}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                          )}
                           <TableCell className="text-center">
                             <div className="text-xs">
                               <span className="font-medium">{item.media_count}</span>
@@ -327,6 +352,26 @@ export default function SuspiciousListPage({
                                         <p className="font-bold text-lg">{selectedItem[metricKey] ?? 0}</p>
                                       </div>
                                     </div>
+                                    {(selectedItem.min_click_to_conv_seconds !== undefined || selectedItem.max_click_to_conv_seconds !== undefined) && (
+                                      <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                          <label className="font-medium text-muted-foreground">最短経過時間</label>
+                                          <p className="font-mono">
+                                            {selectedItem.min_click_to_conv_seconds !== null && selectedItem.min_click_to_conv_seconds !== undefined
+                                              ? `${Math.round(selectedItem.min_click_to_conv_seconds)}秒`
+                                              : "-"}
+                                          </p>
+                                        </div>
+                                        <div>
+                                          <label className="font-medium text-muted-foreground">最長経過時間</label>
+                                          <p className="font-mono">
+                                            {selectedItem.max_click_to_conv_seconds !== null && selectedItem.max_click_to_conv_seconds !== undefined
+                                              ? `${Math.round(selectedItem.max_click_to_conv_seconds)}秒`
+                                              : "-"}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    )}
                                     <div>
                                       <label className="font-medium text-muted-foreground">User Agent</label>
                                       <p className="text-xs break-all">{selectedItem.useragent}</p>

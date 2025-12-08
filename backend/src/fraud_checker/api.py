@@ -169,6 +169,12 @@ def format_reasons(reasons: list[str]) -> list[str]:
             formatted.append(f"成果数過多（{threshold}件以上）")
         elif reason.startswith("burst:") and "conversions" in reason:
             formatted.append(f"短時間成果集中（バースト検知）")
+        elif reason.startswith("click_to_conversion_seconds <="):
+            threshold = reason.split("<=")[1].split("s")[0].strip()
+            formatted.append(f"クリック→成果までが短すぎ（閾値{threshold}秒）")
+        elif reason.startswith("click_to_conversion_seconds >="):
+            threshold = reason.split(">=")[1].split("s")[0].strip()
+            formatted.append(f"クリック→成果までが長すぎ（閾値{threshold}秒）")
         else:
             formatted.append(reason)
     return formatted
@@ -475,6 +481,8 @@ def get_suspicious_conversions(
                 "last_time": f.last_conversion_time.isoformat(),
                 "reasons": f.reasons,
                 "reasons_formatted": format_reasons(f.reasons),
+                "min_click_to_conv_seconds": f.min_click_to_conv_seconds,
+                "max_click_to_conv_seconds": f.max_click_to_conv_seconds,
             }
             
             if include_names:
@@ -675,6 +683,8 @@ class SettingsModel(BaseModel):
     conv_program_threshold: int = 2
     burst_conversion_threshold: int = 3
     burst_conversion_window_seconds: int = 1800
+    min_click_to_conv_seconds: int = 5
+    max_click_to_conv_seconds: int = 2592000
     browser_only: bool = False
     exclude_datacenter_ip: bool = False
 
@@ -696,6 +706,8 @@ def _load_settings_from_env() -> dict:
         DEFAULT_CONV_PROGRAM_THRESHOLD,
         DEFAULT_BURST_CONVERSION_THRESHOLD,
         DEFAULT_BURST_CONVERSION_WINDOW_SECONDS,
+        DEFAULT_MIN_CLICK_TO_CONV_SECONDS,
+        DEFAULT_MAX_CLICK_TO_CONV_SECONDS,
         DEFAULT_BROWSER_ONLY,
         DEFAULT_EXCLUDE_DATACENTER_IP,
         _env_int,
@@ -712,6 +724,8 @@ def _load_settings_from_env() -> dict:
         "conv_program_threshold": _env_int("FRAUD_CONV_PROGRAM_THRESHOLD", DEFAULT_CONV_PROGRAM_THRESHOLD),
         "burst_conversion_threshold": _env_int("FRAUD_BURST_CONVERSION_THRESHOLD", DEFAULT_BURST_CONVERSION_THRESHOLD),
         "burst_conversion_window_seconds": _env_int("FRAUD_BURST_CONVERSION_WINDOW_SECONDS", DEFAULT_BURST_CONVERSION_WINDOW_SECONDS),
+        "min_click_to_conv_seconds": _env_int("FRAUD_MIN_CLICK_TO_CONV_SECONDS", DEFAULT_MIN_CLICK_TO_CONV_SECONDS),
+        "max_click_to_conv_seconds": _env_int("FRAUD_MAX_CLICK_TO_CONV_SECONDS", DEFAULT_MAX_CLICK_TO_CONV_SECONDS),
         "browser_only": _env_bool("FRAUD_BROWSER_ONLY", DEFAULT_BROWSER_ONLY),
         "exclude_datacenter_ip": _env_bool("FRAUD_EXCLUDE_DATACENTER_IP", DEFAULT_EXCLUDE_DATACENTER_IP),
     }

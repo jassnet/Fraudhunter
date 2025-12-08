@@ -29,6 +29,8 @@ DEFAULT_CONV_MEDIA_THRESHOLD = 2  # 複数媒体
 DEFAULT_CONV_PROGRAM_THRESHOLD = 2  # 複数案件
 DEFAULT_BURST_CONVERSION_THRESHOLD = 3  # 短時間での成果数
 DEFAULT_BURST_CONVERSION_WINDOW_SECONDS = 1800  # 30分
+DEFAULT_MIN_CLICK_TO_CONV_SECONDS = 5  # クリック→成果までの最小秒数
+DEFAULT_MAX_CLICK_TO_CONV_SECONDS = 2592000  # クリック→成果までの最大秒数（30日）
 
 
 @dataclass
@@ -203,6 +205,8 @@ def resolve_conversion_rules(
     burst_window_seconds: Optional[int] = None,
     browser_only: Optional[bool] = None,
     exclude_datacenter_ip: Optional[bool] = None,
+    min_click_to_conv_seconds: Optional[int] = None,
+    max_click_to_conv_seconds: Optional[int] = None,
 ) -> ConversionSuspiciousRuleSet:
     """成果ベースの不正検知ルールを解決"""
     load_env()
@@ -231,6 +235,16 @@ def resolve_conversion_rules(
         if burst_window_seconds is not None
         else _env_int("FRAUD_BURST_CONVERSION_WINDOW_SECONDS", DEFAULT_BURST_CONVERSION_WINDOW_SECONDS)
     )
+    min_gap = (
+        min_click_to_conv_seconds
+        if min_click_to_conv_seconds is not None
+        else _env_int("FRAUD_MIN_CLICK_TO_CONV_SECONDS", DEFAULT_MIN_CLICK_TO_CONV_SECONDS)
+    )
+    max_gap = (
+        max_click_to_conv_seconds
+        if max_click_to_conv_seconds is not None
+        else _env_int("FRAUD_MAX_CLICK_TO_CONV_SECONDS", DEFAULT_MAX_CLICK_TO_CONV_SECONDS)
+    )
     browser = (
         browser_only
         if browser_only is not None
@@ -248,6 +262,8 @@ def resolve_conversion_rules(
         program_threshold=program,
         burst_conversion_threshold=burst_convs,
         burst_window_seconds=burst_window,
+        min_click_to_conv_seconds=min_gap,
+        max_click_to_conv_seconds=max_gap,
         browser_only=browser,
         exclude_datacenter_ip=exclude_dc,
     )
