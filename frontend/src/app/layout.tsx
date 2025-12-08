@@ -58,7 +58,7 @@ export default function RootLayout({
               </header>
               
               {/* メインコンテンツ */}
-              <main className="flex-1 overflow-y-auto">
+              <main className="flex-1 overflow-hidden">
                 {children}
               </main>
             </div>

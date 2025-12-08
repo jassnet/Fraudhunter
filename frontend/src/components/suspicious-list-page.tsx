@@ -149,8 +149,6 @@ export default function SuspiciousListPage({
       "媒体",
       "案件",
       "判定理由",
-      "開始時間",
-      "終了時間",
     ];
 
     const rows = filteredData.map((item) => [
@@ -160,8 +158,6 @@ export default function SuspiciousListPage({
       `"${(item.media_names || []).join(", ")}"`,
       `"${(item.program_names || []).join(", ")}"`,
       `"${(item.reasons_formatted || item.reasons || []).join(", ")}"`,
-      item.first_time,
-      item.last_time,
     ]);
 
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -177,11 +173,7 @@ export default function SuspiciousListPage({
   return (
     <div className="flex-1 space-y-4 p-8 pt-6">
       <div className="flex items-center justify-between space-y-2">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">{title}</h2>
-          <p className="text-muted-foreground">{description}</p>
-        </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 ml-auto">
           <Select
             value={date}
             onValueChange={(value) => {
@@ -220,11 +212,6 @@ export default function SuspiciousListPage({
       <Card>
         <CardHeader>
           <CardTitle>検知リスト ({date || "データなし"}) - 全{total}件</CardTitle>
-          <CardDescription>
-            {metricKey === "total_clicks"
-              ? "クリック数50回以上、または複数媒体・複数案件へのアクセス"
-              : "成果数5回以上、または複数媒体・複数案件での成果発生"}
-          </CardDescription>
           <div className="flex items-center py-4">
             <div className="relative w-full max-w-sm">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -258,14 +245,13 @@ export default function SuspiciousListPage({
                       <TableHead className="text-center">媒体</TableHead>
                       <TableHead className="text-center">案件</TableHead>
                       <TableHead>判定理由</TableHead>
-                      <TableHead>期間</TableHead>
                       <TableHead className="text-right">詳細</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredData.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="h-24 text-center">
+                        <TableCell colSpan={7} className="h-24 text-center">
                           データが見つかりません
                         </TableCell>
                       </TableRow>
@@ -317,9 +303,6 @@ export default function SuspiciousListPage({
                                 </Badge>
                               ))}
                             </div>
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {item.first_time?.split(" ")[1] || "-"} - {item.last_time?.split(" ")[1] || "-"}
                           </TableCell>
                           <TableCell className="text-right">
                             <Dialog>

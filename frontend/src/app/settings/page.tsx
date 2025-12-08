@@ -112,13 +112,6 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 p-10 pb-16 md:block">
-      <div className="space-y-0.5">
-        <h2 className="text-2xl font-bold tracking-tight">設定</h2>
-        <p className="text-muted-foreground">
-          不正検知システムの閾値や動作設定を管理します。
-        </p>
-      </div>
-
       {message && (
         <div className={`flex items-center gap-2 p-4 rounded-lg ${
           message.type === 'success' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
@@ -128,17 +121,12 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <Separator className="my-6" />
-
       <div className="flex flex-col space-y-8 lg:flex-row lg:space-x-12 lg:space-y-0">
         <div className="flex-1 lg:max-w-2xl">
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>クリック検知閾値</CardTitle>
-                <CardDescription>
-                  クリックベースの不正検知に使用する閾値を設定します。
-                </CardDescription>
+                <CardTitle>クリック検知閾値（同一IP/UA）</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-2">
@@ -150,7 +138,6 @@ export default function SettingsPage() {
                     onChange={(e) => updateField('click_threshold', parseInt(e.target.value) || 0)}
                     min={1}
                   />
-                  <p className="text-xs text-muted-foreground">この回数以上のクリックで不正疑惑フラグ</p>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="media_threshold">重複媒体数上限</Label>
@@ -191,17 +178,13 @@ export default function SettingsPage() {
                     onChange={(e) => updateField('burst_window_seconds', parseInt(e.target.value) || 0)}
                     min={1}
                   />
-                  <p className="text-xs text-muted-foreground">この秒数内にバースト閾値以上のクリックで検知</p>
                 </div>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>成果検知閾値</CardTitle>
-                <CardDescription>
-                  成果ベースの不正検知に使用する閾値を設定します。
-                </CardDescription>
+                <CardTitle>成果検知閾値（同一IP/UA）</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-2">
@@ -260,15 +243,11 @@ export default function SettingsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>フィルタ設定</CardTitle>
-                <CardDescription>
-                  検知対象の絞り込み設定
-                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label>ブラウザのみ</Label>
-                    <p className="text-xs text-muted-foreground">ブラウザ由来のアクセスのみを検知対象にする</p>
                   </div>
                   <Switch
                     checked={settings.browser_only}
@@ -278,7 +257,6 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label>データセンターIP除外</Label>
-                    <p className="text-xs text-muted-foreground">Google/AWS/Azure等のデータセンターIPを除外</p>
                   </div>
                   <Switch
                     checked={settings.exclude_datacenter_ip}
@@ -305,9 +283,6 @@ export default function SettingsPage() {
                 <Database className="h-5 w-5" />
                 マスタデータ
               </CardTitle>
-              <CardDescription>
-                媒体・案件・アフィリエイター名の表示に使用
-              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {mastersStatus && (
@@ -339,9 +314,6 @@ export default function SettingsPage() {
                 )}
                 ACSから同期
               </Button>
-              <p className="text-xs text-muted-foreground">
-                ACSから最新の媒体・案件・アフィリエイター情報を取得します
-              </p>
             </CardContent>
           </Card>
         </div>

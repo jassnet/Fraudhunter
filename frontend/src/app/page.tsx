@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { OverviewChart } from "@/components/overview-chart";
 import { Activity, MousePointerClick, Target, AlertTriangle, ArrowUpRight, ArrowDownRight, RefreshCw, Play } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { fetchSummary, fetchDailyStats } from "@/lib/api";
 import { RefreshDialog } from "@/components/refresh-dialog";
@@ -117,29 +116,6 @@ export default function DashboardPage() {
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">{error}</p>
             
-            <div className="space-y-2">
-              <p className="text-sm font-medium">解決方法:</p>
-              <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-2">
-                <li>
-                  プロジェクトルートで以下を実行:
-                  <code className="ml-2 bg-muted px-2 py-1 rounded text-xs">python dev.py</code>
-                </li>
-                <li>
-                  または、バックエンドのみ起動:
-                  <code className="ml-2 bg-muted px-2 py-1 rounded text-xs">cd backend && python -m uvicorn fraud_checker.api:app --reload --app-dir ./src</code>
-                </li>
-              </ol>
-            </div>
-
-            <div className="text-sm text-muted-foreground border-t pt-4 mt-4">
-              <p className="font-medium mb-2">チェックリスト:</p>
-              <ul className="list-disc list-inside space-y-1">
-                <li><code className="bg-muted px-1 rounded">.env</code> ファイルが設定されているか</li>
-                <li><code className="bg-muted px-1 rounded">FRAUD_DB_PATH</code>、<code className="bg-muted px-1 rounded">ACS_*</code> 環境変数が設定されているか</li>
-                <li>ポート 8000 が使用可能か</li>
-              </ul>
-            </div>
-
             <Button onClick={handleRefresh}>
               <RefreshCw className="mr-2 h-4 w-4" />
               再試行
@@ -156,15 +132,9 @@ export default function DashboardPage() {
   const conversionTrend = calculateTrend(summary.stats.conversions.total, summary.stats.conversions.prev_total);
 
   return (
-    <div className="flex-1 space-y-4 p-8 pt-6">
-      <div className="flex items-center justify-between space-y-2">
-        <div>
-            <h2 className="text-3xl font-bold tracking-tight">ダッシュボード</h2>
-            <p className="text-muted-foreground">
-                {summary.date} 時点の集計データ
-            </p>
-        </div>
-        <div className="flex items-center space-x-2">
+    <div className="flex flex-col h-full space-y-4 p-8 pt-6 overflow-hidden">
+      <div className="flex items-center justify-between space-y-2 shrink-0">
+        <div className="flex items-center space-x-2 ml-auto">
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
             <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             更新
@@ -176,15 +146,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="overview">概要</TabsTrigger>
-          <TabsTrigger value="analytics" disabled>分析 (WIP)</TabsTrigger>
-          <TabsTrigger value="reports" disabled>レポート (WIP)</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="overview" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="space-y-4 flex-1 flex flex-col min-h-0">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 shrink-0">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">総クリック数</CardTitle>
@@ -195,7 +158,6 @@ export default function DashboardPage() {
                 <p className="text-xs text-muted-foreground flex items-center pt-1">
                   {clickTrend >= 0 ? <ArrowUpRight className="h-3 w-3 text-green-500 mr-1" /> : <ArrowDownRight className="h-3 w-3 text-red-500 mr-1" />}
                   <span className={clickTrend >= 0 ? "text-green-500" : "text-red-500"}>{Math.abs(clickTrend).toFixed(1)}%</span>
-                  <span className="ml-1">from yesterday</span>
                 </p>
               </CardContent>
             </Card>
@@ -210,7 +172,6 @@ export default function DashboardPage() {
                 <p className="text-xs text-muted-foreground flex items-center pt-1">
                   {conversionTrend >= 0 ? <ArrowUpRight className="h-3 w-3 text-green-500 mr-1" /> : <ArrowDownRight className="h-3 w-3 text-red-500 mr-1" />}
                   <span className={conversionTrend >= 0 ? "text-green-500" : "text-red-500"}>{Math.abs(conversionTrend).toFixed(1)}%</span>
-                  <span className="ml-1">from yesterday</span>
                 </p>
               </CardContent>
             </Card>
@@ -222,9 +183,6 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{summary.stats.suspicious.click_based}</div>
-                <p className="text-xs text-muted-foreground pt-1">
-                  検知された高リスクIP
-                </p>
               </CardContent>
             </Card>
 
@@ -235,63 +193,21 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{summary.stats.suspicious.conversion_based}</div>
-                <p className="text-xs text-muted-foreground pt-1">
-                  検知された高リスク成果IP
-                </p>
               </CardContent>
             </Card>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-            <Card className="col-span-4">
-              <CardHeader>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7 flex-1 min-h-0">
+            <Card className="col-span-7 flex flex-col">
+              <CardHeader className="shrink-0">
                 <CardTitle>推移 (過去30日)</CardTitle>
               </CardHeader>
-              <CardContent className="pl-2">
+              <CardContent className="pl-2 flex-1 min-h-0">
                 <OverviewChart data={dailyStats} />
               </CardContent>
             </Card>
-            <Card className="col-span-3">
-              <CardHeader>
-                <CardTitle>システム状況</CardTitle>
-                <CardDescription>
-                    監視対象の指標
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-8">
-                    <div className="flex items-center">
-                        <Activity className="h-9 w-9 text-primary bg-primary/10 p-2 rounded-full" />
-                        <div className="ml-4 space-y-1">
-                            <p className="text-sm font-medium leading-none">稼働中の媒体数</p>
-                            <p className="text-sm text-muted-foreground">
-                                {summary.stats.clicks.media_count} Media IDs
-                            </p>
-                        </div>
-                        <div className="ml-auto font-medium">Active</div>
-                    </div>
-                    <div className="flex items-center">
-                        <div className="ml-4 space-y-1">
-                            <p className="text-sm font-medium leading-none">ユニークIP (Click)</p>
-                            <p className="text-sm text-muted-foreground">
-                                {summary.stats.clicks.unique_ips.toLocaleString()} IPs
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex items-center">
-                        <div className="ml-4 space-y-1">
-                            <p className="text-sm font-medium leading-none">ユニークIP (CV)</p>
-                            <p className="text-sm text-muted-foreground">
-                                {summary.stats.conversions.unique_ips.toLocaleString()} IPs
-                            </p>
-                        </div>
-                    </div>
-                </div>
-              </CardContent>
-            </Card>
           </div>
-        </TabsContent>
-      </Tabs>
+      </div>
 
       <RefreshDialog 
         open={showRefreshDialog} 
