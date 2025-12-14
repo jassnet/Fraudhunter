@@ -984,7 +984,8 @@ def get_settings():
 def update_settings(settings: SettingsModel):
     """設定を更新（DBに永続化）"""
     global _settings_cache
-    settings_dict = settings.model_dump()
+    # Pydantic v2ではmodel_dump、v1互換環境ではdictを使う
+    settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else settings.dict()
     
     try:
         repo = get_repository()

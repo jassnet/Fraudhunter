@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   Table,
   TableBody,
@@ -43,11 +43,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import {
   Tooltip,
   TooltipContent,
@@ -597,23 +592,23 @@ export default function SuspiciousListPage({
                         const RiskIcon = riskConfig.icon;
 
                         return (
-                          <Collapsible key={rowId} open={isExpanded}>
+                          <Fragment key={rowId}>
                             <TableRow className={`${isExpanded ? riskConfig.bgColor : ""}`}>
                               <TableCell>
-                                <CollapsibleTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    onClick={() => toggleRowExpand(rowId)}
-                                  >
-                                    {isExpanded ? (
-                                      <ChevronUp className="h-4 w-4" />
-                                    ) : (
-                                      <ChevronDown className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                </CollapsibleTrigger>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() => toggleRowExpand(rowId)}
+                                  aria-expanded={isExpanded}
+                                  aria-label={isExpanded ? "閉じる" : "開く"}
+                                >
+                                  {isExpanded ? (
+                                    <ChevronUp className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronDown className="h-4 w-4" />
+                                  )}
+                                </Button>
                               </TableCell>
                               <TableCell>
                                 <TooltipProvider>
@@ -699,7 +694,7 @@ export default function SuspiciousListPage({
                                 </div>
                               </TableCell>
                             </TableRow>
-                            <CollapsibleContent asChild>
+                            {isExpanded && (
                               <TableRow className={riskConfig.bgColor}>
                                 <TableCell colSpan={metricKey === "total_conversions" ? 8 : 7} className="p-0">
                                   <div className="p-4 space-y-4">
@@ -754,8 +749,8 @@ export default function SuspiciousListPage({
                                   </div>
                                 </TableCell>
                               </TableRow>
-                            </CollapsibleContent>
-                          </Collapsible>
+                            )}
+                          </Fragment>
                         );
                       })
                     )}
