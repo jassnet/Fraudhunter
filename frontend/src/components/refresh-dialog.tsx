@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ingestClicks, ingestConversions, refreshData, syncMasters } from "@/lib/api";
+import { ingestClicks, ingestConversions, refreshData, syncMasters, getMastersStatus, MasterStatus } from "@/lib/api";
 import { Loader2, CheckCircle, XCircle, Clock, Database, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useJobRunner } from "@/lib/use-job-runner";
@@ -31,32 +31,81 @@ export function RefreshDialog({ open, onOpenChange, onSuccess }: RefreshDialogPr
     return d.toISOString().split("T")[0];
   });
   const [hours, setHours] = useState(24);
+  const [masterStatus, setMasterStatus] = useState<MasterStatus | null>(null);
+  const [masterSyncing, setMasterSyncing] = useState(false);
 
   const { status, message, jobId, jobResult, loading, runJob, reset } = useJobRunner(onSuccess);
 
   const buttonDisabled = useMemo(() => loading || status === "running", [loading, status]);
 
+  const MASTER_SYNC_THRESHOLD_HOURS = 48;
+
+  const lastSyncedDate = useMemo(() => {
+    if (!masterStatus?.last_synced_at) return null;
+    const parsed = new Date(masterStatus.last_synced_at);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }, [masterStatus]);
+
+  const needsMasterSync = useMemo(() => {
+    if (!lastSyncedDate) return true;
+    const diffHours = (Date.now() - lastSyncedDate.getTime()) / (1000 * 60 * 60);
+    return diffHours >= MASTER_SYNC_THRESHOLD_HOURS;
+  }, [lastSyncedDate]);
+
+  const loadMasterStatus = async () => {
+    try {
+      const result = await getMastersStatus();
+      setMasterStatus(result);
+    } catch (err) {
+      console.error("Failed to load master status", err);
+    }
+  };
+
+  useEffect(() => {
+    if (open) {
+      loadMasterStatus();
+    }
+  }, [open]);
+
+  const ensureMasterSynced = async () => {
+    if (!needsMasterSync || masterSyncing) return;
+    setMasterSyncing(true);
+    try {
+      await syncMasters();
+      await loadMasterStatus();
+    } catch (err) {
+      console.error("Master sync failed", err);
+    } finally {
+      setMasterSyncing(false);
+    }
+  };
+
   const handleIngestClicks = () =>
-    runJob(`ingest_clicks_${date}`, "クリックログを取り込み中...", () => ingestClicks(date));
+    runJob(`ingest_clicks_${date}`, "クリックログを取り込み中...", async () => {
+      await ensureMasterSynced();
+      return ingestClicks(date);
+    });
 
   const handleIngestConversions = () =>
-    runJob(`ingest_conversions_${date}`, "成果ログを取り込み中...", () => ingestConversions(date));
+    runJob(`ingest_conversions_${date}`, "成果ログを取り込み中...", async () => {
+      await ensureMasterSynced();
+      return ingestConversions(date);
+    });
 
   const handleRefresh = () =>
     runJob(
       `refresh_${hours}h`,
       `過去${hours}時間のデータを取り込み中...`,
-      () => refreshData(hours, true, true)
+      async () => {
+        await ensureMasterSynced();
+        return refreshData(hours, true, true);
+      }
     );
 
   const handleSyncMasters = () =>
     runJob("sync_masters", "マスタデータを同期中...", () => syncMasters());
 
   const handleClose = (openState: boolean) => {
-    if (!openState && status === "running") {
-      // ジョブ実行中は閉じない
-      return;
-    }
     if (!openState) {
       reset();
     }
@@ -89,6 +138,20 @@ export function RefreshDialog({ open, onOpenChange, onSuccess }: RefreshDialogPr
             </TabsList>
 
             <TabsContent value="refresh" className="space-y-4">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>
+                  マスタ最終同期:{" "}
+                  {lastSyncedDate
+                    ? lastSyncedDate.toLocaleString("ja-JP", { hour12: false })
+                    : "未同期"}
+                </span>
+                {needsMasterSync && (
+                  <Badge variant="secondary" className="ml-2">
+                    48時間超で自動同期
+                  </Badge>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="hours">取得時間範囲（時間）</Label>
                 <Input

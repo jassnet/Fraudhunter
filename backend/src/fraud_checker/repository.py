@@ -1121,10 +1121,23 @@ class SQLiteRepository:
             media_count = conn.execute("SELECT COUNT(*) FROM master_media").fetchone()[0]
             promo_count = conn.execute("SELECT COUNT(*) FROM master_promotion").fetchone()[0]
             user_count = conn.execute("SELECT COUNT(*) FROM master_user").fetchone()[0]
+            last_synced_row = conn.execute(
+                """
+                SELECT MAX(updated_at) FROM (
+                    SELECT updated_at FROM master_media
+                    UNION ALL
+                    SELECT updated_at FROM master_promotion
+                    UNION ALL
+                    SELECT updated_at FROM master_user
+                )
+                """
+            ).fetchone()
+            last_synced_at = last_synced_row[0] if last_synced_row else None
         return {
             "media_count": media_count,
             "promotion_count": promo_count,
             "user_count": user_count,
+            "last_synced_at": last_synced_at,
         }
 
     def get_suspicious_click_details(
@@ -1348,3 +1361,48 @@ class SQLiteRepository:
             })
         
         return result, total
+
+    # ========== 設定管理 ==========
+
+    def ensure_settings_schema(self) -> None:
+        """設定テーブルを作成"""
+        with self._connect() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+            """)
+
+    def save_settings(self, settings: dict) -> None:
+        """設定をDBに保存"""
+        self.ensure_settings_schema()
+        now = datetime.utcnow().isoformat()
+        with self._connect() as conn:
+            for key, value in settings.items():
+                # JSON形式で保存（数値やboolを正確に復元するため）
+                json_value = json.dumps(value)
+                conn.execute("""
+                    INSERT INTO app_settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = excluded.updated_at
+                """, (key, json_value, now))
+
+    def load_settings(self) -> dict | None:
+        """設定をDBから読み込み"""
+        self.ensure_settings_schema()
+        with self._connect() as conn:
+            cur = conn.execute("SELECT key, value FROM app_settings")
+            rows = cur.fetchall()
+            if not rows:
+                return None
+            settings = {}
+            for key, value in rows:
+                try:
+                    settings[key] = json.loads(value)
+                except json.JSONDecodeError:
+                    settings[key] = value
+            return settings if settings else None
