@@ -77,6 +77,79 @@ const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 500;
 const CSV_MAX_ROWS = 10000;
 
+type HumanReasonPattern = {
+  regex: RegExp;
+  format: (match: RegExpMatchArray) => string;
+};
+
+// 判定理由をフロント側でより読みやすい表現に整形する
+const HUMAN_REASON_PATTERNS: HumanReasonPattern[] = [
+  {
+    regex: /^total_clicks\s*>=\s*(\d+)/i,
+    format: ([, threshold]) => `クリックが多すぎます（${threshold}回以上）`,
+  },
+  {
+    regex: /^conversion_count\s*>=\s*(\d+)/i,
+    format: ([, threshold]) => `成果が異常に多く発生しています（${threshold}件以上）`,
+  },
+  {
+    regex: /^media_count\s*>=\s*(\d+)/i,
+    format: ([, threshold]) =>
+      `同じIP/UAから複数のメディアへアクセス（${threshold}メディア以上）`,
+  },
+  {
+    regex: /^program_count\s*>=\s*(\d+)/i,
+    format: ([, threshold]) =>
+      `同じIP/UAで複数案件を閲覧（${threshold}案件以上）`,
+  },
+  {
+    regex: /^burst:\s*(\d+)\s*clicks\s*in\s*(\d+)s.*<=\s*(\d+)s/i,
+    format: ([, count, duration, window]) =>
+      `短時間にクリックが集中（${duration}秒で${count}回、目安${window}秒以内）`,
+  },
+  {
+    regex: /^burst:\s*(\d+)\s*conversions\s*in\s*(\d+)s.*<=\s*(\d+)s/i,
+    format: ([, count, duration, window]) =>
+      `短時間に成果が集中（${duration}秒で${count}件、目安${window}秒以内）`,
+  },
+  {
+    regex: /^click_to_conversion_seconds\s*<=\s*(\d+)s.*min=(\d+)s/i,
+    format: ([, threshold, actual]) =>
+      `クリックから成果までが早すぎます（最短${actual}秒、基準${threshold}秒以内）`,
+  },
+  {
+    regex: /^click_to_conversion_seconds\s*>=\s*(\d+)s.*max=(\d+)s/i,
+    format: ([, threshold, actual]) =>
+      `クリックから成果までが遅すぎます（最長${actual}秒、基準${threshold}秒以上）`,
+  },
+  {
+    regex: /^click_to_conversion_seconds\s*<=\s*(\d+)s/i,
+    format: ([, threshold]) => `クリックから成果までの時間が極端に短い（基準${threshold}秒以内）`,
+  },
+  {
+    regex: /^click_to_conversion_seconds\s*>=\s*(\d+)s/i,
+    format: ([, threshold]) => `クリックから成果までの時間が極端に長い（基準${threshold}秒以上）`,
+  },
+];
+
+const humanizeReasons = (reasons?: string[]) => {
+  if (!reasons) return [];
+  return reasons.map((reason) => {
+    for (const pattern of HUMAN_REASON_PATTERNS) {
+      const match = reason.match(pattern.regex);
+      if (match) return pattern.format(match);
+    }
+    return reason;
+  });
+};
+
+const readableReasonsFor = (item: SuspiciousItem) => {
+  const source = item.reasons?.length ? item.reasons : item.reasons_formatted || [];
+  const mapped = humanizeReasons(source);
+  // 重複を除去して表示をすっきりさせる
+  return Array.from(new Set(mapped.length ? mapped : source));
+};
+
 // リスクレベルの色とアイコン
 const RISK_CONFIG = {
   high: {
@@ -321,7 +394,7 @@ export default function SuspiciousListPage({
         `"${(item.media_names || []).join(", ")}"`,
         item.program_count,
         `"${(item.program_names || []).join(", ")}"`,
-        `"${(item.reasons_formatted || item.reasons || []).join(", ")}"`,
+        `"${readableReasonsFor(item).join(", ")}"`,
       ]);
 
       const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -590,6 +663,7 @@ export default function SuspiciousListPage({
                         const isExpanded = expandedRows.has(rowId);
                         const riskConfig = RISK_CONFIG[item.risk_level || "low"];
                         const RiskIcon = riskConfig.icon;
+                        const readableReasons = readableReasonsFor(item);
 
                         return (
                           <Fragment key={rowId}>
@@ -681,14 +755,14 @@ export default function SuspiciousListPage({
                               </TableCell>
                               <TableCell>
                                 <div className="flex flex-wrap gap-1 max-w-[300px]">
-                                  {(item.reasons_formatted || item.reasons || []).slice(0, 2).map((reason, idx) => (
+                                  {readableReasons.slice(0, 2).map((reason, idx) => (
                                     <Badge key={idx} variant="secondary" className="text-xs">
                                       {reason}
                                     </Badge>
                                   ))}
-                                  {(item.reasons_formatted || item.reasons || []).length > 2 && (
+                                  {readableReasons.length > 2 && (
                                     <Badge variant="outline" className="text-xs">
-                                      +{(item.reasons_formatted || item.reasons || []).length - 2}
+                                      +{readableReasons.length - 2}
                                     </Badge>
                                   )}
                                 </div>
@@ -710,7 +784,7 @@ export default function SuspiciousListPage({
                                     <div>
                                       <label className="text-xs font-medium text-muted-foreground">判定理由</label>
                                       <div className="flex flex-wrap gap-2 mt-1">
-                                        {(item.reasons_formatted || item.reasons || []).map((r, idx) => (
+                                        {readableReasons.map((r, idx) => (
                                           <Badge key={idx} variant="destructive">
                                             {r}
                                           </Badge>

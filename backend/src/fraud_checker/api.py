@@ -48,7 +48,12 @@ app = FastAPI(
 # CORS settings for the local Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -160,10 +165,14 @@ def format_reasons(reasons: list[str]) -> list[str]:
             formatted.append(f"クリック数過多（{threshold}回以上）")
         elif reason.startswith("media_count >="):
             threshold = reason.split(">=")[1].strip()
-            formatted.append(f"複数媒体アクセス（{threshold}媒体以上）")
+            formatted.append(
+                f"同じ端末・ブラウザから別のサイト/ページを短時間に行き来しています（{threshold}件以上）"
+            )
         elif reason.startswith("program_count >="):
             threshold = reason.split(">=")[1].strip()
-            formatted.append(f"複数案件アクセス（{threshold}案件以上）")
+            formatted.append(
+                f"同じ端末・ブラウザから別の商品/申込ページを次々に見ています（{threshold}件以上）"
+            )
         elif reason.startswith("burst:") and "clicks" in reason:
             # "burst: 25 clicks in 300s (<= 600s)"
             formatted.append(f"短時間クリック集中（バースト検知）")

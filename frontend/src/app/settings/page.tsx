@@ -26,8 +26,8 @@ const FIELD_DESCRIPTIONS: Record<keyof Settings, { label: string; description: s
     recommended: "推奨: 30〜100",
   },
   media_threshold: {
-    label: "重複媒体数上限",
-    description: "同一IP/UAが複数の媒体からアクセスした場合に不正疑惑としてマーク",
+    label: "重複メディア数上限",
+    description: "同じIP/UAから複数のメディアへアクセスした場合に不正疑惑としてマーク",
     min: 1,
     max: 100,
     recommended: "推奨: 2〜5",
@@ -61,8 +61,8 @@ const FIELD_DESCRIPTIONS: Record<keyof Settings, { label: string; description: s
     recommended: "推奨: 3〜10",
   },
   conv_media_threshold: {
-    label: "重複媒体数上限",
-    description: "同一IP/UAが複数の媒体で成果を上げた場合に不正疑惑としてマーク",
+    label: "重複メディア数上限",
+    description: "同じIP/UAから複数のメディアで成果を上げた場合に不正疑惑としてマーク",
     min: 1,
     max: 100,
     recommended: "推奨: 2〜3",
