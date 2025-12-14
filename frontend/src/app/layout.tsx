@@ -5,6 +5,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { MainNav } from "@/components/main-nav";
 import { ModeToggle } from "@/components/mode-toggle";
 import { MobileNav } from "@/components/mobile-nav";
+import { JobStatusIndicator } from "@/components/job-status-indicator";
+import { SetupWarning } from "@/components/setup-warning";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -37,7 +39,11 @@ export default function RootLayout({
                 <div className="flex-1 px-4 py-4">
                   <MainNav />
                 </div>
-                <div className="mt-auto p-4 border-t">
+                <div className="mt-auto p-4 border-t space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">ジョブ状態</span>
+                    <JobStatusIndicator />
+                  </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">v2.0.0</span>
                     <ModeToggle />
@@ -53,9 +59,15 @@ export default function RootLayout({
                 <MobileNav />
                 <span className="font-semibold">Fraud Checker v2</span>
                 <div className="ml-auto">
-                  <ModeToggle />
+                  <div className="flex items-center gap-3">
+                    <JobStatusIndicator />
+                    <ModeToggle />
+                  </div>
                 </div>
               </header>
+              
+              {/* セットアップ警告 */}
+              <SetupWarning />
               
               {/* メインコンテンツ */}
               <main className="flex-1 overflow-auto">

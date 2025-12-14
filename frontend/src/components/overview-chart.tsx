@@ -1,18 +1,15 @@
 "use client"
 
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend } from "recharts"
+import { DailyStatsItem } from "@/lib/api"
 
 interface OverviewChartProps {
-  data: {
-    date: string;
-    clicks: number;
-    conversions: number;
-  }[];
+  data: DailyStatsItem[];
 }
 
 export function OverviewChart({ data }: OverviewChartProps) {
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height={350}>
       <LineChart data={data}>
         <XAxis
           dataKey="date"
@@ -32,6 +29,7 @@ export function OverviewChart({ data }: OverviewChartProps) {
           tickLine={false}
           axisLine={false}
           tickFormatter={(value) => `${value}`}
+          label={{ value: "クリック数", angle: -90, position: "insideLeft" }}
         />
         <YAxis
           yAxisId="right"
@@ -41,30 +39,64 @@ export function OverviewChart({ data }: OverviewChartProps) {
           tickLine={false}
           axisLine={false}
           tickFormatter={(value) => `${value}`}
+          label={{ value: "成果 / 不正件数", angle: 90, position: "insideRight" }}
         />
         <Tooltip
-            contentStyle={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)' }}
-            labelStyle={{ color: 'var(--foreground)' }}
+          contentStyle={{ 
+            backgroundColor: 'hsl(var(--background))', 
+            borderColor: 'hsl(var(--border))',
+            borderRadius: '8px'
+          }}
+          labelStyle={{ color: 'hsl(var(--foreground))' }}
+          labelFormatter={(value) => {
+            const date = new Date(value);
+            return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+          }}
         />
+        <Legend />
         <Line
           yAxisId="left"
           type="monotone"
           dataKey="clicks"
-          stroke="hsl(var(--primary))"
+          stroke="hsl(217, 91%, 60%)"
           strokeWidth={2}
-          activeDot={{ r: 8 }}
+          dot={false}
+          activeDot={{ r: 6 }}
           name="クリック数"
         />
         <Line
           yAxisId="right"
           type="monotone"
           dataKey="conversions"
-          stroke="hsl(var(--destructive))"
+          stroke="hsl(142, 71%, 45%)"
           strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 6 }}
           name="成果数"
+        />
+        <Line
+          yAxisId="right"
+          type="monotone"
+          dataKey="suspicious_clicks"
+          stroke="hsl(45, 93%, 47%)"
+          strokeWidth={2}
+          strokeDasharray="5 5"
+          dot={false}
+          activeDot={{ r: 6 }}
+          name="不正クリック"
+        />
+        <Line
+          yAxisId="right"
+          type="monotone"
+          dataKey="suspicious_conversions"
+          stroke="hsl(0, 84%, 60%)"
+          strokeWidth={2}
+          strokeDasharray="5 5"
+          dot={false}
+          activeDot={{ r: 6 }}
+          name="不正成果"
         />
       </LineChart>
     </ResponsiveContainer>
   )
 }
-

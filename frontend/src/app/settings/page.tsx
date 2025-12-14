@@ -1,15 +1,183 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RefreshCw, Save, Database, CheckCircle, XCircle } from "lucide-react";
+import { RefreshCw, Save, Database, CheckCircle, XCircle, HelpCircle } from "lucide-react";
 import { getSettings, updateSettings, syncMasters, getMastersStatus, Settings } from "@/lib/api";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+// 各設定項目の説明
+const FIELD_DESCRIPTIONS: Record<keyof Settings, { label: string; description: string; min: number; max?: number; recommended?: string }> = {
+  click_threshold: {
+    label: "1日あたりのクリック数上限",
+    description: "同一IP/UAからの1日のクリック数がこの値以上で不正疑惑としてマーク",
+    min: 1,
+    max: 10000,
+    recommended: "推奨: 30〜100",
+  },
+  media_threshold: {
+    label: "重複媒体数上限",
+    description: "同一IP/UAが複数の媒体からアクセスした場合に不正疑惑としてマーク",
+    min: 1,
+    max: 100,
+    recommended: "推奨: 2〜5",
+  },
+  program_threshold: {
+    label: "重複案件数上限",
+    description: "同一IP/UAが複数の案件にアクセスした場合に不正疑惑としてマーク",
+    min: 1,
+    max: 100,
+    recommended: "推奨: 2〜5",
+  },
+  burst_click_threshold: {
+    label: "バースト検知クリック数",
+    description: "短時間内にこの数以上のクリックがあった場合にバースト検知",
+    min: 1,
+    max: 1000,
+    recommended: "推奨: 10〜30",
+  },
+  burst_window_seconds: {
+    label: "バースト検知時間窓（秒）",
+    description: "バースト検知の対象となる時間範囲（秒）",
+    min: 1,
+    max: 86400,
+    recommended: "推奨: 300〜900（5〜15分）",
+  },
+  conversion_threshold: {
+    label: "1日あたりの成果数上限",
+    description: "同一IP/UAからの1日の成果数がこの値以上で不正疑惑としてマーク",
+    min: 1,
+    max: 1000,
+    recommended: "推奨: 3〜10",
+  },
+  conv_media_threshold: {
+    label: "重複媒体数上限",
+    description: "同一IP/UAが複数の媒体で成果を上げた場合に不正疑惑としてマーク",
+    min: 1,
+    max: 100,
+    recommended: "推奨: 2〜3",
+  },
+  conv_program_threshold: {
+    label: "重複案件数上限",
+    description: "同一IP/UAが複数の案件で成果を上げた場合に不正疑惑としてマーク",
+    min: 1,
+    max: 100,
+    recommended: "推奨: 2〜3",
+  },
+  burst_conversion_threshold: {
+    label: "バースト検知成果数",
+    description: "短時間内にこの数以上の成果があった場合にバースト検知",
+    min: 1,
+    max: 100,
+    recommended: "推奨: 2〜5",
+  },
+  burst_conversion_window_seconds: {
+    label: "バースト検知時間窓（秒）",
+    description: "成果バースト検知の対象となる時間範囲（秒）",
+    min: 1,
+    max: 86400,
+    recommended: "推奨: 1800〜3600（30分〜1時間）",
+  },
+  min_click_to_conv_seconds: {
+    label: "クリック→成果 最短経過時間（秒）",
+    description: "クリックから成果までの時間がこの値未満の場合に不正疑惑としてマーク。0で無効。",
+    min: 0,
+    max: 86400,
+    recommended: "推奨: 5〜30",
+  },
+  max_click_to_conv_seconds: {
+    label: "クリック→成果 最長経過時間（秒）",
+    description: "クリックから成果までの時間がこの値を超える場合に不正疑惑としてマーク。30日（2592000秒）が目安。",
+    min: 0,
+    max: 31536000,
+    recommended: "推奨: 2592000（30日）",
+  },
+  browser_only: {
+    label: "ブラウザのみ",
+    description: "ブラウザ由来のUser-Agentのみを検知対象とする。ボットやAPIアクセスを除外。",
+    min: 0,
+  },
+  exclude_datacenter_ip: {
+    label: "データセンターIP除外",
+    description: "AWS、GCP等のデータセンターIPレンジを検知対象から除外する。",
+    min: 0,
+  },
+};
+
+interface FieldInputProps {
+  id: keyof Settings;
+  value: number;
+  onChange: (value: number) => void;
+  error?: string;
+}
+
+function FieldInput({ id, value, onChange, error }: FieldInputProps) {
+  const field = FIELD_DESCRIPTIONS[id];
+  const [textValue, setTextValue] = useState<string>(() => value.toString());
+
+  // 親から値が更新されたときに表示を同期する
+  useEffect(() => {
+    setTextValue(value === null || value === undefined ? "" : value.toString());
+  }, [value]);
+  
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setTextValue(val);
+    const num = parseInt(val, 10);
+    if (!isNaN(num)) onChange(num);
+  };
+
+  const handleBlur = () => {
+    if (textValue === "") {
+      // 空欄のまま離脱した場合は最小値をセット
+      const fallback = field.min;
+      setTextValue(fallback.toString());
+      onChange(fallback);
+    }
+  };
+
+  return (
+    <div className="grid gap-2">
+      <div className="flex items-center gap-2">
+        <Label htmlFor={id}>{field.label}</Label>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-xs">
+              <p className="text-sm">{field.description}</p>
+              {field.recommended && (
+                <p className="text-xs text-muted-foreground mt-1">{field.recommended}</p>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+      <Input
+        id={id}
+        type="number"
+        value={textValue}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        min={field.min}
+        max={field.max}
+        className={error ? "border-red-500" : ""}
+      />
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -22,6 +190,7 @@ export default function SettingsPage() {
     user_count: number;
   } | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [errors, setErrors] = useState<Partial<Record<keyof Settings, string>>>({});
 
   const loadSettings = async () => {
     try {
@@ -49,8 +218,37 @@ export default function SettingsPage() {
     loadMastersStatus();
   }, []);
 
+  const validateSettings = (settings: Settings): Partial<Record<keyof Settings, string>> => {
+    const errors: Partial<Record<keyof Settings, string>> = {};
+    
+    for (const [key, field] of Object.entries(FIELD_DESCRIPTIONS)) {
+      const k = key as keyof Settings;
+      const value = settings[k];
+      
+      if (typeof value === "number") {
+        if (value < field.min) {
+          errors[k] = `${field.min}以上の値を入力してください`;
+        }
+        if (field.max !== undefined && value > field.max) {
+          errors[k] = `${field.max}以下の値を入力してください`;
+        }
+      }
+    }
+    
+    return errors;
+  };
+
   const handleSave = async () => {
     if (!settings) return;
+    
+    const validationErrors = validateSettings(settings);
+    setErrors(validationErrors);
+    
+    if (Object.keys(validationErrors).length > 0) {
+      setMessage({ type: 'error', text: '入力値にエラーがあります' });
+      return;
+    }
+    
     setSaving(true);
     setMessage(null);
     try {
@@ -84,6 +282,14 @@ export default function SettingsPage() {
   const updateField = (field: keyof Settings, value: number | boolean) => {
     if (!settings) return;
     setSettings({ ...settings, [field]: value });
+    // エラーをクリア
+    if (errors[field]) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
   };
 
   if (loading) {
@@ -127,147 +333,126 @@ export default function SettingsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>クリック検知閾値（同一IP/UA）</CardTitle>
+                <CardDescription>
+                  同一のIPアドレスとUser-Agentの組み合わせからのクリックを分析し、
+                  不正の可能性があるアクセスを検知するための閾値を設定します。
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="click_threshold">1日あたりのクリック数上限</Label>
-                  <Input
-                    id="click_threshold"
-                    type="number"
-                    value={settings.click_threshold}
-                    onChange={(e) => updateField('click_threshold', parseInt(e.target.value) || 0)}
-                    min={1}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="media_threshold">重複媒体数上限</Label>
-                  <Input
-                    id="media_threshold"
-                    type="number"
-                    value={settings.media_threshold}
-                    onChange={(e) => updateField('media_threshold', parseInt(e.target.value) || 0)}
-                    min={1}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="program_threshold">重複案件数上限</Label>
-                  <Input
-                    id="program_threshold"
-                    type="number"
-                    value={settings.program_threshold}
-                    onChange={(e) => updateField('program_threshold', parseInt(e.target.value) || 0)}
-                    min={1}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="burst_click_threshold">バースト検知クリック数</Label>
-                  <Input
-                    id="burst_click_threshold"
-                    type="number"
-                    value={settings.burst_click_threshold}
-                    onChange={(e) => updateField('burst_click_threshold', parseInt(e.target.value) || 0)}
-                    min={1}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="burst_window_seconds">バースト検知時間窓（秒）</Label>
-                  <Input
-                    id="burst_window_seconds"
-                    type="number"
-                    value={settings.burst_window_seconds}
-                    onChange={(e) => updateField('burst_window_seconds', parseInt(e.target.value) || 0)}
-                    min={1}
-                  />
-                </div>
+                <FieldInput
+                  id="click_threshold"
+                  value={settings.click_threshold}
+                  onChange={(v) => updateField('click_threshold', v)}
+                  error={errors.click_threshold}
+                />
+                <FieldInput
+                  id="media_threshold"
+                  value={settings.media_threshold}
+                  onChange={(v) => updateField('media_threshold', v)}
+                  error={errors.media_threshold}
+                />
+                <FieldInput
+                  id="program_threshold"
+                  value={settings.program_threshold}
+                  onChange={(v) => updateField('program_threshold', v)}
+                  error={errors.program_threshold}
+                />
+                <FieldInput
+                  id="burst_click_threshold"
+                  value={settings.burst_click_threshold}
+                  onChange={(v) => updateField('burst_click_threshold', v)}
+                  error={errors.burst_click_threshold}
+                />
+                <FieldInput
+                  id="burst_window_seconds"
+                  value={settings.burst_window_seconds}
+                  onChange={(v) => updateField('burst_window_seconds', v)}
+                  error={errors.burst_window_seconds}
+                />
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
                 <CardTitle>成果検知閾値（同一IP/UA）</CardTitle>
+                <CardDescription>
+                  同一のIPアドレスとUser-Agentの組み合わせからの成果（コンバージョン）を分析し、
+                  不正の可能性がある成果を検知するための閾値を設定します。
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="conversion_threshold">1日あたりの成果数上限</Label>
-                  <Input
-                    id="conversion_threshold"
-                    type="number"
-                    value={settings.conversion_threshold}
-                    onChange={(e) => updateField('conversion_threshold', parseInt(e.target.value) || 0)}
-                    min={1}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="conv_media_threshold">重複媒体数上限</Label>
-                  <Input
-                    id="conv_media_threshold"
-                    type="number"
-                    value={settings.conv_media_threshold}
-                    onChange={(e) => updateField('conv_media_threshold', parseInt(e.target.value) || 0)}
-                    min={1}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="conv_program_threshold">重複案件数上限</Label>
-                  <Input
-                    id="conv_program_threshold"
-                    type="number"
-                    value={settings.conv_program_threshold}
-                    onChange={(e) => updateField('conv_program_threshold', parseInt(e.target.value) || 0)}
-                    min={1}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="burst_conversion_threshold">バースト検知成果数</Label>
-                  <Input
-                    id="burst_conversion_threshold"
-                    type="number"
-                    value={settings.burst_conversion_threshold}
-                    onChange={(e) => updateField('burst_conversion_threshold', parseInt(e.target.value) || 0)}
-                    min={1}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="burst_conversion_window_seconds">バースト検知時間窓（秒）</Label>
-                  <Input
-                    id="burst_conversion_window_seconds"
-                    type="number"
-                    value={settings.burst_conversion_window_seconds}
-                    onChange={(e) => updateField('burst_conversion_window_seconds', parseInt(e.target.value) || 0)}
-                    min={1}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="min_click_to_conv_seconds">クリック→成果 最短経過時間（秒）</Label>
-                  <Input
-                    id="min_click_to_conv_seconds"
-                    type="number"
-                    value={settings.min_click_to_conv_seconds}
-                    onChange={(e) => updateField('min_click_to_conv_seconds', parseInt(e.target.value) || 0)}
-                    min={0}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="max_click_to_conv_seconds">クリック→成果 最長経過時間（秒）</Label>
-                  <Input
-                    id="max_click_to_conv_seconds"
-                    type="number"
-                    value={settings.max_click_to_conv_seconds}
-                    onChange={(e) => updateField('max_click_to_conv_seconds', parseInt(e.target.value) || 0)}
-                    min={0}
-                  />
-                </div>
+                <FieldInput
+                  id="conversion_threshold"
+                  value={settings.conversion_threshold}
+                  onChange={(v) => updateField('conversion_threshold', v)}
+                  error={errors.conversion_threshold}
+                />
+                <FieldInput
+                  id="conv_media_threshold"
+                  value={settings.conv_media_threshold}
+                  onChange={(v) => updateField('conv_media_threshold', v)}
+                  error={errors.conv_media_threshold}
+                />
+                <FieldInput
+                  id="conv_program_threshold"
+                  value={settings.conv_program_threshold}
+                  onChange={(v) => updateField('conv_program_threshold', v)}
+                  error={errors.conv_program_threshold}
+                />
+                <FieldInput
+                  id="burst_conversion_threshold"
+                  value={settings.burst_conversion_threshold}
+                  onChange={(v) => updateField('burst_conversion_threshold', v)}
+                  error={errors.burst_conversion_threshold}
+                />
+                <FieldInput
+                  id="burst_conversion_window_seconds"
+                  value={settings.burst_conversion_window_seconds}
+                  onChange={(v) => updateField('burst_conversion_window_seconds', v)}
+                  error={errors.burst_conversion_window_seconds}
+                />
+                <FieldInput
+                  id="min_click_to_conv_seconds"
+                  value={settings.min_click_to_conv_seconds}
+                  onChange={(v) => updateField('min_click_to_conv_seconds', v)}
+                  error={errors.min_click_to_conv_seconds}
+                />
+                <FieldInput
+                  id="max_click_to_conv_seconds"
+                  value={settings.max_click_to_conv_seconds}
+                  onChange={(v) => updateField('max_click_to_conv_seconds', v)}
+                  error={errors.max_click_to_conv_seconds}
+                />
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
                 <CardTitle>フィルタ設定</CardTitle>
+                <CardDescription>
+                  検知対象を絞り込むためのフィルタ設定です。
+                  誤検知を減らしたい場合に有効化してください。
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label>ブラウザのみ</Label>
+                    <div className="flex items-center gap-2">
+                      <Label>{FIELD_DESCRIPTIONS.browser_only.label}</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs">
+                            <p className="text-sm">{FIELD_DESCRIPTIONS.browser_only.description}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      ボットやAPIアクセスを除外
+                    </p>
                   </div>
                   <Switch
                     checked={settings.browser_only}
@@ -276,7 +461,22 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label>データセンターIP除外</Label>
+                    <div className="flex items-center gap-2">
+                      <Label>{FIELD_DESCRIPTIONS.exclude_datacenter_ip.label}</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs">
+                            <p className="text-sm">{FIELD_DESCRIPTIONS.exclude_datacenter_ip.description}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      AWS/GCP等のクラウドIPを除外
+                    </p>
                   </div>
                   <Switch
                     checked={settings.exclude_datacenter_ip}
@@ -303,22 +503,31 @@ export default function SettingsPage() {
                 <Database className="h-5 w-5" />
                 マスタデータ
               </CardTitle>
+              <CardDescription>
+                ACSから媒体・案件・ユーザー情報を同期します。
+                名前表示に必要です。
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {mastersStatus && (
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">媒体数</span>
-                    <span className="font-medium">{mastersStatus.media_count}</span>
+                    <span className="font-medium">{mastersStatus.media_count.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">案件数</span>
-                    <span className="font-medium">{mastersStatus.promotion_count}</span>
+                    <span className="font-medium">{mastersStatus.promotion_count.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">ユーザー数</span>
-                    <span className="font-medium">{mastersStatus.user_count}</span>
+                    <span className="font-medium">{mastersStatus.user_count.toLocaleString()}</span>
                   </div>
+                </div>
+              )}
+              {!mastersStatus && (
+                <div className="text-sm text-muted-foreground text-center py-4">
+                  マスタデータが未同期です
                 </div>
               )}
               <Button

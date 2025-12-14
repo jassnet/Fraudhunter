@@ -21,6 +21,7 @@ from .suspicious import (
     ConversionSuspiciousDetector,
     SuspiciousDetector,
 )
+from .repository import SQLiteRepository
 from .services.jobs import (
     JobConflictError,
     enqueue_job,
@@ -65,6 +66,8 @@ class DailyStatsItem(BaseModel):
     date: str
     clicks: int
     conversions: int
+    suspicious_clicks: int = 0
+    suspicious_conversions: int = 0
 
 
 class DailyStatsResponse(BaseModel):
@@ -180,11 +183,137 @@ def format_reasons(reasons: list[str]) -> list[str]:
     return formatted
 
 
+def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = False) -> dict:
+    """
+    リスクレベルを計算する
+    返り値: {"level": "high"|"medium"|"low", "score": int, "label": str}
+    """
+    score = 0
+    
+    # 理由の数に基づくスコア
+    reason_count = len(reasons)
+    score += reason_count * 20
+    
+    # 特定の理由に基づく追加スコア
+    for reason in reasons:
+        if "burst" in reason.lower():
+            score += 30  # バースト検知は重要
+        if "click_to_conversion_seconds <=" in reason:
+            score += 25  # クリック→成果が短すぎは重要
+        if "media_count" in reason or "program_count" in reason:
+            score += 15  # 複数媒体/案件
+    
+    # 件数に基づくスコア
+    if is_conversion:
+        if count >= 10:
+            score += 40
+        elif count >= 5:
+            score += 20
+    else:
+        if count >= 200:
+            score += 40
+        elif count >= 100:
+            score += 25
+        elif count >= 50:
+            score += 10
+    
+    # レベル判定
+    if score >= 80:
+        return {"level": "high", "score": score, "label": "高リスク"}
+    elif score >= 40:
+        return {"level": "medium", "score": score, "label": "中リスク"}
+    else:
+        return {"level": "low", "score": score, "label": "低リスク"}
+
+
 # ========== API Endpoints ==========
 
 @app.get("/")
 def root():
     return {"message": "Fraud Checker API v2.0", "status": "running"}
+
+
+@app.get("/api/health")
+def health_check():
+    """システムの状態と環境変数の設定状況をチェック"""
+    import os
+    
+    issues = []
+    warnings = []
+    
+    # 必須環境変数のチェック
+    db_path = os.getenv("FRAUD_DB_PATH")
+    if not db_path:
+        issues.append({
+            "type": "error",
+            "field": "FRAUD_DB_PATH",
+            "message": "データベースパスが設定されていません",
+            "hint": ".envファイルにFRAUD_DB_PATHを設定してください"
+        })
+    
+    acs_base_url = os.getenv("ACS_BASE_URL")
+    if not acs_base_url:
+        issues.append({
+            "type": "error",
+            "field": "ACS_BASE_URL",
+            "message": "ACS APIのURLが設定されていません",
+            "hint": ".envファイルにACS_BASE_URLを設定してください"
+        })
+    
+    acs_token = os.getenv("ACS_TOKEN")
+    acs_access_key = os.getenv("ACS_ACCESS_KEY")
+    acs_secret_key = os.getenv("ACS_SECRET_KEY")
+    if not acs_token and not (acs_access_key and acs_secret_key):
+        issues.append({
+            "type": "error",
+            "field": "ACS_TOKEN / ACS_ACCESS_KEY / ACS_SECRET_KEY",
+            "message": "ACS API認証情報が設定されていません",
+            "hint": ".envファイルにACS_TOKEN、またはACS_ACCESS_KEYとACS_SECRET_KEYを設定してください"
+        })
+    
+    # DBの状態チェック
+    try:
+        repo = get_repository()
+        
+        # クリックデータの有無
+        click_count = execute_query_one(repo, "SELECT COUNT(*) as cnt FROM click_ipua_daily")
+        if not click_count or click_count["cnt"] == 0:
+            warnings.append({
+                "type": "warning",
+                "field": "click_data",
+                "message": "クリックログデータがありません",
+                "hint": "「データ取り込み」からクリックログを取り込んでください"
+            })
+        
+        # マスタデータの有無
+        media_count = execute_query_one(repo, "SELECT COUNT(*) as cnt FROM master_media")
+        if not media_count or media_count["cnt"] == 0:
+            warnings.append({
+                "type": "warning",
+                "field": "master_data",
+                "message": "マスタデータが未同期です",
+                "hint": "「設定」→「マスタデータ」→「ACSから同期」を実行してください"
+            })
+    except Exception as e:
+        issues.append({
+            "type": "error",
+            "field": "database",
+            "message": f"データベースに接続できません: {str(e)}",
+            "hint": "FRAUD_DB_PATHが正しいか確認してください"
+        })
+    
+    has_errors = len([i for i in issues if i["type"] == "error"]) > 0
+    has_warnings = len(warnings) > 0
+    
+    return {
+        "status": "error" if has_errors else ("warning" if has_warnings else "ok"),
+        "issues": issues + warnings,
+        "config": {
+            "db_path": db_path or "(未設定)",
+            "acs_base_url": acs_base_url or "(未設定)",
+            "acs_auth": "設定済み" if (acs_token or (acs_access_key and acs_secret_key)) else "(未設定)"
+        }
+    }
 
 
 @app.get("/api/summary", response_model=SummaryResponse)
@@ -306,15 +435,61 @@ def get_daily_stats(limit: int = 30):
             LIMIT ?
         """, (limit,))
         
+        # 不正疑惑クリック（閾値: >= 50）
+        susp_click_rows = execute_query(repo, """
+            SELECT date, COUNT(*) as suspicious_count
+            FROM (
+                SELECT date, ipaddress, useragent
+                FROM click_ipua_daily
+                GROUP BY date, ipaddress, useragent
+                HAVING SUM(click_count) >= 50
+            )
+            GROUP BY date
+            ORDER BY date DESC
+            LIMIT ?
+        """, (limit,))
+        
+        # 不正疑惑成果（閾値: >= 5）
+        susp_conv_rows = execute_query(repo, """
+            SELECT date, COUNT(*) as suspicious_count
+            FROM (
+                SELECT date, ipaddress, useragent
+                FROM conversion_ipua_daily
+                GROUP BY date, ipaddress, useragent
+                HAVING SUM(conversion_count) >= 5
+            )
+            GROUP BY date
+            ORDER BY date DESC
+            LIMIT ?
+        """, (limit,))
+        
         # マージ
         merged = {}
         for row in click_rows:
-            merged[row["date"]] = {"date": row["date"], "clicks": row["clicks"], "conversions": 0}
+            merged[row["date"]] = {
+                "date": row["date"], 
+                "clicks": row["clicks"], 
+                "conversions": 0,
+                "suspicious_clicks": 0,
+                "suspicious_conversions": 0
+            }
         for row in conv_rows:
             if row["date"] in merged:
                 merged[row["date"]]["conversions"] = row["conversions"]
             else:
-                merged[row["date"]] = {"date": row["date"], "clicks": 0, "conversions": row["conversions"]}
+                merged[row["date"]] = {
+                    "date": row["date"], 
+                    "clicks": 0, 
+                    "conversions": row["conversions"],
+                    "suspicious_clicks": 0,
+                    "suspicious_conversions": 0
+                }
+        for row in susp_click_rows:
+            if row["date"] in merged:
+                merged[row["date"]]["suspicious_clicks"] = row["suspicious_count"]
+        for row in susp_conv_rows:
+            if row["date"] in merged:
+                merged[row["date"]]["suspicious_conversions"] = row["suspicious_count"]
         
         data = sorted(merged.values(), key=lambda x: x["date"])
         return DailyStatsResponse(data=data)
@@ -328,9 +503,10 @@ def get_suspicious_clicks(
     target_date: Optional[str] = Query(None, alias="date"),
     limit: int = Query(500, ge=1, le=10000),
     offset: int = Query(0, ge=0),
+    search: Optional[str] = Query(None, description="IP/UA/媒体名/案件名で検索"),
     include_names: bool = Query(True, description="媒体/案件名を含める")
 ):
-    """Get suspicious click patterns with pagination and optional name resolution"""
+    """Get suspicious click patterns with pagination, search, and optional name resolution"""
     try:
         repo = get_repository()
 
@@ -358,25 +534,44 @@ def get_suspicious_clicks(
         detector = SuspiciousDetector(repo, rules)
         findings = detector.find_for_date(target_date_obj)
 
-        # 総件数
-        total = len(findings)
-        
-        # ソートしてページネーション適用
-        sorted_findings = sorted(findings, key=lambda f: f.total_clicks, reverse=True)
-        paginated = sorted_findings[offset:offset + limit]
-
-        # 名前解決用のデータを取得
-        if include_names and paginated:
-            details_cache = {}
-            for f in paginated:
+        # 名前解決用のデータを取得（検索前に全件取得）
+        details_cache = {}
+        if include_names:
+            for f in findings:
                 key = (f.ipaddress, f.useragent)
                 if key not in details_cache:
                     details_cache[key] = repo.get_suspicious_click_details(
                         target_date_obj, f.ipaddress, f.useragent
                     )
 
+        # 検索フィルタ適用
+        if search:
+            search_lower = search.lower()
+            filtered_findings = []
+            for f in findings:
+                # IP/UAで検索
+                if search_lower in f.ipaddress.lower() or search_lower in f.useragent.lower():
+                    filtered_findings.append(f)
+                    continue
+                # 媒体名/案件名で検索
+                if include_names:
+                    details = details_cache.get((f.ipaddress, f.useragent), [])
+                    media_names = [d["media_name"].lower() for d in details]
+                    program_names = [d["program_name"].lower() for d in details]
+                    if any(search_lower in name for name in media_names + program_names):
+                        filtered_findings.append(f)
+            findings = filtered_findings
+
+        # 総件数（検索後）
+        total = len(findings)
+        
+        # ソートしてページネーション適用
+        sorted_findings = sorted(findings, key=lambda f: f.total_clicks, reverse=True)
+        paginated = sorted_findings[offset:offset + limit]
+
         data = []
         for f in paginated:
+            risk = calculate_risk_level(f.reasons, f.total_clicks, is_conversion=False)
             item = {
                 "date": f.date.isoformat(),
                 "ipaddress": f.ipaddress,
@@ -388,6 +583,9 @@ def get_suspicious_clicks(
                 "last_time": f.last_time.isoformat(),
                 "reasons": f.reasons,
                 "reasons_formatted": format_reasons(f.reasons),
+                "risk_level": risk["level"],
+                "risk_score": risk["score"],
+                "risk_label": risk["label"],
             }
             
             if include_names:
@@ -396,6 +594,8 @@ def get_suspicious_clicks(
                 # 主要な媒体・案件名をトップレベルに
                 item["media_names"] = list(set(d["media_name"] for d in details))
                 item["program_names"] = list(set(d["program_name"] for d in details))
+                # アフィリエイター名も追加
+                item["affiliate_names"] = list(set(d.get("affiliate_name", "") for d in details if d.get("affiliate_name")))
             
             data.append(item)
 
@@ -419,9 +619,10 @@ def get_suspicious_conversions(
     target_date: Optional[str] = Query(None, alias="date"),
     limit: int = Query(500, ge=1, le=10000),
     offset: int = Query(0, ge=0),
+    search: Optional[str] = Query(None, description="IP/UA/媒体名/案件名で検索"),
     include_names: bool = Query(True, description="媒体/案件名を含める")
 ):
-    """Get suspicious conversion patterns with pagination and optional name resolution"""
+    """Get suspicious conversion patterns with pagination, search, and optional name resolution"""
     try:
         repo = get_repository()
 
@@ -449,7 +650,35 @@ def get_suspicious_conversions(
         detector = ConversionSuspiciousDetector(repo, rules)
         findings = detector.find_for_date(target_date_obj)
 
-        # 総件数
+        # 名前解決用のデータを取得（検索前に全件取得）
+        details_cache = {}
+        if include_names:
+            for f in findings:
+                key = (f.ipaddress, f.useragent)
+                if key not in details_cache:
+                    details_cache[key] = repo.get_suspicious_conversion_details(
+                        target_date_obj, f.ipaddress, f.useragent
+                    )
+
+        # 検索フィルタ適用
+        if search:
+            search_lower = search.lower()
+            filtered_findings = []
+            for f in findings:
+                # IP/UAで検索
+                if search_lower in f.ipaddress.lower() or search_lower in f.useragent.lower():
+                    filtered_findings.append(f)
+                    continue
+                # 媒体名/案件名で検索
+                if include_names:
+                    details = details_cache.get((f.ipaddress, f.useragent), [])
+                    media_names = [d["media_name"].lower() for d in details]
+                    program_names = [d["program_name"].lower() for d in details]
+                    if any(search_lower in name for name in media_names + program_names):
+                        filtered_findings.append(f)
+            findings = filtered_findings
+
+        # 総件数（検索後）
         total = len(findings)
 
         # ソートしてページネーション適用
@@ -458,18 +687,9 @@ def get_suspicious_conversions(
         )
         paginated = sorted_findings[offset:offset + limit]
 
-        # 名前解決用のデータを取得
-        if include_names and paginated:
-            details_cache = {}
-            for f in paginated:
-                key = (f.ipaddress, f.useragent)
-                if key not in details_cache:
-                    details_cache[key] = repo.get_suspicious_conversion_details(
-                        target_date_obj, f.ipaddress, f.useragent
-                    )
-
         data = []
         for f in paginated:
+            risk = calculate_risk_level(f.reasons, f.conversion_count, is_conversion=True)
             item = {
                 "date": f.date.isoformat(),
                 "ipaddress": f.ipaddress,
@@ -483,6 +703,9 @@ def get_suspicious_conversions(
                 "reasons_formatted": format_reasons(f.reasons),
                 "min_click_to_conv_seconds": f.min_click_to_conv_seconds,
                 "max_click_to_conv_seconds": f.max_click_to_conv_seconds,
+                "risk_level": risk["level"],
+                "risk_score": risk["score"],
+                "risk_label": risk["label"],
             }
             
             if include_names:
@@ -491,6 +714,8 @@ def get_suspicious_conversions(
                 # 主要な媒体・案件名をトップレベルに
                 item["media_names"] = list(set(d["media_name"] for d in details))
                 item["program_names"] = list(set(d["program_name"] for d in details))
+                # アフィリエイター名も追加
+                item["affiliate_names"] = list(set(d.get("affiliate_name", "") for d in details if d.get("affiliate_name")))
             
             data.append(item)
 
@@ -689,12 +914,12 @@ class SettingsModel(BaseModel):
     exclude_datacenter_ip: bool = False
 
 
-# 設定をメモリに保持（本番環境ではDBやファイルに保存推奨）
+# 設定をメモリにキャッシュ（DBからの読み込み結果を保持）
 _settings_cache: dict = {}
 
 
 def _load_settings_from_env() -> dict:
-    """環境変数から現在の設定を読み込む"""
+    """環境変数からデフォルト設定を読み込む"""
     from .config import (
         DEFAULT_CLICK_THRESHOLD,
         DEFAULT_MEDIA_THRESHOLD,
@@ -731,26 +956,51 @@ def _load_settings_from_env() -> dict:
     }
 
 
+def _load_settings() -> dict:
+    """DBから設定を読み込み、なければ環境変数のデフォルトを使用"""
+    try:
+        repo = get_repository()
+        db_settings = repo.load_settings()
+        if db_settings:
+            # DBの設定を環境変数デフォルトとマージ（新しいキーがあれば追加）
+            env_defaults = _load_settings_from_env()
+            merged = {**env_defaults, **db_settings}
+            return merged
+    except Exception as e:
+        logger.warning(f"Failed to load settings from DB: {e}")
+    return _load_settings_from_env()
+
+
 @app.get("/api/settings")
 def get_settings():
-    """現在の設定を取得"""
+    """現在の設定を取得（DB優先、なければ環境変数デフォルト）"""
     global _settings_cache
     if not _settings_cache:
-        _settings_cache = _load_settings_from_env()
+        _settings_cache = _load_settings()
     return _settings_cache
 
 
 @app.post("/api/settings")
 def update_settings(settings: SettingsModel):
-    """設定を更新（メモリ上に保存）"""
+    """設定を更新（DBに永続化）"""
     global _settings_cache
-    _settings_cache = settings.model_dump()
-    logger.info(f"Settings updated: {_settings_cache}")
-    return {"success": True, "settings": _settings_cache}
+    settings_dict = settings.model_dump()
+    
+    try:
+        repo = get_repository()
+        repo.save_settings(settings_dict)
+        _settings_cache = settings_dict
+        logger.info(f"Settings saved to DB: {_settings_cache}")
+        return {"success": True, "settings": _settings_cache, "persisted": True}
+    except Exception as e:
+        logger.exception("Failed to save settings to DB")
+        # DBに保存できなくてもメモリには反映
+        _settings_cache = settings_dict
+        return {"success": True, "settings": _settings_cache, "persisted": False, "warning": str(e)}
 
 
 # ========== Main ==========
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

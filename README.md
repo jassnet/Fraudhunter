@@ -71,7 +71,7 @@ ACS_SECRET_KEY=your_secret_key
 python dev.py
 ```
 
-- Backend: http://localhost:8000 (API docs at /docs)
+- Backend: http://localhost:8001 (API docs at /docs)
 - Frontend: http://localhost:3000
 
 ## Operation Guide
@@ -136,7 +136,7 @@ python -m fraud_checker.cli refresh --hours 12 --detect
    python dev.py
    ```
 2. `.env` ファイルが正しく設定されているか確認
-3. ポート 8000 が使用可能か確認
+3. ポート 8001 が使用可能か確認
 
 ### ジョブ競合エラー（409）
 
@@ -180,7 +180,7 @@ python -m fraud_checker.cli refresh --hours 12 --detect
 | `/api/settings` | GET/POST | 設定取得/保存 |
 | `/api/job/status` | GET | ジョブ状態確認 |
 
-詳細は http://localhost:8000/docs を参照。
+詳細は http://localhost:8001/docs を参照。
 
 ## Tests
 ```bash
