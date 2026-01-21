@@ -117,3 +117,14 @@
 ## 12. コミット粒度（推奨）
 - 1コミット = 1目的（バグ修正、機能追加、リファクタ）
 - 余計な整形変更を混ぜない（差分レビューを楽にする）
+
+
+## Browser Automation
+
+Use `agent-browser` for web automation. Run `agent-browser --help` for all commands.
+
+Core workflow:
+1. agent-browser open <url>
+2. agent-browser snapshot -i --json
+3. agent-browser click @e1 / fill @e2 "text"
+4. Re-snapshot after page changes

@@ -81,22 +81,27 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const loadDates = useCallback(async () => {
-    try {
-      const result = await getAvailableDates();
-      const dates = result.dates || [];
-      setAvailableDates(dates);
-      if (dates.length > 0 && !selectedDate) {
-        setSelectedDate(dates[0]);
-      }
-    } catch (err) {
-      console.error("Failed to load dates", err);
-    }
-  }, [selectedDate]);
-
+  // 初期化: 日付一覧を取得し、最初の日付を選択
   useEffect(() => {
-    loadDates();
-    fetchData();
+    const init = async () => {
+      try {
+        const result = await getAvailableDates();
+        const dates = result.dates || [];
+        setAvailableDates(dates);
+        if (dates.length > 0) {
+          // 日付があれば最初の日付を選択（useEffect[selectedDate]がfetchDataを呼ぶ）
+          setSelectedDate(dates[0]);
+        } else {
+          // 日付がない場合は日付なしでデータ取得
+          fetchData();
+        }
+      } catch (err) {
+        console.error("Failed to load dates", err);
+        // エラー時も日付なしでデータ取得を試みる
+        fetchData();
+      }
+    };
+    init();
   }, []);
 
   // 日付が変わったらデータを再取得

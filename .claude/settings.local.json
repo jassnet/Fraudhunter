@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python dev.py:*)",
+      "Bash(tasklist:*)",
+      "Bash(curl:*)",
+      "Bash(findstr:*)",
+      "Bash(python -m uvicorn:*)",
+      "Bash(npm.cmd run dev:*)",
+      "Bash(python -c:*)",
+      "Bash(python -V:*)",
+      "Bash(\"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" --version)",
+      "Bash(\"C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -m uvicorn fraud_checker.api:app --reload --port 8001)"
+    ]
+  }
+}
