@@ -9,9 +9,9 @@ const ADMIN_API_KEY = process.env.FC_ADMIN_API_KEY;
 const ALLOWED_METHODS = new Set(["GET", "POST"]);
 
 type RouteContext = {
-  params: {
-    path?: string[];
-  };
+  params: Promise<{
+    path: string[];
+  }>;
 };
 
 function buildUpstreamUrl(request: NextRequest, pathSegments: string[]) {
@@ -28,7 +28,7 @@ async function proxyAdminRequest(request: NextRequest, ctx: RouteContext) {
     );
   }
 
-  const pathSegments = ctx.params.path ?? [];
+  const { path: pathSegments } = await ctx.params;
   if (pathSegments.length === 0) {
     return Response.json({ detail: "Missing admin path" }, { status: 400 });
   }
