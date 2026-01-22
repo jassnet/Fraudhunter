@@ -96,9 +96,6 @@ export function LastUpdated({
     await onRefresh();
   }, [onRefresh]);
 
-  const toggleAutoRefresh = () => {
-    setAutoRefreshEnabled(!autoRefreshEnabled);
-  };
 
   const selectAutoRefreshInterval = (interval: number) => {
     setAutoRefreshInterval(interval);

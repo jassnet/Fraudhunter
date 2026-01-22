@@ -25,8 +25,10 @@ class SQLiteRepository:
         self.raw_schema_created = False
 
     @contextmanager
-    def _connect(self):
+    def _connect(self, *, row_factory: sqlite3.Row | None = None):
         conn = sqlite3.connect(self.db_path)
+        if row_factory is not None:
+            conn.row_factory = row_factory
         try:
             self._configure_connection(conn)
             yield conn
@@ -39,6 +41,17 @@ class SQLiteRepository:
         # Lightweight performance tuning for batch inserts.
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
+
+    def fetch_all(self, query: str, params: tuple = ()) -> List[dict]:
+        with self._connect(row_factory=sqlite3.Row) as conn:
+            cur = conn.execute(query, params)
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+    def fetch_one(self, query: str, params: tuple = ()) -> dict | None:
+        with self._connect(row_factory=sqlite3.Row) as conn:
+            row = conn.execute(query, params).fetchone()
+        return dict(row) if row else None
 
     def ensure_schema(self, store_raw: bool = False) -> None:
         with self._connect() as conn:
@@ -1054,66 +1067,6 @@ class SQLiteRepository:
                 count += 1
         return count
 
-    def get_media_name(self, media_id: str) -> str | None:
-        """媒体IDから名前を取得"""
-        with self._connect() as conn:
-            cur = conn.execute("SELECT name FROM master_media WHERE id = ?", (media_id,))
-            row = cur.fetchone()
-            return row[0] if row else None
-
-    def get_promotion_name(self, promotion_id: str) -> str | None:
-        """案件IDから名前を取得"""
-        with self._connect() as conn:
-            cur = conn.execute("SELECT name FROM master_promotion WHERE id = ?", (promotion_id,))
-            row = cur.fetchone()
-            return row[0] if row else None
-
-    def get_user_name(self, user_id: str) -> str | None:
-        """ユーザーIDから名前を取得"""
-        with self._connect() as conn:
-            cur = conn.execute("SELECT name FROM master_user WHERE id = ?", (user_id,))
-            row = cur.fetchone()
-            return row[0] if row else None
-
-    def get_media_names_bulk(self, media_ids: List[str]) -> dict[str, str]:
-        """媒体IDの一括名前解決"""
-        if not media_ids:
-            return {}
-        self.ensure_master_schema()
-        placeholders = ",".join("?" * len(media_ids))
-        with self._connect() as conn:
-            cur = conn.execute(
-                f"SELECT id, name FROM master_media WHERE id IN ({placeholders})",
-                tuple(media_ids)
-            )
-            return {row[0]: row[1] for row in cur.fetchall()}
-
-    def get_promotion_names_bulk(self, promotion_ids: List[str]) -> dict[str, str]:
-        """案件IDの一括名前解決"""
-        if not promotion_ids:
-            return {}
-        self.ensure_master_schema()
-        placeholders = ",".join("?" * len(promotion_ids))
-        with self._connect() as conn:
-            cur = conn.execute(
-                f"SELECT id, name FROM master_promotion WHERE id IN ({placeholders})",
-                tuple(promotion_ids)
-            )
-            return {row[0]: row[1] for row in cur.fetchall()}
-
-    def get_user_names_bulk(self, user_ids: List[str]) -> dict[str, str]:
-        """ユーザーIDの一括名前解決"""
-        if not user_ids:
-            return {}
-        self.ensure_master_schema()
-        placeholders = ",".join("?" * len(user_ids))
-        with self._connect() as conn:
-            cur = conn.execute(
-                f"SELECT id, name FROM master_user WHERE id IN ({placeholders})",
-                tuple(user_ids)
-            )
-            return {row[0]: row[1] for row in cur.fetchall()}
-
     def get_all_masters(self) -> dict:
         """全マスタの件数を取得"""
         self.ensure_master_schema()
@@ -1201,166 +1154,6 @@ class SQLiteRepository:
             }
             for row in rows
         ]
-
-    def get_suspicious_clicks_with_names(self, target_date: date, limit: int = 500, offset: int = 0) -> tuple[List[dict], int]:
-        """
-        不正疑いクリックを名前付きで取得（ページング対応）
-        Returns: (data_list, total_count)
-        """
-        self.ensure_master_schema()
-        
-        # まず総件数を取得
-        with self._connect() as conn:
-            count_query = """
-                SELECT COUNT(*) FROM (
-                    SELECT ipaddress, useragent
-                    FROM click_ipua_daily
-                    WHERE date = ?
-                    GROUP BY ipaddress, useragent
-                    HAVING SUM(click_count) >= 50
-                        OR COUNT(DISTINCT media_id) >= 3
-                        OR COUNT(DISTINCT program_id) >= 3
-                )
-            """
-            total = conn.execute(count_query, (target_date.isoformat(),)).fetchone()[0]
-            
-            # データ取得（関連媒体・案件を含む）
-            query = """
-                SELECT 
-                    c.date,
-                    c.ipaddress,
-                    c.useragent,
-                    SUM(c.click_count) as total_clicks,
-                    COUNT(DISTINCT c.media_id) as media_count,
-                    COUNT(DISTINCT c.program_id) as program_count,
-                    MIN(c.first_time) as first_time,
-                    MAX(c.last_time) as last_time,
-                    GROUP_CONCAT(DISTINCT c.media_id) as media_ids,
-                    GROUP_CONCAT(DISTINCT c.program_id) as program_ids
-                FROM click_ipua_daily c
-                WHERE c.date = ?
-                GROUP BY c.ipaddress, c.useragent
-                HAVING SUM(c.click_count) >= 50
-                    OR COUNT(DISTINCT c.media_id) >= 3
-                    OR COUNT(DISTINCT c.program_id) >= 3
-                ORDER BY total_clicks DESC
-                LIMIT ? OFFSET ?
-            """
-            rows = conn.execute(query, (target_date.isoformat(), limit, offset)).fetchall()
-        
-        # 名前解決
-        all_media_ids = set()
-        all_program_ids = set()
-        for row in rows:
-            if row[8]:  # media_ids
-                all_media_ids.update(row[8].split(","))
-            if row[9]:  # program_ids
-                all_program_ids.update(row[9].split(","))
-        
-        media_names = self.get_media_names_bulk(list(all_media_ids))
-        program_names = self.get_promotion_names_bulk(list(all_program_ids))
-        
-        result = []
-        for row in rows:
-            media_ids = row[8].split(",") if row[8] else []
-            program_ids = row[9].split(",") if row[9] else []
-            
-            result.append({
-                "date": row[0],
-                "ipaddress": row[1],
-                "useragent": row[2],
-                "total_clicks": row[3],
-                "media_count": row[4],
-                "program_count": row[5],
-                "first_time": row[6],
-                "last_time": row[7],
-                "media_ids": media_ids,
-                "program_ids": program_ids,
-                "media_names": [media_names.get(mid, mid) for mid in media_ids],
-                "program_names": [program_names.get(pid, pid) for pid in program_ids],
-            })
-        
-        return result, total
-
-    def get_suspicious_conversions_with_names(self, target_date: date, limit: int = 500, offset: int = 0) -> tuple[List[dict], int]:
-        """
-        不正疑い成果を名前付きで取得（ページング対応）
-        Returns: (data_list, total_count)
-        """
-        self.ensure_master_schema()
-        
-        # まず総件数を取得
-        with self._connect() as conn:
-            count_query = """
-                SELECT COUNT(*) FROM (
-                    SELECT ipaddress, useragent
-                    FROM conversion_ipua_daily
-                    WHERE date = ?
-                    GROUP BY ipaddress, useragent
-                    HAVING SUM(conversion_count) >= 5
-                        OR COUNT(DISTINCT media_id) >= 2
-                        OR COUNT(DISTINCT program_id) >= 2
-                )
-            """
-            total = conn.execute(count_query, (target_date.isoformat(),)).fetchone()[0]
-            
-            # データ取得
-            query = """
-                SELECT 
-                    c.date,
-                    c.ipaddress,
-                    c.useragent,
-                    SUM(c.conversion_count) as total_conversions,
-                    COUNT(DISTINCT c.media_id) as media_count,
-                    COUNT(DISTINCT c.program_id) as program_count,
-                    MIN(c.first_time) as first_time,
-                    MAX(c.last_time) as last_time,
-                    GROUP_CONCAT(DISTINCT c.media_id) as media_ids,
-                    GROUP_CONCAT(DISTINCT c.program_id) as program_ids
-                FROM conversion_ipua_daily c
-                WHERE c.date = ?
-                GROUP BY c.ipaddress, c.useragent
-                HAVING SUM(c.conversion_count) >= 5
-                    OR COUNT(DISTINCT c.media_id) >= 2
-                    OR COUNT(DISTINCT c.program_id) >= 2
-                ORDER BY total_conversions DESC
-                LIMIT ? OFFSET ?
-            """
-            rows = conn.execute(query, (target_date.isoformat(), limit, offset)).fetchall()
-        
-        # 名前解決
-        all_media_ids = set()
-        all_program_ids = set()
-        for row in rows:
-            if row[8]:
-                all_media_ids.update(row[8].split(","))
-            if row[9]:
-                all_program_ids.update(row[9].split(","))
-        
-        media_names = self.get_media_names_bulk(list(all_media_ids))
-        program_names = self.get_promotion_names_bulk(list(all_program_ids))
-        
-        result = []
-        for row in rows:
-            media_ids = row[8].split(",") if row[8] else []
-            program_ids = row[9].split(",") if row[9] else []
-            
-            result.append({
-                "date": row[0],
-                "ipaddress": row[1],
-                "useragent": row[2],
-                "total_conversions": row[3],
-                "media_count": row[4],
-                "program_count": row[5],
-                "first_time": row[6],
-                "last_time": row[7],
-                "media_ids": media_ids,
-                "program_ids": program_ids,
-                "media_names": [media_names.get(mid, mid) for mid in media_ids],
-                "program_names": [program_names.get(pid, pid) for pid in program_ids],
-            })
-        
-        return result, total
 
     # ========== 設定管理 ==========
 

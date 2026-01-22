@@ -4,24 +4,29 @@ FastAPI backend for Fraud Checker v2
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from .api_models import (
+    DailyStatsResponse,
+    IngestRequest,
+    IngestResponse,
+    JobStatusResponse,
+    RefreshRequest,
+    SettingsModel,
+    SummaryResponse,
+    SuspiciousResponse,
+)
 
 from .env import load_env
 from .config import (
     resolve_conversion_rules,
     resolve_rules,
 )
-from .suspicious import (
-    CombinedSuspiciousDetector,
-    ConversionSuspiciousDetector,
-    SuspiciousDetector,
-)
-from .repository import SQLiteRepository
+from .suspicious import ConversionSuspiciousDetector, SuspiciousDetector
+from .services import reporting, settings as settings_service
 from .services.jobs import (
     JobConflictError,
     enqueue_job,
@@ -60,98 +65,7 @@ app.add_middleware(
 )
 
 
-# ========== Pydantic Models ==========
-
-class SummaryResponse(BaseModel):
-    date: str
-    stats: dict
-
-
-class DailyStatsItem(BaseModel):
-    date: str
-    clicks: int
-    conversions: int
-    suspicious_clicks: int = 0
-    suspicious_conversions: int = 0
-
-
-class DailyStatsResponse(BaseModel):
-    data: list[DailyStatsItem]
-
-
-class SuspiciousItem(BaseModel):
-    date: str
-    ipaddress: str
-    useragent: str
-    total_clicks: Optional[int] = None
-    total_conversions: Optional[int] = None
-    media_count: int
-    program_count: int
-    first_time: str
-    last_time: str
-
-
-class SuspiciousResponse(BaseModel):
-    date: str
-    data: list[dict]
-    total: int = 0
-    limit: int = 500
-    offset: int = 0
-
-
-class IngestRequest(BaseModel):
-    date: str  # YYYY-MM-DD format
-
-
-class RefreshRequest(BaseModel):
-    hours: int = 24
-    clicks: bool = True
-    conversions: bool = True
-    detect: bool = False
-
-
-class IngestResponse(BaseModel):
-    success: bool
-    message: str
-    details: Optional[dict] = None
-
-
-class JobStatusResponse(BaseModel):
-    status: str
-    job_id: Optional[str] = None
-    message: str
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    result: Optional[dict] = None
-
-
 # ========== Helper Functions ==========
-
-
-def execute_query(repo: SQLiteRepository, query: str, params: tuple = ()):
-    """Execute a query and return results as list of dicts"""
-    import sqlite3
-    conn = sqlite3.connect(repo.db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        cur = conn.execute(query, params)
-        rows = cur.fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
-
-
-def execute_query_one(repo: SQLiteRepository, query: str, params: tuple = ()):
-    """Execute a query and return single result as dict"""
-    import sqlite3
-    conn = sqlite3.connect(repo.db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        cur = conn.execute(query, params)
-        row = cur.fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
 
 
 def format_reasons(reasons: list[str]) -> list[str]:
@@ -235,6 +149,41 @@ def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = F
         return {"level": "low", "score": score, "label": "低リスク"}
 
 
+def _resolve_target_date(repo, table: str, target_date: Optional[str]) -> Optional[str]:
+    if target_date:
+        return target_date
+    return reporting.get_latest_date(repo, table)
+
+
+def _build_details_cache(findings, include_names: bool, fetch_details):
+    details_cache = {}
+    if not include_names:
+        return details_cache
+    for finding in findings:
+        key = (finding.ipaddress, finding.useragent)
+        if key not in details_cache:
+            details_cache[key] = fetch_details(finding)
+    return details_cache
+
+
+def _filter_findings(findings, details_cache, search: Optional[str], include_names: bool):
+    if not search:
+        return findings
+    search_lower = search.lower()
+    filtered = []
+    for finding in findings:
+        if search_lower in finding.ipaddress.lower() or search_lower in finding.useragent.lower():
+            filtered.append(finding)
+            continue
+        if include_names:
+            details = details_cache.get((finding.ipaddress, finding.useragent), [])
+            media_names = [d["media_name"].lower() for d in details]
+            program_names = [d["program_name"].lower() for d in details]
+            if any(search_lower in name for name in media_names + program_names):
+                filtered.append(finding)
+    return filtered
+
+
 # ========== API Endpoints ==========
 
 @app.get("/")
@@ -285,7 +234,7 @@ def health_check():
         repo = get_repository()
         
         # クリックデータの有無
-        click_count = execute_query_one(repo, "SELECT COUNT(*) as cnt FROM click_ipua_daily")
+        click_count = repo.fetch_one("SELECT COUNT(*) as cnt FROM click_ipua_daily")
         if not click_count or click_count["cnt"] == 0:
             warnings.append({
                 "type": "warning",
@@ -295,7 +244,7 @@ def health_check():
             })
         
         # マスタデータの有無
-        media_count = execute_query_one(repo, "SELECT COUNT(*) as cnt FROM master_media")
+        media_count = repo.fetch_one("SELECT COUNT(*) as cnt FROM master_media")
         if not media_count or media_count["cnt"] == 0:
             warnings.append({
                 "type": "warning",
@@ -327,96 +276,11 @@ def health_check():
 
 @app.get("/api/summary", response_model=SummaryResponse)
 def get_summary(target_date: Optional[str] = None):
-    """Get summary statistics for a specific date"""
+    """Get summary statistics for a specific date."""
     try:
         repo = get_repository()
-
-        # 最新の日付を取得
-        if not target_date:
-            row = execute_query_one(repo, "SELECT MAX(date) as last_date FROM click_ipua_daily")
-            target_date = row["last_date"] if row and row["last_date"] else None
-            
-            conv_row = execute_query_one(repo, "SELECT MAX(date) as last_date FROM conversion_ipua_daily")
-            if conv_row and conv_row["last_date"]:
-                if not target_date or conv_row["last_date"] > target_date:
-                    target_date = conv_row["last_date"]
-        
-        if not target_date:
-            target_date = (date.today() - timedelta(days=1)).isoformat()
-        
-        # クリック統計
-        click_row = execute_query_one(repo, """
-            SELECT 
-                COALESCE(SUM(click_count), 0) as total_clicks,
-                COUNT(DISTINCT ipaddress) as unique_ips,
-                COUNT(DISTINCT media_id) as active_media
-            FROM click_ipua_daily 
-            WHERE date = ?
-        """, (target_date,))
-        
-        # 成果統計
-        conv_row = execute_query_one(repo, """
-            SELECT 
-                COALESCE(SUM(conversion_count), 0) as total_conversions,
-                COUNT(DISTINCT ipaddress) as conversion_ips
-            FROM conversion_ipua_daily 
-            WHERE date = ?
-        """, (target_date,))
-        
-        # 前日のデータ
-        prev_date = (datetime.fromisoformat(target_date) - timedelta(days=1)).strftime("%Y-%m-%d")
-        
-        prev_click = execute_query_one(repo,
-            "SELECT COALESCE(SUM(click_count), 0) as total FROM click_ipua_daily WHERE date = ?",
-            (prev_date,)
-        )
-        
-        prev_conv = execute_query_one(repo,
-            "SELECT COALESCE(SUM(conversion_count), 0) as total FROM conversion_ipua_daily WHERE date = ?",
-            (prev_date,)
-        )
-        
-        # 不正疑惑カウント（閾値: click >= 50, conversion >= 5）
-        susp_clicks = execute_query_one(repo, """
-            SELECT COUNT(*) as count FROM (
-                SELECT ipaddress, useragent
-                FROM click_ipua_daily
-                WHERE date = ?
-                GROUP BY ipaddress, useragent
-                HAVING SUM(click_count) >= 50
-            )
-        """, (target_date,))
-        
-        susp_convs = execute_query_one(repo, """
-            SELECT COUNT(*) as count FROM (
-                SELECT ipaddress, useragent
-                FROM conversion_ipua_daily
-                WHERE date = ?
-                GROUP BY ipaddress, useragent
-                HAVING SUM(conversion_count) >= 5
-            )
-        """, (target_date,))
-        
-        return SummaryResponse(
-            date=target_date,
-            stats={
-                "clicks": {
-                    "total": click_row["total_clicks"] if click_row else 0,
-                    "unique_ips": click_row["unique_ips"] if click_row else 0,
-                    "media_count": click_row["active_media"] if click_row else 0,
-                    "prev_total": prev_click["total"] if prev_click else 0,
-                },
-                "conversions": {
-                    "total": conv_row["total_conversions"] if conv_row else 0,
-                    "unique_ips": conv_row["conversion_ips"] if conv_row else 0,
-                    "prev_total": prev_conv["total"] if prev_conv else 0,
-                },
-                "suspicious": {
-                    "click_based": susp_clicks["count"] if susp_clicks else 0,
-                    "conversion_based": susp_convs["count"] if susp_convs else 0,
-                }
-            }
-        )
+        payload = reporting.get_summary(repo, target_date)
+        return SummaryResponse(**payload)
     except Exception as e:
         logger.exception("Error getting summary")
         raise HTTPException(status_code=500, detail=str(e))
@@ -424,83 +288,10 @@ def get_summary(target_date: Optional[str] = None):
 
 @app.get("/api/stats/daily", response_model=DailyStatsResponse)
 def get_daily_stats(limit: int = 30):
-    """Get daily statistics for the last N days"""
+    """Get daily statistics for the last N days."""
     try:
         repo = get_repository()
-        
-        click_rows = execute_query(repo, """
-            SELECT date, SUM(click_count) as clicks
-            FROM click_ipua_daily
-            GROUP BY date
-            ORDER BY date DESC
-            LIMIT ?
-        """, (limit,))
-        
-        conv_rows = execute_query(repo, """
-            SELECT date, SUM(conversion_count) as conversions
-            FROM conversion_ipua_daily
-            GROUP BY date
-            ORDER BY date DESC
-            LIMIT ?
-        """, (limit,))
-        
-        # 不正疑惑クリック（閾値: >= 50）
-        susp_click_rows = execute_query(repo, """
-            SELECT date, COUNT(*) as suspicious_count
-            FROM (
-                SELECT date, ipaddress, useragent
-                FROM click_ipua_daily
-                GROUP BY date, ipaddress, useragent
-                HAVING SUM(click_count) >= 50
-            )
-            GROUP BY date
-            ORDER BY date DESC
-            LIMIT ?
-        """, (limit,))
-        
-        # 不正疑惑成果（閾値: >= 5）
-        susp_conv_rows = execute_query(repo, """
-            SELECT date, COUNT(*) as suspicious_count
-            FROM (
-                SELECT date, ipaddress, useragent
-                FROM conversion_ipua_daily
-                GROUP BY date, ipaddress, useragent
-                HAVING SUM(conversion_count) >= 5
-            )
-            GROUP BY date
-            ORDER BY date DESC
-            LIMIT ?
-        """, (limit,))
-        
-        # マージ
-        merged = {}
-        for row in click_rows:
-            merged[row["date"]] = {
-                "date": row["date"], 
-                "clicks": row["clicks"], 
-                "conversions": 0,
-                "suspicious_clicks": 0,
-                "suspicious_conversions": 0
-            }
-        for row in conv_rows:
-            if row["date"] in merged:
-                merged[row["date"]]["conversions"] = row["conversions"]
-            else:
-                merged[row["date"]] = {
-                    "date": row["date"], 
-                    "clicks": 0, 
-                    "conversions": row["conversions"],
-                    "suspicious_clicks": 0,
-                    "suspicious_conversions": 0
-                }
-        for row in susp_click_rows:
-            if row["date"] in merged:
-                merged[row["date"]]["suspicious_clicks"] = row["suspicious_count"]
-        for row in susp_conv_rows:
-            if row["date"] in merged:
-                merged[row["date"]]["suspicious_conversions"] = row["suspicious_count"]
-        
-        data = sorted(merged.values(), key=lambda x: x["date"])
+        data = reporting.get_daily_stats(repo, limit)
         return DailyStatsResponse(data=data)
     except Exception as e:
         logger.exception("Error getting daily stats")
@@ -519,10 +310,7 @@ def get_suspicious_clicks(
     try:
         repo = get_repository()
 
-        if not target_date:
-            row = execute_query_one(repo, "SELECT MAX(date) as last_date FROM click_ipua_daily")
-            target_date = row["last_date"] if row and row["last_date"] else None
-
+        target_date = _resolve_target_date(repo, "click_ipua_daily", target_date)
         if not target_date:
             return SuspiciousResponse(date="", data=[], total=0, limit=limit, offset=offset)
 
@@ -544,34 +332,16 @@ def get_suspicious_clicks(
         findings = detector.find_for_date(target_date_obj)
 
         # 名前解決用のデータを取得（検索前に全件取得）
-        details_cache = {}
-        if include_names:
-            for f in findings:
-                key = (f.ipaddress, f.useragent)
-                if key not in details_cache:
-                    details_cache[key] = repo.get_suspicious_click_details(
-                        target_date_obj, f.ipaddress, f.useragent
-                    )
+        details_cache = _build_details_cache(
+            findings,
+            include_names,
+            lambda f: repo.get_suspicious_click_details(
+                target_date_obj, f.ipaddress, f.useragent
+            ),
+        )
 
-        # 検索フィルタ適用
-        if search:
-            search_lower = search.lower()
-            filtered_findings = []
-            for f in findings:
-                # IP/UAで検索
-                if search_lower in f.ipaddress.lower() or search_lower in f.useragent.lower():
-                    filtered_findings.append(f)
-                    continue
-                # 媒体名/案件名で検索
-                if include_names:
-                    details = details_cache.get((f.ipaddress, f.useragent), [])
-                    media_names = [d["media_name"].lower() for d in details]
-                    program_names = [d["program_name"].lower() for d in details]
-                    if any(search_lower in name for name in media_names + program_names):
-                        filtered_findings.append(f)
-            findings = filtered_findings
+        findings = _filter_findings(findings, details_cache, search, include_names)
 
-        # 総件数（検索後）
         total = len(findings)
         
         # ソートしてページネーション適用
@@ -635,10 +405,7 @@ def get_suspicious_conversions(
     try:
         repo = get_repository()
 
-        if not target_date:
-            row = execute_query_one(repo, "SELECT MAX(date) as last_date FROM conversion_ipua_daily")
-            target_date = row["last_date"] if row and row["last_date"] else None
-
+        target_date = _resolve_target_date(repo, "conversion_ipua_daily", target_date)
         if not target_date:
             return SuspiciousResponse(date="", data=[], total=0, limit=limit, offset=offset)
 
@@ -660,34 +427,16 @@ def get_suspicious_conversions(
         findings = detector.find_for_date(target_date_obj)
 
         # 名前解決用のデータを取得（検索前に全件取得）
-        details_cache = {}
-        if include_names:
-            for f in findings:
-                key = (f.ipaddress, f.useragent)
-                if key not in details_cache:
-                    details_cache[key] = repo.get_suspicious_conversion_details(
-                        target_date_obj, f.ipaddress, f.useragent
-                    )
+        details_cache = _build_details_cache(
+            findings,
+            include_names,
+            lambda f: repo.get_suspicious_conversion_details(
+                target_date_obj, f.ipaddress, f.useragent
+            ),
+        )
 
-        # 検索フィルタ適用
-        if search:
-            search_lower = search.lower()
-            filtered_findings = []
-            for f in findings:
-                # IP/UAで検索
-                if search_lower in f.ipaddress.lower() or search_lower in f.useragent.lower():
-                    filtered_findings.append(f)
-                    continue
-                # 媒体名/案件名で検索
-                if include_names:
-                    details = details_cache.get((f.ipaddress, f.useragent), [])
-                    media_names = [d["media_name"].lower() for d in details]
-                    program_names = [d["program_name"].lower() for d in details]
-                    if any(search_lower in name for name in media_names + program_names):
-                        filtered_findings.append(f)
-            findings = filtered_findings
+        findings = _filter_findings(findings, details_cache, search, include_names)
 
-        # 総件数（検索後）
         total = len(findings)
 
         # ソートしてページネーション適用
@@ -851,21 +600,10 @@ def get_job_status():
 
 @app.get("/api/dates")
 def get_available_dates():
-    """Get list of available dates in the database"""
+    """Get list of available dates in the database."""
     try:
         repo = get_repository()
-        
-        click_dates = execute_query(repo,
-            "SELECT DISTINCT date FROM click_ipua_daily ORDER BY date DESC"
-        )
-        
-        conv_dates = execute_query(repo,
-            "SELECT DISTINCT date FROM conversion_ipua_daily ORDER BY date DESC"
-        )
-        
-        all_dates = set(row["date"] for row in click_dates) | set(row["date"] for row in conv_dates)
-        
-        return {"dates": sorted(all_dates, reverse=True)}
+        return {"dates": reporting.get_available_dates(repo)}
     except Exception as e:
         logger.exception("Error getting dates")
         raise HTTPException(status_code=500, detail=str(e))
@@ -906,107 +644,19 @@ def get_masters_status():
 
 # ========== 設定API ==========
 
-class SettingsModel(BaseModel):
-    click_threshold: int = 50
-    media_threshold: int = 3
-    program_threshold: int = 3
-    burst_click_threshold: int = 20
-    burst_window_seconds: int = 600
-    conversion_threshold: int = 5
-    conv_media_threshold: int = 2
-    conv_program_threshold: int = 2
-    burst_conversion_threshold: int = 3
-    burst_conversion_window_seconds: int = 1800
-    min_click_to_conv_seconds: int = 5
-    max_click_to_conv_seconds: int = 2592000
-    browser_only: bool = False
-    exclude_datacenter_ip: bool = False
-
-
-# 設定をメモリにキャッシュ（DBからの読み込み結果を保持）
-_settings_cache: dict = {}
-
-
-def _load_settings_from_env() -> dict:
-    """環境変数からデフォルト設定を読み込む"""
-    from .config import (
-        DEFAULT_CLICK_THRESHOLD,
-        DEFAULT_MEDIA_THRESHOLD,
-        DEFAULT_PROGRAM_THRESHOLD,
-        DEFAULT_BURST_CLICK_THRESHOLD,
-        DEFAULT_BURST_WINDOW_SECONDS,
-        DEFAULT_CONVERSION_THRESHOLD,
-        DEFAULT_CONV_MEDIA_THRESHOLD,
-        DEFAULT_CONV_PROGRAM_THRESHOLD,
-        DEFAULT_BURST_CONVERSION_THRESHOLD,
-        DEFAULT_BURST_CONVERSION_WINDOW_SECONDS,
-        DEFAULT_MIN_CLICK_TO_CONV_SECONDS,
-        DEFAULT_MAX_CLICK_TO_CONV_SECONDS,
-        DEFAULT_BROWSER_ONLY,
-        DEFAULT_EXCLUDE_DATACENTER_IP,
-        _env_int,
-        _env_bool,
-    )
-    return {
-        "click_threshold": _env_int("FRAUD_CLICK_THRESHOLD", DEFAULT_CLICK_THRESHOLD),
-        "media_threshold": _env_int("FRAUD_MEDIA_THRESHOLD", DEFAULT_MEDIA_THRESHOLD),
-        "program_threshold": _env_int("FRAUD_PROGRAM_THRESHOLD", DEFAULT_PROGRAM_THRESHOLD),
-        "burst_click_threshold": _env_int("FRAUD_BURST_CLICK_THRESHOLD", DEFAULT_BURST_CLICK_THRESHOLD),
-        "burst_window_seconds": _env_int("FRAUD_BURST_WINDOW_SECONDS", DEFAULT_BURST_WINDOW_SECONDS),
-        "conversion_threshold": _env_int("FRAUD_CONVERSION_THRESHOLD", DEFAULT_CONVERSION_THRESHOLD),
-        "conv_media_threshold": _env_int("FRAUD_CONV_MEDIA_THRESHOLD", DEFAULT_CONV_MEDIA_THRESHOLD),
-        "conv_program_threshold": _env_int("FRAUD_CONV_PROGRAM_THRESHOLD", DEFAULT_CONV_PROGRAM_THRESHOLD),
-        "burst_conversion_threshold": _env_int("FRAUD_BURST_CONVERSION_THRESHOLD", DEFAULT_BURST_CONVERSION_THRESHOLD),
-        "burst_conversion_window_seconds": _env_int("FRAUD_BURST_CONVERSION_WINDOW_SECONDS", DEFAULT_BURST_CONVERSION_WINDOW_SECONDS),
-        "min_click_to_conv_seconds": _env_int("FRAUD_MIN_CLICK_TO_CONV_SECONDS", DEFAULT_MIN_CLICK_TO_CONV_SECONDS),
-        "max_click_to_conv_seconds": _env_int("FRAUD_MAX_CLICK_TO_CONV_SECONDS", DEFAULT_MAX_CLICK_TO_CONV_SECONDS),
-        "browser_only": _env_bool("FRAUD_BROWSER_ONLY", DEFAULT_BROWSER_ONLY),
-        "exclude_datacenter_ip": _env_bool("FRAUD_EXCLUDE_DATACENTER_IP", DEFAULT_EXCLUDE_DATACENTER_IP),
-    }
-
-
-def _load_settings() -> dict:
-    """DBから設定を読み込み、なければ環境変数のデフォルトを使用"""
-    try:
-        repo = get_repository()
-        db_settings = repo.load_settings()
-        if db_settings:
-            # DBの設定を環境変数デフォルトとマージ（新しいキーがあれば追加）
-            env_defaults = _load_settings_from_env()
-            merged = {**env_defaults, **db_settings}
-            return merged
-    except Exception as e:
-        logger.warning(f"Failed to load settings from DB: {e}")
-    return _load_settings_from_env()
-
-
 @app.get("/api/settings")
 def get_settings():
-    """現在の設定を取得（DB優先、なければ環境変数デフォルト）"""
-    global _settings_cache
-    if not _settings_cache:
-        _settings_cache = _load_settings()
-    return _settings_cache
+    """Return current settings (DB overrides env defaults)."""
+    repo = get_repository()
+    return settings_service.get_settings(repo)
 
 
 @app.post("/api/settings")
 def update_settings(settings: SettingsModel):
-    """設定を更新（DBに永続化）"""
-    global _settings_cache
-    # Pydantic v2ではmodel_dump、v1互換環境ではdictを使う
+    """Persist settings and update the in-memory cache."""
     settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else settings.dict()
-    
-    try:
-        repo = get_repository()
-        repo.save_settings(settings_dict)
-        _settings_cache = settings_dict
-        logger.info(f"Settings saved to DB: {_settings_cache}")
-        return {"success": True, "settings": _settings_cache, "persisted": True}
-    except Exception as e:
-        logger.exception("Failed to save settings to DB")
-        # DBに保存できなくてもメモリには反映
-        _settings_cache = settings_dict
-        return {"success": True, "settings": _settings_cache, "persisted": False, "warning": str(e)}
+    repo = get_repository()
+    return settings_service.update_settings(repo, settings_dict)
 
 
 # ========== Main ==========

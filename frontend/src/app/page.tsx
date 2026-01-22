@@ -102,7 +102,7 @@ export default function DashboardPage() {
       }
     };
     init();
-  }, []);
+  }, [fetchData]);
 
   // 日付が変わったらデータを再取得
   useEffect(() => {

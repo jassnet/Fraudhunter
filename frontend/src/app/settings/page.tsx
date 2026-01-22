@@ -123,26 +123,23 @@ interface FieldInputProps {
 
 function FieldInput({ id, value, onChange, error }: FieldInputProps) {
   const field = FIELD_DESCRIPTIONS[id];
-  const [textValue, setTextValue] = useState<string>(() => value.toString());
 
-  // 親から値が更新されたときに表示を同期する
-  useEffect(() => {
-    setTextValue(value === null || value === undefined ? "" : value.toString());
-  }, [value]);
-  
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
-    setTextValue(val);
-    const num = parseInt(val, 10);
-    if (!isNaN(num)) onChange(num);
+    if (val == "") {
+      return;
+    }
+    const num = Number(val);
+    if (!Number.isNaN(num)) onChange(num);
   };
 
   const handleBlur = () => {
-    if (textValue === "") {
-      // 空欄のまま離脱した場合は最小値をセット
-      const fallback = field.min;
-      setTextValue(fallback.toString());
-      onChange(fallback);
+    if (value < field.min) {
+      onChange(field.min);
+      return;
+    }
+    if (field.max !== undefined && value > field.max) {
+      onChange(field.max);
     }
   };
 
@@ -167,7 +164,7 @@ function FieldInput({ id, value, onChange, error }: FieldInputProps) {
       <Input
         id={id}
         type="number"
-        value={textValue}
+        value={Number.isFinite(value) ? value : ""}
         onChange={handleChange}
         onBlur={handleBlur}
         min={field.min}
