@@ -1,5 +1,6 @@
 // FastAPI Backend URL
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const ADMIN_API_KEY = process.env.NEXT_PUBLIC_ADMIN_API_KEY;
 
 type RetryOptions = {
   retries?: number;
@@ -68,6 +69,13 @@ async function fetchJson<T>(
       throw err;
     }
   }
+}
+
+function withAdminHeaders(init?: RequestInit): RequestInit {
+  if (!ADMIN_API_KEY) return init || {};
+  const headers = new Headers(init?.headers || {});
+  headers.set("X-API-Key", ADMIN_API_KEY);
+  return { ...init, headers };
 }
 
 export function getErrorMessage(error: unknown, fallback: string) {
@@ -193,9 +201,7 @@ export async function fetchSuspiciousConversions(
 export async function syncMasters() {
   return fetchJson(
     `${API_BASE_URL}/api/sync/masters`,
-    {
-      method: "POST",
-    },
+    withAdminHeaders({ method: "POST" }),
     { retries: 0 }
   );
 }
@@ -230,17 +236,17 @@ export interface Settings {
 }
 
 export async function getSettings(): Promise<Settings> {
-  return fetchJson(`${API_BASE_URL}/api/settings`);
+  return fetchJson(`${API_BASE_URL}/api/settings`, withAdminHeaders());
 }
 
 export async function updateSettings(settings: Settings) {
   return fetchJson(
     `${API_BASE_URL}/api/settings`,
-    {
+    withAdminHeaders({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
-    },
+    }),
     { retries: 0 }
   );
 }
@@ -248,11 +254,11 @@ export async function updateSettings(settings: Settings) {
 export async function ingestClicks(date: string) {
   return fetchJson(
     `${API_BASE_URL}/api/ingest/clicks`,
-    {
+    withAdminHeaders({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date }),
-    },
+    }),
     { retries: 0 }
   );
 }
@@ -260,11 +266,11 @@ export async function ingestClicks(date: string) {
 export async function ingestConversions(date: string) {
   return fetchJson(
     `${API_BASE_URL}/api/ingest/conversions`,
-    {
+    withAdminHeaders({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date }),
-    },
+    }),
     { retries: 0 }
   );
 }
@@ -272,11 +278,11 @@ export async function ingestConversions(date: string) {
 export async function refreshData(hours = 24, clicks = true, conversions = true) {
   return fetchJson(
     `${API_BASE_URL}/api/refresh`,
-    {
+    withAdminHeaders({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hours, clicks, conversions }),
-    },
+    }),
     { retries: 0 }
   );
 }
@@ -305,9 +311,9 @@ export interface HealthCheckResponse {
   status: 'ok' | 'warning' | 'error';
   issues: HealthIssue[];
   config: {
-    db_path: string;
-    acs_base_url: string;
-    acs_auth: string;
+    db_path_configured: boolean;
+    acs_base_url_configured: boolean;
+    acs_auth_configured: boolean;
   };
 }
 

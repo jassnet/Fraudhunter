@@ -4,10 +4,11 @@ FastAPI backend for Fraud Checker v2
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from .api_models import (
     DailyStatsResponse,
@@ -53,12 +54,10 @@ app = FastAPI(
 # CORS settings for the local Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-    ],
+    allow_origins=os.getenv(
+        "FC_CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001",
+    ).split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -66,6 +65,26 @@ app.add_middleware(
 
 
 # ========== Helper Functions ==========
+
+def _extract_bearer(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    if authorization.lower().startswith("bearer "):
+        return authorization.split(" ", 1)[1].strip() or None
+    return None
+
+
+def require_admin(
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
+    authorization: str | None = Header(None),
+) -> None:
+    expected = os.getenv("FC_ADMIN_API_KEY")
+    if not expected:
+        # Allow in dev when no key is configured.
+        return
+    token = x_api_key or _extract_bearer(authorization)
+    if token != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def format_reasons(reasons: list[str]) -> list[str]:
@@ -256,9 +275,9 @@ def health_check():
         "status": "error" if has_errors else ("warning" if has_warnings else "ok"),
         "issues": issues + warnings,
         "config": {
-            "db_path": db_path or "(未設定)",
-            "acs_base_url": acs_base_url or "(未設定)",
-            "acs_auth": "設定済み" if (acs_token or (acs_access_key and acs_secret_key)) else "(未設定)"
+            "db_path_configured": bool(db_path),
+            "acs_base_url_configured": bool(acs_base_url),
+            "acs_auth_configured": bool(acs_token or (acs_access_key and acs_secret_key)),
         }
     }
 
@@ -272,7 +291,7 @@ def get_summary(target_date: Optional[str] = None):
         return SummaryResponse(**payload)
     except Exception as e:
         logger.exception("Error getting summary")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/api/stats/daily", response_model=DailyStatsResponse)
@@ -284,7 +303,7 @@ def get_daily_stats(limit: int = 30):
         return DailyStatsResponse(data=data)
     except Exception as e:
         logger.exception("Error getting daily stats")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/api/suspicious/clicks", response_model=SuspiciousResponse)
@@ -383,7 +402,7 @@ def get_suspicious_clicks(
         raise
     except Exception as e:
         logger.exception("Error getting suspicious clicks")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/api/suspicious/conversions", response_model=SuspiciousResponse)
@@ -485,10 +504,10 @@ def get_suspicious_conversions(
         raise
     except Exception as e:
         logger.exception("Error getting suspicious conversions")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/api/ingest/clicks", response_model=IngestResponse)
+@app.post("/api/ingest/clicks", response_model=IngestResponse, dependencies=[Depends(require_admin)])
 def ingest_clicks(request: IngestRequest, background_tasks: BackgroundTasks):
     """Ingest click logs for a specific date"""
     try:
@@ -512,7 +531,11 @@ def ingest_clicks(request: IngestRequest, background_tasks: BackgroundTasks):
     )
 
 
-@app.post("/api/ingest/conversions", response_model=IngestResponse)
+@app.post(
+    "/api/ingest/conversions",
+    response_model=IngestResponse,
+    dependencies=[Depends(require_admin)],
+)
 def ingest_conversions(request: IngestRequest, background_tasks: BackgroundTasks):
     """Ingest conversion logs for a specific date"""
     try:
@@ -536,7 +559,7 @@ def ingest_conversions(request: IngestRequest, background_tasks: BackgroundTasks
     )
 
 
-@app.post("/api/refresh", response_model=IngestResponse)
+@app.post("/api/refresh", response_model=IngestResponse, dependencies=[Depends(require_admin)])
 def refresh_data(request: RefreshRequest, background_tasks: BackgroundTasks):
     """Refresh data for the last N hours"""
     try:
@@ -603,12 +626,12 @@ def get_available_dates():
         return {"dates": reporting.get_available_dates(repo)}
     except Exception as e:
         logger.exception("Error getting dates")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ========== マスタ同期API ==========
 
-@app.post("/api/sync/masters")
+@app.post("/api/sync/masters", dependencies=[Depends(require_admin)])
 def sync_masters(background_tasks: BackgroundTasks):
     """ACSからマスタデータを同期"""
     try:
@@ -636,19 +659,19 @@ def get_masters_status():
         return stats
     except Exception as e:
         logger.exception("Error getting master status")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ========== 設定API ==========
 
-@app.get("/api/settings")
+@app.get("/api/settings", dependencies=[Depends(require_admin)])
 def get_settings():
     """Return current settings (DB overrides env defaults)."""
     repo = get_repository()
     return settings_service.get_settings(repo)
 
 
-@app.post("/api/settings")
+@app.post("/api/settings", dependencies=[Depends(require_admin)])
 def update_settings(settings: SettingsModel):
     """Persist settings and update the in-memory cache."""
     settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else settings.dict()

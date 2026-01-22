@@ -103,6 +103,25 @@ python -m fraud_checker.cli refresh --hours 12 --detect
 python -m pytest
 ```
 
+## PostgreSQL (Migration)
+
+### 1) Initialize schema with Alembic
+```bash
+cd backend
+set DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/fraudchecker
+alembic upgrade head
+```
+
+### 2) Migrate SQLite data into PostgreSQL
+```bash
+cd backend
+python -m fraud_checker.db.migrate_sqlite_to_postgres --sqlite C:/path/to/fraud_checker.db --database-url %DATABASE_URL% --batch-size 2000
+```
+
+Tips:
+- Add `--skip-raw` to skip raw tables (faster).
+- Add `--truncate` to clear destination tables before insert.
+
 ## API エンドポイント一覧
 
 | エンドポイント | メソッド | 説明 |

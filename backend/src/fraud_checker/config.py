@@ -22,6 +22,7 @@ DEFAULT_BURST_WINDOW_SECONDS = 600
 DEFAULT_LOG_ENDPOINT = "track_log/search"
 DEFAULT_BROWSER_ONLY = False
 DEFAULT_EXCLUDE_DATACENTER_IP = False
+DEFAULT_ALLOW_INSECURE_ACS = False
 
 # 成果ログ用のデフォルト値
 DEFAULT_CONVERSION_THRESHOLD = 5  # 同一IP/UAからの成果数
@@ -99,6 +100,14 @@ def resolve_acs_settings(
     resolved_base_url = _require(base_url or os.getenv("ACS_BASE_URL"), "ACS_BASE_URL or --base-url")
     if not resolved_base_url.startswith("http"):
         raise ValueError("ACS_BASE_URL must be a full URL (e.g. https://acs.example.com).")
+    allow_insecure = _env_bool("ACS_ALLOW_INSECURE", DEFAULT_ALLOW_INSECURE_ACS)
+    if (
+        not resolved_base_url.startswith("https://")
+        and not resolved_base_url.startswith("http://localhost")
+        and not resolved_base_url.startswith("http://127.0.0.1")
+        and not allow_insecure
+    ):
+        raise ValueError("ACS_BASE_URL must use https unless ACS_ALLOW_INSECURE=true.")
 
     resolved_access = access_key or os.getenv("ACS_ACCESS_KEY")
     resolved_secret = secret_key or os.getenv("ACS_SECRET_KEY")

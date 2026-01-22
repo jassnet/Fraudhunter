@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from ..repository import SQLiteRepository
+from . import settings as settings_service
 
 
 def get_latest_date(repo: SQLiteRepository, table: str) -> Optional[str]:
@@ -29,6 +30,9 @@ def resolve_summary_date(repo: SQLiteRepository, target_date: Optional[str]) -> 
 
 def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:
     resolved_date = resolve_summary_date(repo, target_date)
+    settings = settings_service.get_settings(repo)
+    click_threshold = settings["click_threshold"]
+    conversion_threshold = settings["conversion_threshold"]
 
     click_row = repo.fetch_one(
         """
@@ -73,10 +77,10 @@ def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:
             FROM click_ipua_daily
             WHERE date = ?
             GROUP BY ipaddress, useragent
-            HAVING SUM(click_count) >= 50
+            HAVING SUM(click_count) >= ?
         )
         """,
-        (resolved_date,),
+        (resolved_date, click_threshold),
     )
 
     susp_convs = repo.fetch_one(
@@ -86,10 +90,10 @@ def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:
             FROM conversion_ipua_daily
             WHERE date = ?
             GROUP BY ipaddress, useragent
-            HAVING SUM(conversion_count) >= 5
+            HAVING SUM(conversion_count) >= ?
         )
         """,
-        (resolved_date,),
+        (resolved_date, conversion_threshold),
     )
 
     return {
@@ -115,6 +119,9 @@ def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:
 
 
 def get_daily_stats(repo: SQLiteRepository, limit: int) -> list[dict]:
+    settings = settings_service.get_settings(repo)
+    click_threshold = settings["click_threshold"]
+    conversion_threshold = settings["conversion_threshold"]
     click_rows = repo.fetch_all(
         """
         SELECT date, SUM(click_count) as clicks
@@ -144,13 +151,13 @@ def get_daily_stats(repo: SQLiteRepository, limit: int) -> list[dict]:
             SELECT date, ipaddress, useragent
             FROM click_ipua_daily
             GROUP BY date, ipaddress, useragent
-            HAVING SUM(click_count) >= 50
+            HAVING SUM(click_count) >= ?
         )
         GROUP BY date
         ORDER BY date DESC
         LIMIT ?
         """,
-        (limit,),
+        (click_threshold, limit),
     )
 
     susp_conv_rows = repo.fetch_all(
@@ -160,13 +167,13 @@ def get_daily_stats(repo: SQLiteRepository, limit: int) -> list[dict]:
             SELECT date, ipaddress, useragent
             FROM conversion_ipua_daily
             GROUP BY date, ipaddress, useragent
-            HAVING SUM(conversion_count) >= 5
+            HAVING SUM(conversion_count) >= ?
         )
         GROUP BY date
         ORDER BY date DESC
         LIMIT ?
         """,
-        (limit,),
+        (conversion_threshold, limit),
     )
 
     merged: dict[str, dict] = {}

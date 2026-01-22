@@ -82,6 +82,18 @@ const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 500;
 const CSV_MAX_ROWS = 10000;
 const EXPORT_PAGE_SIZE = 1000;
+const CSV_FORMULA_PREFIX = /^[=+\\-@]/;
+
+const sanitizeCsvValue = (value: string) => {
+  const safe = value ?? "";
+  return CSV_FORMULA_PREFIX.test(safe) ? `'${safe}` : safe;
+};
+
+const csvEscape = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined) return "";
+  const safe = sanitizeCsvValue(String(value));
+  return `"${safe.replace(/"/g, '""')}"`;
+};
 
 type HumanReasonPattern = {
   regex: RegExp;
@@ -472,24 +484,25 @@ export default function SuspiciousListPage({
 
         for (const item of items) {
           const row = [
-            item.risk_label || "-",
-            item.ipaddress,
-            `"${item.useragent.replace(/"/g, '""')}"`,
+            csvEscape(item.risk_label || "-"),
+            csvEscape(item.ipaddress),
+            csvEscape(item.useragent),
             item[metricKey] ?? 0,
             ...(metricKey === "total_conversions"
               ? [item.min_click_to_conv_seconds ?? "", item.max_click_to_conv_seconds ?? ""]
               : []),
             item.media_count,
-            `"${(item.media_names || []).join(", ")}"`,
+            csvEscape((item.media_names || []).join(", ")),
             item.program_count,
-            `"${(item.program_names || []).join(", ")}"`,
-            `"${readableReasonsFor(item).join(", ")}"`,
+            csvEscape((item.program_names || []).join(", ")),
+            csvEscape(readableReasonsFor(item).join(", ")),
           ].join(",");
           rows.push(row);
         }
 
         offset += items.length;
         setExportProgress({ current: offset, total: exportTotal });
+        await new Promise((resolve) => setTimeout(resolve, 0));
       }
 
       if (rows.length === 0) {
