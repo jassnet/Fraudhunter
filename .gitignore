@@ -20,6 +20,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# Allow frontend source lib (Next.js alias utils)
+!frontend/src/lib/
+!frontend/src/lib/**
+
 # Virtual environments
 .venv/
 venv/
