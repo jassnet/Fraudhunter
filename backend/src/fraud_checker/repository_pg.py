@@ -11,6 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from .db import Base
+from .db.session import normalize_database_url
 import fraud_checker.db.models  # noqa: F401
 from .models import (
     AggregatedRow,
@@ -24,7 +25,8 @@ from .models import (
 
 class PostgresRepository:
     def __init__(self, database_url: str):
-        self.engine = sa.create_engine(database_url, pool_pre_ping=True)
+        self.database_url = normalize_database_url(database_url)
+        self.engine = sa.create_engine(self.database_url, pool_pre_ping=True)
 
     @contextmanager
     def _connect(self):

@@ -7,15 +7,26 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 
+def normalize_database_url(url: str) -> str:
+    if url.startswith("postgresql+"):
+        return url
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
 def get_database_url() -> str:
     url = os.getenv("DATABASE_URL")
     if not url:
         raise RuntimeError("DATABASE_URL is not set")
-    return url
+    return normalize_database_url(url)
 
 
 def get_engine(url: str | None = None) -> Engine:
-    return create_engine(url or get_database_url())
+    database_url = normalize_database_url(url or get_database_url())
+    return create_engine(database_url)
 
 
 def get_sessionmaker(url: str | None = None) -> sessionmaker:

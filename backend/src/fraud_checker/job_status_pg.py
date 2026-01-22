@@ -7,6 +7,7 @@ from datetime import datetime
 import sqlalchemy as sa
 
 from .db import Base
+from .db.session import normalize_database_url
 import fraud_checker.db.models  # noqa: F401
 
 
@@ -22,7 +23,8 @@ class JobStatus:
 
 class JobStatusStorePG:
     def __init__(self, database_url: str):
-        self.engine = sa.create_engine(database_url, pool_pre_ping=True)
+        self.database_url = normalize_database_url(database_url)
+        self.engine = sa.create_engine(self.database_url, pool_pre_ping=True)
 
     def ensure_schema(self) -> None:
         Base.metadata.create_all(self.engine, tables=[Base.metadata.tables["job_status"]])

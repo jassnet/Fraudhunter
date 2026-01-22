@@ -1,6 +1,6 @@
 // FastAPI Backend URL
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
-const ADMIN_API_KEY = process.env.NEXT_PUBLIC_ADMIN_API_KEY;
+const ADMIN_API_BASE_URL = "/api/admin";
 
 type RetryOptions = {
   retries?: number;
@@ -69,13 +69,6 @@ async function fetchJson<T>(
       throw err;
     }
   }
-}
-
-function withAdminHeaders(init?: RequestInit): RequestInit {
-  if (!ADMIN_API_KEY) return init || {};
-  const headers = new Headers(init?.headers || {});
-  headers.set("X-API-Key", ADMIN_API_KEY);
-  return { ...init, headers };
 }
 
 export function getErrorMessage(error: unknown, fallback: string) {
@@ -200,8 +193,8 @@ export async function fetchSuspiciousConversions(
 
 export async function syncMasters() {
   return fetchJson(
-    `${API_BASE_URL}/api/sync/masters`,
-    withAdminHeaders({ method: "POST" }),
+    `${ADMIN_API_BASE_URL}/sync/masters`,
+    { method: "POST" },
     { retries: 0 }
   );
 }
@@ -236,53 +229,53 @@ export interface Settings {
 }
 
 export async function getSettings(): Promise<Settings> {
-  return fetchJson(`${API_BASE_URL}/api/settings`, withAdminHeaders());
+  return fetchJson(`${ADMIN_API_BASE_URL}/settings`);
 }
 
 export async function updateSettings(settings: Settings) {
   return fetchJson(
-    `${API_BASE_URL}/api/settings`,
-    withAdminHeaders({
+    `${ADMIN_API_BASE_URL}/settings`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
-    }),
+    },
     { retries: 0 }
   );
 }
 
 export async function ingestClicks(date: string) {
   return fetchJson(
-    `${API_BASE_URL}/api/ingest/clicks`,
-    withAdminHeaders({
+    `${ADMIN_API_BASE_URL}/ingest/clicks`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date }),
-    }),
+    },
     { retries: 0 }
   );
 }
 
 export async function ingestConversions(date: string) {
   return fetchJson(
-    `${API_BASE_URL}/api/ingest/conversions`,
-    withAdminHeaders({
+    `${ADMIN_API_BASE_URL}/ingest/conversions`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date }),
-    }),
+    },
     { retries: 0 }
   );
 }
 
 export async function refreshData(hours = 24, clicks = true, conversions = true) {
   return fetchJson(
-    `${API_BASE_URL}/api/refresh`,
-    withAdminHeaders({
+    `${ADMIN_API_BASE_URL}/refresh`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hours, clicks, conversions }),
-    }),
+    },
     { retries: 0 }
   );
 }

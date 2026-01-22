@@ -8,6 +8,7 @@ from typing import Any, Iterable
 import sqlalchemy as sa
 
 from .models import Base
+from .session import normalize_database_url
 
 
 DATE_COLUMNS = {
@@ -130,7 +131,7 @@ def main() -> None:
     sqlite_conn = sqlite3.connect(args.sqlite)
     sqlite_conn.row_factory = sqlite3.Row
 
-    engine = sa.create_engine(args.database_url)
+    engine = sa.create_engine(normalize_database_url(args.database_url))
     Base.metadata.create_all(engine)
 
     tables = list(TABLE_ORDER)

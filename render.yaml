@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: fraudchecker-backend
+    env: python
+    rootDir: backend
+    buildCommand: pip install .
+    startCommand: python -m uvicorn fraud_checker.api:app --host 0.0.0.0 --port $PORT --app-dir ./src
+    preDeployCommand: alembic upgrade head
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fraudchecker-db
+          property: connectionString
+      - key: FC_CORS_ORIGINS
+        value: https://fraudchecker-frontend.onrender.com
+      - key: ACS_ALLOW_INSECURE
+        value: "false"
+
+  - type: web
+    name: fraudchecker-frontend
+    env: node
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: 22.20.0
+      - key: NEXT_PUBLIC_API_URL
+        value: https://fraudchecker-backend.onrender.com
+      - key: API_BASE_URL
+        value: https://fraudchecker-backend.onrender.com
+
+databases:
+  - name: fraudchecker-db
+    databaseName: fraudchecker
+    user: fraudchecker
