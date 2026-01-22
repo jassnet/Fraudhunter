@@ -82,7 +82,7 @@ const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 500;
 const CSV_MAX_ROWS = 10000;
 const EXPORT_PAGE_SIZE = 1000;
-const CSV_FORMULA_PREFIX = /^[=+\\-@]/;
+const CSV_FORMULA_PREFIX = /^[=+@-]/;
 
 const sanitizeCsvValue = (value: string) => {
   const safe = value ?? "";
