@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from .config import (
+from ..config import (
     DEFAULT_BROWSER_ONLY,
     DEFAULT_BURST_CLICK_THRESHOLD,
     DEFAULT_BURST_CONVERSION_THRESHOLD,
@@ -20,7 +20,7 @@ from .config import (
     _env_bool,
     _env_int,
 )
-from .repository import SQLiteRepository
+from ..repository import SQLiteRepository
 
 logger = logging.getLogger(__name__)
 

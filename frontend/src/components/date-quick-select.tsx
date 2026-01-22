@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo } from "react";
+import { cn } from "@/lib/utils";
 
 interface DateQuickSelectProps {
   value: string;
@@ -94,7 +95,7 @@ export function DateQuickSelect({
   const canGoNext = availableDates.length > 0 && availableDates.indexOf(value) > 0;
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <div className={cn("flex items-center gap-2", className)}>
       {/* クイック選択ボタン */}
       {showQuickButtons && (
         <div className="hidden lg:flex items-center gap-1 mr-2">
@@ -110,9 +111,11 @@ export function DateQuickSelect({
                 size="sm"
                 onClick={() => onChange(dateValue)}
                 disabled={!available}
-                className={`text-xs px-2 h-8 ${
-                  !available ? "opacity-50" : ""
-                } ${isActive ? "bg-primary text-primary-foreground" : ""}`}
+                className={cn(
+                  "h-8 px-2 text-xs",
+                  !available && "opacity-50",
+                  isActive && "bg-primary text-primary-foreground"
+                )}
               >
                 {quickDateLabels[option]}
               </Button>
@@ -126,9 +129,10 @@ export function DateQuickSelect({
         <Button
           variant="outline"
           size="icon"
-          className="h-8 w-8"
+          className="size-8"
           onClick={() => navigateDate("prev")}
           disabled={!canGoPrev}
+          aria-label="前の日付へ移動"
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
@@ -161,9 +165,10 @@ export function DateQuickSelect({
         <Button
           variant="outline"
           size="icon"
-          className="h-8 w-8"
+          className="size-8"
           onClick={() => navigateDate("next")}
           disabled={!canGoNext}
+          aria-label="次の日付へ移動"
         >
           <ChevronRight className="h-4 w-4" />
         </Button>
@@ -171,4 +176,3 @@ export function DateQuickSelect({
     </div>
   );
 }
-

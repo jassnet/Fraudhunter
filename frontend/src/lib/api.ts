@@ -1,13 +1,112 @@
 // FastAPI Backend URL
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
-export async function fetchSummary(date?: string) {
-  const url = date 
+type RetryOptions = {
+  retries?: number;
+  retryDelayMs?: number;
+  retryOn?: (status: number) => boolean;
+};
+
+export class ApiError extends Error {
+  status?: number;
+  detail?: string;
+}
+
+const DEFAULT_RETRY_DELAY_MS = 500;
+const defaultRetryOn = (status: number) =>
+  status === 408 || status === 429 || (status >= 500 && status <= 599);
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchJson<T>(
+  url: string,
+  init?: RequestInit,
+  options: RetryOptions = {}
+): Promise<T> {
+  const { retries = 2, retryDelayMs = DEFAULT_RETRY_DELAY_MS, retryOn = defaultRetryOn } =
+    options;
+  let attempt = 0;
+
+  while (true) {
+    try {
+      const res = await fetch(url, init);
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const payload = await res.json();
+          if (typeof payload === "string") {
+            detail = payload;
+          } else if (payload?.detail) {
+            detail = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+          } else if (payload?.message) {
+            detail = payload.message;
+          }
+        } catch {
+          detail = "";
+        }
+
+        const error = new ApiError(detail || `Request failed (${res.status})`);
+        error.status = res.status;
+        error.detail = detail;
+
+        if (attempt < retries && retryOn(res.status)) {
+          attempt += 1;
+          await sleep(retryDelayMs * attempt);
+          continue;
+        }
+        throw error;
+      }
+
+      return res.json();
+    } catch (err) {
+      const isAbortError = err instanceof DOMException && err.name === "AbortError";
+      if (!isAbortError && attempt < retries) {
+        attempt += 1;
+        await sleep(retryDelayMs * attempt);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+export function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    if (error.detail) return error.detail;
+    if (error.message) return error.message;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return fallback;
+}
+
+export interface SummaryResponse {
+  date: string;
+  stats: {
+    clicks: {
+      total: number;
+      unique_ips: number;
+      media_count: number;
+      prev_total: number;
+    };
+    conversions: {
+      total: number;
+      unique_ips: number;
+      prev_total: number;
+    };
+    suspicious: {
+      click_based: number;
+      conversion_based: number;
+    };
+  };
+}
+
+export async function fetchSummary(date?: string): Promise<SummaryResponse> {
+  const url = date
     ? `${API_BASE_URL}/api/summary?target_date=${date}`
     : `${API_BASE_URL}/api/summary`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Failed to fetch summary');
-  return res.json();
+  return fetchJson<SummaryResponse>(url);
 }
 
 export interface DailyStatsItem {
@@ -19,9 +118,7 @@ export interface DailyStatsItem {
 }
 
 export async function fetchDailyStats(limit = 30): Promise<{ data: DailyStatsItem[] }> {
-  const res = await fetch(`${API_BASE_URL}/api/stats/daily?limit=${limit}`);
-  if (!res.ok) throw new Error('Failed to fetch daily stats');
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/api/stats/daily?limit=${limit}`);
 }
 
 export interface SuspiciousResponse {
@@ -75,9 +172,7 @@ export async function fetchSuspiciousClicks(
   params.append('offset', offset.toString());
   if (search) params.append('search', search);
   
-  const res = await fetch(`${API_BASE_URL}/api/suspicious/clicks?${params}`);
-  if (!res.ok) throw new Error('Failed to fetch suspicious clicks');
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/api/suspicious/clicks?${params}`);
 }
 
 export async function fetchSuspiciousConversions(
@@ -92,20 +187,17 @@ export async function fetchSuspiciousConversions(
   params.append('offset', offset.toString());
   if (search) params.append('search', search);
   
-  const res = await fetch(`${API_BASE_URL}/api/suspicious/conversions?${params}`);
-  if (!res.ok) throw new Error('Failed to fetch suspicious conversions');
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/api/suspicious/conversions?${params}`);
 }
 
 export async function syncMasters() {
-  const res = await fetch(`${API_BASE_URL}/api/sync/masters`, {
-    method: 'POST',
-  });
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.detail || 'Failed to sync masters');
-  }
-  return res.json();
+  return fetchJson(
+    `${API_BASE_URL}/api/sync/masters`,
+    {
+      method: "POST",
+    },
+    { retries: 0 }
+  );
 }
 
 export interface MasterStatus {
@@ -116,9 +208,7 @@ export interface MasterStatus {
 }
 
 export async function getMastersStatus(): Promise<MasterStatus> {
-  const res = await fetch(`${API_BASE_URL}/api/masters/status`);
-  if (!res.ok) throw new Error('Failed to get masters status');
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/api/masters/status`);
 }
 
 // Settings API
@@ -140,73 +230,67 @@ export interface Settings {
 }
 
 export async function getSettings(): Promise<Settings> {
-  const res = await fetch(`${API_BASE_URL}/api/settings`);
-  if (!res.ok) throw new Error('Failed to get settings');
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/api/settings`);
 }
 
 export async function updateSettings(settings: Settings) {
-  const res = await fetch(`${API_BASE_URL}/api/settings`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings),
-  });
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.detail || 'Failed to update settings');
-  }
-  return res.json();
+  return fetchJson(
+    `${API_BASE_URL}/api/settings`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    },
+    { retries: 0 }
+  );
 }
 
 export async function ingestClicks(date: string) {
-  const res = await fetch(`${API_BASE_URL}/api/ingest/clicks`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ date }),
-  });
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.detail || 'Failed to start click ingestion');
-  }
-  return res.json();
+  return fetchJson(
+    `${API_BASE_URL}/api/ingest/clicks`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date }),
+    },
+    { retries: 0 }
+  );
 }
 
 export async function ingestConversions(date: string) {
-  const res = await fetch(`${API_BASE_URL}/api/ingest/conversions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ date }),
-  });
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.detail || 'Failed to start conversion ingestion');
-  }
-  return res.json();
+  return fetchJson(
+    `${API_BASE_URL}/api/ingest/conversions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date }),
+    },
+    { retries: 0 }
+  );
 }
 
 export async function refreshData(hours = 24, clicks = true, conversions = true) {
-  const res = await fetch(`${API_BASE_URL}/api/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hours, clicks, conversions }),
-  });
-  if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.detail || 'Failed to start refresh');
-  }
-  return res.json();
+  return fetchJson(
+    `${API_BASE_URL}/api/refresh`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hours, clicks, conversions }),
+    },
+    { retries: 0 }
+  );
 }
 
 export async function getJobStatus() {
-  const res = await fetch(`${API_BASE_URL}/api/job/status`);
-  if (!res.ok) throw new Error('Failed to get job status');
-  return res.json();
+  return fetchJson<JobStatusResponse>(`${API_BASE_URL}/api/job/status`);
 }
 
-export async function getAvailableDates() {
-  const res = await fetch(`${API_BASE_URL}/api/dates`);
-  if (!res.ok) throw new Error('Failed to get dates');
-  return res.json();
+export interface AvailableDatesResponse {
+  dates: string[];
+}
+
+export async function getAvailableDates(): Promise<AvailableDatesResponse> {
+  return fetchJson<AvailableDatesResponse>(`${API_BASE_URL}/api/dates`);
 }
 
 // Health check API
@@ -228,8 +312,14 @@ export interface HealthCheckResponse {
 }
 
 export async function getHealthStatus(): Promise<HealthCheckResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/health`);
-  if (!res.ok) throw new Error('Failed to get health status');
-  return res.json();
+  return fetchJson(`${API_BASE_URL}/api/health`);
 }
 
+export interface JobStatusResponse {
+  status: "idle" | "running" | "completed" | "failed";
+  job_id?: string | null;
+  message?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  result?: Record<string, unknown> | null;
+}

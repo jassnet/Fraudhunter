@@ -18,6 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 interface LastUpdatedProps {
   lastUpdated: Date | null;
@@ -103,7 +104,7 @@ export function LastUpdated({
   };
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <div className={cn("flex items-center gap-2", className)}>
       {/* 最終更新時刻表示 */}
       <TooltipProvider>
         <Tooltip>
@@ -133,7 +134,7 @@ export function LastUpdated({
         className="h-8"
       >
         <RefreshCw
-          className={`mr-1.5 h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""}`}
+          className={cn("mr-1.5 h-3.5 w-3.5", isRefreshing && "animate-spin")}
         />
         更新
       </Button>
@@ -146,6 +147,7 @@ export function LastUpdated({
               variant={autoRefreshEnabled ? "default" : "outline"}
               size="sm"
               className="h-8 px-2"
+              aria-label={autoRefreshEnabled ? "自動更新を停止" : "自動更新を開始"}
             >
               {autoRefreshEnabled ? (
                 <Play className="h-3.5 w-3.5" />

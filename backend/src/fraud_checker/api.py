@@ -155,17 +155,6 @@ def _resolve_target_date(repo, table: str, target_date: Optional[str]) -> Option
     return reporting.get_latest_date(repo, table)
 
 
-def _build_details_cache(findings, include_names: bool, fetch_details):
-    details_cache = {}
-    if not include_names:
-        return details_cache
-    for finding in findings:
-        key = (finding.ipaddress, finding.useragent)
-        if key not in details_cache:
-            details_cache[key] = fetch_details(finding)
-    return details_cache
-
-
 def _filter_findings(findings, details_cache, search: Optional[str], include_names: bool):
     if not search:
         return findings
@@ -331,14 +320,12 @@ def get_suspicious_clicks(
         detector = SuspiciousDetector(repo, rules)
         findings = detector.find_for_date(target_date_obj)
 
-        # 名前解決用のデータを取得（検索前に全件取得）
-        details_cache = _build_details_cache(
-            findings,
-            include_names,
-            lambda f: repo.get_suspicious_click_details(
-                target_date_obj, f.ipaddress, f.useragent
-            ),
-        )
+        details_cache = {}
+        if include_names and search:
+            details_cache = repo.get_suspicious_click_details_bulk(
+                target_date_obj,
+                [(f.ipaddress, f.useragent) for f in findings],
+            )
 
         findings = _filter_findings(findings, details_cache, search, include_names)
 
@@ -347,6 +334,12 @@ def get_suspicious_clicks(
         # ソートしてページネーション適用
         sorted_findings = sorted(findings, key=lambda f: f.total_clicks, reverse=True)
         paginated = sorted_findings[offset:offset + limit]
+
+        if include_names and not details_cache:
+            details_cache = repo.get_suspicious_click_details_bulk(
+                target_date_obj,
+                [(f.ipaddress, f.useragent) for f in paginated],
+            )
 
         data = []
         for f in paginated:
@@ -426,14 +419,12 @@ def get_suspicious_conversions(
         detector = ConversionSuspiciousDetector(repo, rules)
         findings = detector.find_for_date(target_date_obj)
 
-        # 名前解決用のデータを取得（検索前に全件取得）
-        details_cache = _build_details_cache(
-            findings,
-            include_names,
-            lambda f: repo.get_suspicious_conversion_details(
-                target_date_obj, f.ipaddress, f.useragent
-            ),
-        )
+        details_cache = {}
+        if include_names and search:
+            details_cache = repo.get_suspicious_conversion_details_bulk(
+                target_date_obj,
+                [(f.ipaddress, f.useragent) for f in findings],
+            )
 
         findings = _filter_findings(findings, details_cache, search, include_names)
 
@@ -444,6 +435,12 @@ def get_suspicious_conversions(
             findings, key=lambda f: f.conversion_count, reverse=True
         )
         paginated = sorted_findings[offset:offset + limit]
+
+        if include_names and not details_cache:
+            details_cache = repo.get_suspicious_conversion_details_bulk(
+                target_date_obj,
+                [(f.ipaddress, f.useragent) for f in paginated],
+            )
 
         data = []
         for f in paginated:

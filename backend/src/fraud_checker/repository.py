@@ -1104,10 +1104,12 @@ class SQLiteRepository:
                     c.program_id,
                     SUM(c.click_count) as click_count,
                     m.name as media_name,
-                    p.name as program_name
+                    p.name as program_name,
+                    u.name as affiliate_name
                 FROM click_ipua_daily c
                 LEFT JOIN master_media m ON c.media_id = m.id
                 LEFT JOIN master_promotion p ON c.program_id = p.id
+                LEFT JOIN master_user u ON m.user_id = u.id
                 WHERE c.date = ? AND c.ipaddress = ? AND c.useragent = ?
                 GROUP BY c.media_id, c.program_id
                 ORDER BY click_count DESC
@@ -1120,6 +1122,7 @@ class SQLiteRepository:
                 "click_count": row[2],
                 "media_name": row[3] or row[0],  # 名前がない場合はIDをフォールバック
                 "program_name": row[4] or row[1],
+                "affiliate_name": row[5] or None,
             }
             for row in rows
         ]
@@ -1135,10 +1138,12 @@ class SQLiteRepository:
                     c.program_id,
                     SUM(c.conversion_count) as conversion_count,
                     m.name as media_name,
-                    p.name as program_name
+                    p.name as program_name,
+                    u.name as affiliate_name
                 FROM conversion_ipua_daily c
                 LEFT JOIN master_media m ON c.media_id = m.id
                 LEFT JOIN master_promotion p ON c.program_id = p.id
+                LEFT JOIN master_user u ON m.user_id = u.id
                 WHERE c.date = ? AND c.ipaddress = ? AND c.useragent = ?
                 GROUP BY c.media_id, c.program_id
                 ORDER BY conversion_count DESC
@@ -1151,9 +1156,118 @@ class SQLiteRepository:
                 "conversion_count": row[2],
                 "media_name": row[3] or row[0],
                 "program_name": row[4] or row[1],
+                "affiliate_name": row[5] or None,
             }
             for row in rows
         ]
+
+    def get_suspicious_click_details_bulk(
+        self, target_date: date, ip_ua_pairs: List[tuple[str, str]]
+    ) -> Dict[tuple[str, str], List[dict]]:
+        """複数IP/UAのクリック詳細をまとめて取得（N+1対策）"""
+        if not ip_ua_pairs:
+            return {}
+
+        results: Dict[tuple[str, str], List[dict]] = {}
+        chunk_size = 400
+
+        with self._connect() as conn:
+            for i in range(0, len(ip_ua_pairs), chunk_size):
+                chunk = ip_ua_pairs[i : i + chunk_size]
+                placeholders = ",".join(["(?, ?)"] * len(chunk))
+                params: List[str] = [target_date.isoformat()]
+                for ip, ua in chunk:
+                    params.extend([ip, ua])
+
+                query = f"""
+                    SELECT 
+                        c.ipaddress,
+                        c.useragent,
+                        c.media_id,
+                        c.program_id,
+                        SUM(c.click_count) as click_count,
+                        m.name as media_name,
+                        p.name as program_name,
+                        u.name as affiliate_name
+                    FROM click_ipua_daily c
+                    LEFT JOIN master_media m ON c.media_id = m.id
+                    LEFT JOIN master_promotion p ON c.program_id = p.id
+                    LEFT JOIN master_user u ON m.user_id = u.id
+                    WHERE c.date = ? AND (c.ipaddress, c.useragent) IN ({placeholders})
+                    GROUP BY c.ipaddress, c.useragent, c.media_id, c.program_id
+                    ORDER BY click_count DESC
+                """
+
+                cur = conn.execute(query, tuple(params))
+                rows = cur.fetchall()
+                for row in rows:
+                    key = (row[0], row[1])
+                    results.setdefault(key, []).append(
+                        {
+                            "media_id": row[2],
+                            "program_id": row[3],
+                            "click_count": row[4],
+                            "media_name": row[5] or row[2],
+                            "program_name": row[6] or row[3],
+                            "affiliate_name": row[7] or None,
+                        }
+                    )
+
+        return results
+
+    def get_suspicious_conversion_details_bulk(
+        self, target_date: date, ip_ua_pairs: List[tuple[str, str]]
+    ) -> Dict[tuple[str, str], List[dict]]:
+        """複数IP/UAの成果詳細をまとめて取得（N+1対策）"""
+        if not ip_ua_pairs:
+            return {}
+
+        results: Dict[tuple[str, str], List[dict]] = {}
+        chunk_size = 400
+
+        with self._connect() as conn:
+            for i in range(0, len(ip_ua_pairs), chunk_size):
+                chunk = ip_ua_pairs[i : i + chunk_size]
+                placeholders = ",".join(["(?, ?)"] * len(chunk))
+                params: List[str] = [target_date.isoformat()]
+                for ip, ua in chunk:
+                    params.extend([ip, ua])
+
+                query = f"""
+                    SELECT 
+                        c.ipaddress,
+                        c.useragent,
+                        c.media_id,
+                        c.program_id,
+                        SUM(c.conversion_count) as conversion_count,
+                        m.name as media_name,
+                        p.name as program_name,
+                        u.name as affiliate_name
+                    FROM conversion_ipua_daily c
+                    LEFT JOIN master_media m ON c.media_id = m.id
+                    LEFT JOIN master_promotion p ON c.program_id = p.id
+                    LEFT JOIN master_user u ON m.user_id = u.id
+                    WHERE c.date = ? AND (c.ipaddress, c.useragent) IN ({placeholders})
+                    GROUP BY c.ipaddress, c.useragent, c.media_id, c.program_id
+                    ORDER BY conversion_count DESC
+                """
+
+                cur = conn.execute(query, tuple(params))
+                rows = cur.fetchall()
+                for row in rows:
+                    key = (row[0], row[1])
+                    results.setdefault(key, []).append(
+                        {
+                            "media_id": row[2],
+                            "program_id": row[3],
+                            "conversion_count": row[4],
+                            "media_name": row[5] or row[2],
+                            "program_name": row[6] or row[3],
+                            "affiliate_name": row[7] or None,
+                        }
+                    )
+
+        return results
 
     # ========== 設定管理 ==========
 

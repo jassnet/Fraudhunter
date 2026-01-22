@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ingestClicks, ingestConversions, refreshData, syncMasters, getMastersStatus, MasterStatus } from "@/lib/api";
+import { ingestClicks, ingestConversions, syncMasters, getMastersStatus, MasterStatus } from "@/lib/api";
 import { Loader2, CheckCircle, XCircle, Clock, Database, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useJobRunner } from "@/lib/use-job-runner";
@@ -22,15 +22,15 @@ interface RefreshDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
+  initialDate?: string;
 }
 
-export function RefreshDialog({ open, onOpenChange, onSuccess }: RefreshDialogProps) {
+export function RefreshDialog({ open, onOpenChange, onSuccess, initialDate }: RefreshDialogProps) {
   const [date, setDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 1);
     return d.toISOString().split("T")[0];
   });
-  const [hours, setHours] = useState(24);
   const [masterStatus, setMasterStatus] = useState<MasterStatus | null>(null);
   const [masterSyncing, setMasterSyncing] = useState(false);
 
@@ -67,6 +67,11 @@ export function RefreshDialog({ open, onOpenChange, onSuccess }: RefreshDialogPr
     }
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !initialDate) return;
+    setDate(initialDate);
+  }, [open, initialDate]);
+
   const ensureMasterSynced = async () => {
     if (!needsMasterSync || masterSyncing) return;
     setMasterSyncing(true);
@@ -91,16 +96,6 @@ export function RefreshDialog({ open, onOpenChange, onSuccess }: RefreshDialogPr
       await ensureMasterSynced();
       return ingestConversions(date);
     });
-
-  const handleRefresh = () =>
-    runJob(
-      `refresh_${hours}h`,
-      `過去${hours}時間のデータを取り込み中...`,
-      async () => {
-        await ensureMasterSynced();
-        return refreshData(hours, true, true);
-      }
-    );
 
   const handleSyncMasters = () =>
     runJob("sync_masters", "マスタデータを同期中...", () => syncMasters());
@@ -130,14 +125,13 @@ export function RefreshDialog({ open, onOpenChange, onSuccess }: RefreshDialogPr
         </DialogHeader>
 
         {status === "idle" && (
-          <Tabs defaultValue="refresh" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="refresh">リフレッシュ</TabsTrigger>
+          <Tabs defaultValue="date" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="date">日付指定</TabsTrigger>
               <TabsTrigger value="master">マスタ同期</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="refresh" className="space-y-4">
+            <TabsContent value="date" className="space-y-4">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>
                   マスタ最終同期:{" "}
@@ -151,30 +145,6 @@ export function RefreshDialog({ open, onOpenChange, onSuccess }: RefreshDialogPr
                   </Badge>
                 )}
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="hours">取得時間範囲（時間）</Label>
-                <Input
-                  id="hours"
-                  type="number"
-                  value={hours}
-                  onChange={(e) => setHours(parseInt(e.target.value, 10) || 24)}
-                  min={1}
-                  max={168}
-                />
-                <p className="text-sm text-muted-foreground">
-                  現在時刻から指定時間前までのデータを取得します。重複データは自動でスキップされます。
-                </p>
-              </div>
-              <DialogFooter>
-                <Button onClick={handleRefresh} disabled={buttonDisabled}>
-                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  取り込み開始
-                </Button>
-              </DialogFooter>
-            </TabsContent>
-
-            <TabsContent value="date" className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="date">対象日付</Label>
                 <Input id="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />

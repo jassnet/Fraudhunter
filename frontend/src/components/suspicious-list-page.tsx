@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Table,
   TableBody,
@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Search,
   Download,
@@ -34,6 +35,7 @@ import {
   SuspiciousItem,
   SuspiciousResponse,
   getAvailableDates,
+  getErrorMessage,
 } from "@/lib/api";
 import {
   Dialog,
@@ -51,6 +53,9 @@ import {
 } from "@/components/ui/tooltip";
 import { DateQuickSelect } from "@/components/date-quick-select";
 import { LastUpdated } from "@/components/last-updated";
+import { Breadcrumbs } from "@/components/breadcrumbs";
+import { cn } from "@/lib/utils";
+import { useNotifications } from "@/components/notification-center";
 
 type MetricKey = "total_clicks" | "total_conversions";
 type SuspiciousFetcher = (
@@ -76,6 +81,7 @@ interface SuspiciousListPageProps {
 const PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 500;
 const CSV_MAX_ROWS = 10000;
+const EXPORT_PAGE_SIZE = 1000;
 
 type HumanReasonPattern = {
   regex: RegExp;
@@ -182,18 +188,27 @@ export default function SuspiciousListPage({
   metricKey,
 }: SuspiciousListPageProps) {
   const [data, setData] = useState<SuspiciousItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [date, setDate] = useState<string>("");
   const [csvWarningOpen, setCsvWarningOpen] = useState(false);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [dateError, setDateError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
+  const [exportStage, setExportStage] = useState<"idle" | "fetching" | "building">("idle");
+  const [exportProgress, setExportProgress] = useState<{ current: number; total: number } | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const searchId = useId();
+  const { notify } = useNotifications();
+  const storageKey = useMemo(() => `fraudchecker:suspicious:${metricKey}`, [metricKey]);
+  const [hasRestoredFilters, setHasRestoredFilters] = useState(false);
 
   // 新機能: 展開行の管理
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -204,6 +219,55 @@ export default function SuspiciousListPage({
 
   // 新機能: フィルタ
   const [riskFilter, setRiskFilter] = useState<string>("all");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      setHasRestoredFilters(true);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(raw) as Partial<{
+        date: string;
+        searchTerm: string;
+        sortKey: SortKey;
+        sortOrder: SortOrder;
+        riskFilter: string;
+      }>;
+
+      if (parsed.date) setDate(parsed.date);
+      if (parsed.searchTerm !== undefined) {
+        setSearchTerm(parsed.searchTerm);
+        setDebouncedSearch(parsed.searchTerm);
+      }
+      if (parsed.sortKey && ["risk", "count", "media", "program"].includes(parsed.sortKey)) {
+        setSortKey(parsed.sortKey);
+      }
+      if (parsed.sortOrder && ["asc", "desc"].includes(parsed.sortOrder)) {
+        setSortOrder(parsed.sortOrder);
+      }
+      if (parsed.riskFilter && ["all", "high", "medium", "low"].includes(parsed.riskFilter)) {
+        setRiskFilter(parsed.riskFilter);
+      }
+    } catch (err) {
+      console.warn("Failed to restore filters", err);
+    } finally {
+      setHasRestoredFilters(true);
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!hasRestoredFilters || typeof window === "undefined") return;
+    const payload = {
+      date,
+      searchTerm,
+      sortKey,
+      sortOrder,
+      riskFilter,
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+  }, [date, searchTerm, sortKey, sortOrder, riskFilter, storageKey, hasRestoredFilters]);
 
   // 検索のデバウンス処理
   useEffect(() => {
@@ -224,8 +288,8 @@ export default function SuspiciousListPage({
 
   const fetchData = useCallback(
     async (targetDate: string | undefined, pageNum: number, search?: string) => {
-      setLoading(true);
-      setError(null);
+      setIsFetching(true);
+      setFetchError(null);
       try {
         const offset = (pageNum - 1) * PAGE_SIZE;
         const json = await fetcher(targetDate || undefined, PAGE_SIZE, offset, search || undefined);
@@ -237,9 +301,10 @@ export default function SuspiciousListPage({
         }
       } catch (err) {
         console.error(err);
-        setError("データの取得に失敗しました");
+        setFetchError(getErrorMessage(err, "データの取得に失敗しました"));
       } finally {
-        setLoading(false);
+        setIsFetching(false);
+        setHasLoadedOnce(true);
       }
     },
     [fetcher]
@@ -250,11 +315,14 @@ export default function SuspiciousListPage({
       const result = await getAvailableDates();
       const dates = result.dates || [];
       setAvailableDates(dates);
-      if (dates.length > 0) {
-        setDate((prev) => prev || dates[0]);
-      }
+      setDate((prev) => {
+        if (prev && dates.includes(prev)) return prev;
+        return dates[0] || "";
+      });
+      setDateError(null);
     } catch (err) {
       console.error("Failed to load dates", err);
+      setDateError(getErrorMessage(err, "日付一覧の取得に失敗しました"));
     }
   }, []);
 
@@ -278,7 +346,7 @@ export default function SuspiciousListPage({
   };
 
   // ソートとフィルタを適用したデータ
-  const processedData = useCallback(() => {
+  const processedData = useMemo(() => {
     let filtered = [...data];
 
     // リスクフィルタ
@@ -316,7 +384,16 @@ export default function SuspiciousListPage({
     return filtered;
   }, [data, riskFilter, sortKey, sortOrder, metricKey]);
 
+  const isInitialLoading = !hasLoadedOnce && isFetching;
+  const isRefreshing = hasLoadedOnce && isFetching;
+  const exportStatusText = useMemo(() => {
+    if (!exporting) return null;
+    if (exportStage === "building") return "CSVを生成中...";
+    return "CSVデータを取得中...";
+  }, [exporting, exportStage]);
+
   const totalPages = Math.ceil(total / PAGE_SIZE) || 1;
+  const controlsDisabled = isInitialLoading;
 
   const handlePageChange = (newPage: number) => {
     const nextPage = Math.min(Math.max(newPage, 1), totalPages);
@@ -346,6 +423,7 @@ export default function SuspiciousListPage({
 
   const handleExportClick = () => {
     if (total === 0) return;
+    setExportError(null);
     if (total > CSV_MAX_ROWS) {
       setCsvWarningOpen(true);
     } else {
@@ -357,17 +435,13 @@ export default function SuspiciousListPage({
     if (total === 0) return;
     setCsvWarningOpen(false);
     setExporting(true);
+    setExportError(null);
+
+    const exportTotal = Math.min(total, CSV_MAX_ROWS);
+    setExportStage("fetching");
+    setExportProgress({ current: 0, total: exportTotal });
 
     try {
-      const allData = await fetcher(date || undefined, CSV_MAX_ROWS, 0, debouncedSearch || undefined);
-      const items = allData.data || [];
-      const exportedCount = items.length;
-
-      if (items.length === 0) {
-        setExporting(false);
-        return;
-      }
-
       const headers = [
         "リスクレベル",
         ipLabel,
@@ -381,23 +455,50 @@ export default function SuspiciousListPage({
         "判定理由",
       ];
 
-      const rows = items.map((item) => [
-        item.risk_label || "-",
-        item.ipaddress,
-        `"${item.useragent.replace(/"/g, '""')}"`,
-        item[metricKey] ?? 0,
-        ...(metricKey === "total_conversions" ? [
-          item.min_click_to_conv_seconds ?? "",
-          item.max_click_to_conv_seconds ?? ""
-        ] : []),
-        item.media_count,
-        `"${(item.media_names || []).join(", ")}"`,
-        item.program_count,
-        `"${(item.program_names || []).join(", ")}"`,
-        `"${readableReasonsFor(item).join(", ")}"`,
-      ]);
+      const rows: string[] = [];
+      let offset = 0;
 
-      const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+      while (offset < exportTotal) {
+        const limit = Math.min(EXPORT_PAGE_SIZE, exportTotal - offset);
+        const batch = await fetcher(
+          date || undefined,
+          limit,
+          offset,
+          debouncedSearch || undefined
+        );
+        const items = batch.data || [];
+
+        if (items.length === 0) break;
+
+        for (const item of items) {
+          const row = [
+            item.risk_label || "-",
+            item.ipaddress,
+            `"${item.useragent.replace(/"/g, '""')}"`,
+            item[metricKey] ?? 0,
+            ...(metricKey === "total_conversions"
+              ? [item.min_click_to_conv_seconds ?? "", item.max_click_to_conv_seconds ?? ""]
+              : []),
+            item.media_count,
+            `"${(item.media_names || []).join(", ")}"`,
+            item.program_count,
+            `"${(item.program_names || []).join(", ")}"`,
+            `"${readableReasonsFor(item).join(", ")}"`,
+          ].join(",");
+          rows.push(row);
+        }
+
+        offset += items.length;
+        setExportProgress({ current: offset, total: exportTotal });
+      }
+
+      if (rows.length === 0) {
+        setExportError("出力対象のデータがありませんでした。");
+        return;
+      }
+
+      setExportStage("building");
+      const csv = [headers.join(","), ...rows].join("\n");
       const bom = "\uFEFF";
       const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
@@ -407,23 +508,58 @@ export default function SuspiciousListPage({
       a.click();
       URL.revokeObjectURL(url);
 
-      if (total > exportedCount) {
-        setError(`${exportedCount.toLocaleString()}件を出力しました（全${total.toLocaleString()}件中）`);
-        setTimeout(() => setError(null), 5000);
+      notify({
+        title: "CSV出力が完了しました",
+        description: `${rows.length.toLocaleString()}件を出力しました。`,
+        variant: "success",
+        duration: 8000,
+      });
+
+      if (total > rows.length) {
+        setExportError(`${rows.length.toLocaleString()}件を出力しました（全${total.toLocaleString()}件中）`);
       }
     } catch (err) {
       console.error("CSV export failed", err);
-      setError("CSV出力に失敗しました");
+      const message = getErrorMessage(err, "CSV出力に失敗しました");
+      setExportError(message);
+      notify({
+        title: "CSV出力に失敗しました",
+        description: message,
+        variant: "error",
+        duration: null,
+      });
     } finally {
       setExporting(false);
+      setExportStage("idle");
+      setExportProgress(null);
     }
   };
 
   // 統計サマリーの計算
-  const stats = {
-    high: data.filter((d) => d.risk_level === "high").length,
-    medium: data.filter((d) => d.risk_level === "medium").length,
-    low: data.filter((d) => d.risk_level === "low").length,
+  const stats = useMemo(
+    () => ({
+      high: data.filter((d) => d.risk_level === "high").length,
+      medium: data.filter((d) => d.risk_level === "medium").length,
+      low: data.filter((d) => d.risk_level === "low").length,
+    }),
+    [data]
+  );
+
+  const breadcrumbItems = useMemo(() => {
+    const suspiciousHref =
+      metricKey === "total_clicks" ? "/suspicious/clicks" : "/suspicious/conversions";
+    return [
+      { label: "ダッシュボード", href: "/" },
+      { label: "不正検知", href: suspiciousHref },
+      { label: title },
+    ];
+  }, [metricKey, title]);
+
+  const riskCardBase = "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm";
+
+  const ariaSortValue = (key: SortKey) => {
+    if (sortKey !== key) return "none";
+    return sortOrder === "asc" ? "ascending" : "descending";
   };
 
   const sortIcon = (key: SortKey) => {
@@ -439,36 +575,68 @@ export default function SuspiciousListPage({
     <div className="flex-1 space-y-4 p-8 pt-6">
       {/* ヘッダー */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
-          <p className="text-muted-foreground">{description}</p>
+        <div className="space-y-2">
+          <Breadcrumbs items={breadcrumbItems} />
+          <div>
+            <h2 className="text-2xl font-bold text-balance">{title}</h2>
+            <p className="text-muted-foreground text-pretty">{description}</p>
+          </div>
         </div>
         
         {/* 日付選択と更新コントロール */}
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <DateQuickSelect
-            value={date}
-            onChange={handleDateChange}
-            availableDates={availableDates}
-            showQuickButtons={true}
-          />
-          
-          <div className="flex items-center gap-2">
-            <LastUpdated
-              lastUpdated={lastUpdated}
-              onRefresh={handleRefresh}
-              isRefreshing={loading}
-              showAutoRefresh={true}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+          <div className="flex flex-col gap-1">
+            <DateQuickSelect
+              value={date}
+              onChange={handleDateChange}
+              availableDates={availableDates}
+              showQuickButtons={true}
             />
-            
-            <Button size="sm" onClick={handleExportClick} disabled={total === 0 || exporting} className="h-8">
-              {exporting ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Download className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              {exporting ? "出力中..." : "CSV"}
-            </Button>
+            {dateError && (
+              <p className="text-xs text-destructive" role="alert">
+                {dateError}
+              </p>
+            )}
+          </div>
+          
+          <div className="flex flex-col items-start gap-1 sm:items-end">
+            <div className="flex items-center gap-2">
+              <LastUpdated
+                lastUpdated={lastUpdated}
+                onRefresh={handleRefresh}
+                isRefreshing={isFetching}
+                showAutoRefresh={true}
+              />
+              
+              <Button
+                size="sm"
+                onClick={handleExportClick}
+                disabled={total === 0 || exporting}
+                className="h-8"
+                aria-busy={exporting}
+              >
+                {exporting ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {exporting ? "出力中..." : "CSV"}
+              </Button>
+            </div>
+
+            {exportStatusText && (
+              <span className="text-xs text-muted-foreground">{exportStatusText}</span>
+            )}
+            {exportProgress && (
+              <span className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
+                CSV出力: {exportProgress.current.toLocaleString()} / {exportProgress.total.toLocaleString()}
+              </span>
+            )}
+            {exportError && (
+              <span className="text-xs text-destructive" role="alert">
+                {exportError}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -477,68 +645,86 @@ export default function SuspiciousListPage({
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">総検知数</CardTitle>
+            <CardTitle className="text-sm font-medium text-balance">総検知数</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{total.toLocaleString()}</div>
+            <div className="text-2xl font-bold tabular-nums">{total.toLocaleString()}</div>
           </CardContent>
         </Card>
-        <Card 
-          className={`cursor-pointer transition-all ${riskFilter === "high" ? "ring-2 ring-red-500" : "hover:shadow-md"}`}
+        <button
+          type="button"
+          className={cn(
+            riskCardBase,
+            "text-left",
+            riskFilter === "high" ? "ring-2 ring-red-500" : "hover:shadow-md"
+          )}
           onClick={() => setRiskFilter(riskFilter === "high" ? "all" : "high")}
+          aria-pressed={riskFilter === "high"}
         >
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-balance flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-red-500" />
               高リスク
             </CardTitle>
-            <CardDescription className="text-xs">クリックでフィルタ切替</CardDescription>
+            <CardDescription className="text-xs text-pretty">クリックでフィルタ切替</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{stats.high}</div>
+            <div className="text-2xl font-bold text-red-600 tabular-nums">{stats.high}</div>
           </CardContent>
-        </Card>
-        <Card 
-          className={`cursor-pointer transition-all ${riskFilter === "medium" ? "ring-2 ring-yellow-500" : "hover:shadow-md"}`}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            riskCardBase,
+            "text-left",
+            riskFilter === "medium" ? "ring-2 ring-yellow-500" : "hover:shadow-md"
+          )}
           onClick={() => setRiskFilter(riskFilter === "medium" ? "all" : "medium")}
+          aria-pressed={riskFilter === "medium"}
         >
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-balance flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-yellow-500" />
               中リスク
             </CardTitle>
-            <CardDescription className="text-xs">クリックでフィルタ切替</CardDescription>
+            <CardDescription className="text-xs text-pretty">クリックでフィルタ切替</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{stats.medium}</div>
+            <div className="text-2xl font-bold text-yellow-600 tabular-nums">{stats.medium}</div>
           </CardContent>
-        </Card>
-        <Card 
-          className={`cursor-pointer transition-all ${riskFilter === "low" ? "ring-2 ring-blue-500" : "hover:shadow-md"}`}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            riskCardBase,
+            "text-left",
+            riskFilter === "low" ? "ring-2 ring-blue-500" : "hover:shadow-md"
+          )}
           onClick={() => setRiskFilter(riskFilter === "low" ? "all" : "low")}
+          aria-pressed={riskFilter === "low"}
         >
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-balance flex items-center gap-2">
               <Info className="h-4 w-4 text-blue-500" />
               低リスク
             </CardTitle>
-            <CardDescription className="text-xs">クリックでフィルタ切替</CardDescription>
+            <CardDescription className="text-xs text-pretty">クリックでフィルタ切替</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats.low}</div>
+            <div className="text-2xl font-bold text-blue-600 tabular-nums">{stats.low}</div>
           </CardContent>
-        </Card>
+        </button>
       </div>
 
       {/* CSV出力警告ダイアログ */}
       <Dialog open={csvWarningOpen} onOpenChange={setCsvWarningOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 text-balance">
               <AlertTriangle className="h-5 w-5 text-yellow-500" />
               CSV出力の制限
             </DialogTitle>
-            <DialogDescription className="pt-2">
+            <DialogDescription className="pt-2 text-pretty tabular-nums">
               対象データが{total.toLocaleString()}件あります。
               CSV出力は最大{CSV_MAX_ROWS.toLocaleString()}件までに制限されています。
               <br /><br />
@@ -561,40 +747,72 @@ export default function SuspiciousListPage({
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>検知リスト ({date || "データなし"})</CardTitle>
-              <CardDescription>
+              <CardTitle className="flex items-center gap-2 text-balance">
+                検知リスト ({date || "データなし"})
+                {isRefreshing && (
+                  <Badge variant="outline" className="text-xs">
+                    更新中
+                  </Badge>
+                )}
+              </CardTitle>
+              <CardDescription className="text-pretty">
                 {riskFilter !== "all" && (
                   <Badge variant="secondary" className="mr-2">
                     {RISK_CONFIG[riskFilter as keyof typeof RISK_CONFIG]?.label}でフィルタ中
-                    <button onClick={() => setRiskFilter("all")} className="ml-1">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setRiskFilter("all")}
+                      className="ml-1"
+                      aria-label="リスクフィルタを解除"
+                      type="button"
+                    >
                       <X className="h-3 w-3" />
-                    </button>
+                    </Button>
                   </Badge>
                 )}
-                {processedData().length}件表示 / 全{total}件
+                <span className="tabular-nums" aria-live="polite">
+                  {processedData.length}件表示 / 全{total}件
+                </span>
                 <span className="ml-2 text-xs text-muted-foreground">(表示中のデータにフィルタを適用)</span>
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
               <div className="relative w-full max-w-sm">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Label htmlFor={searchId} className="sr-only">
+                  検索
+                </Label>
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
                 <Input
+                  id={searchId}
                   placeholder="IP・UA・媒体名・案件名で検索..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-8 w-[300px]"
                 />
                 {searchTerm && searchTerm !== debouncedSearch && (
-                  <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                  <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
                 )}
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          {error ? (
-            <div className="text-center py-8 text-red-500">{error}</div>
-          ) : loading ? (
+          {fetchError && (
+            <div
+              className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+              role="alert"
+            >
+              <div className="font-medium">データ取得に失敗しました</div>
+              <div className="text-xs text-destructive/80 text-pretty">{fetchError}</div>
+              <div className="mt-2">
+                <Button variant="outline" size="sm" onClick={handleRefresh}>
+                  再試行
+                </Button>
+              </div>
+            </div>
+          )}
+          {isInitialLoading ? (
             <div className="space-y-2">
               {[...Array(5)].map((_, i) => (
                 <Skeleton key={i} className="h-16 w-full" />
@@ -607,58 +825,80 @@ export default function SuspiciousListPage({
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[40px]"></TableHead>
-                      <TableHead 
-                        className="w-[100px] cursor-pointer hover:bg-muted/50"
-                        onClick={() => toggleSort("risk")}
-                      >
-                        <div className="flex items-center">
+                      <TableHead className="w-[100px]" aria-sort={ariaSortValue("risk")}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => toggleSort("risk")}
+                          aria-label="リスクで並べ替え"
+                        >
                           リスク
                           {sortIcon("risk")}
-                        </div>
+                        </Button>
                       </TableHead>
                       <TableHead className="w-[130px]">{ipLabel}</TableHead>
-                      <TableHead 
-                        className="text-right cursor-pointer hover:bg-muted/50"
-                        onClick={() => toggleSort("count")}
-                      >
+                      <TableHead className="text-right" aria-sort={ariaSortValue("count")}>
                         <div className="flex items-center justify-end">
-                          {countLabel}
-                          {sortIcon("count")}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2"
+                            onClick={() => toggleSort("count")}
+                            aria-label={`${countLabel}で並べ替え`}
+                          >
+                            {countLabel}
+                            {sortIcon("count")}
+                          </Button>
                         </div>
                       </TableHead>
                       {metricKey === "total_conversions" && (
                         <TableHead className="text-center">経過時間</TableHead>
                       )}
-                      <TableHead 
-                        className="text-center cursor-pointer hover:bg-muted/50"
-                        onClick={() => toggleSort("media")}
-                      >
+                      <TableHead className="text-center" aria-sort={ariaSortValue("media")}>
                         <div className="flex items-center justify-center">
-                          媒体
-                          {sortIcon("media")}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2"
+                            onClick={() => toggleSort("media")}
+                            aria-label="媒体数で並べ替え"
+                          >
+                            媒体
+                            {sortIcon("media")}
+                          </Button>
                         </div>
                       </TableHead>
-                      <TableHead 
-                        className="text-center cursor-pointer hover:bg-muted/50"
-                        onClick={() => toggleSort("program")}
-                      >
+                      <TableHead className="text-center" aria-sort={ariaSortValue("program")}>
                         <div className="flex items-center justify-center">
-                          案件
-                          {sortIcon("program")}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2"
+                            onClick={() => toggleSort("program")}
+                            aria-label="案件数で並べ替え"
+                          >
+                            案件
+                            {sortIcon("program")}
+                          </Button>
                         </div>
                       </TableHead>
                       <TableHead>判定理由</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {processedData().length === 0 ? (
+                    {processedData.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={metricKey === "total_conversions" ? 8 : 7} className="h-24 text-center">
                           データが見つかりません
                         </TableCell>
                       </TableRow>
                     ) : (
-                      processedData().map((item, i) => {
+                      processedData.map((item, i) => {
                         const rowId = `${item.ipaddress}-${i}`;
                         const isExpanded = expandedRows.has(rowId);
                         const riskConfig = RISK_CONFIG[item.risk_level || "low"];
@@ -667,7 +907,7 @@ export default function SuspiciousListPage({
 
                         return (
                           <Fragment key={rowId}>
-                            <TableRow className={`${isExpanded ? riskConfig.bgColor : ""}`}>
+                            <TableRow className={cn(isExpanded && riskConfig.bgColor)}>
                               <TableCell>
                                 <Button
                                   variant="ghost"
@@ -688,9 +928,9 @@ export default function SuspiciousListPage({
                                 <TooltipProvider>
                                   <Tooltip>
                                     <TooltipTrigger>
-                                      <Badge 
-                                        variant="outline" 
-                                        className={`${riskConfig.color} flex items-center gap-1`}
+                                      <Badge
+                                        variant="outline"
+                                        className={cn(riskConfig.color, "flex items-center gap-1")}
                                       >
                                         <RiskIcon className="h-3 w-3" />
                                         {riskConfig.label}
@@ -705,11 +945,11 @@ export default function SuspiciousListPage({
                               <TableCell className="font-mono text-xs">
                                 {item.ipaddress}
                               </TableCell>
-                              <TableCell className="text-right font-bold text-lg">
+                              <TableCell className="text-right font-bold text-lg tabular-nums">
                                 {item[metricKey] ?? 0}
                               </TableCell>
                               {metricKey === "total_conversions" && (
-                                <TableCell className="text-center text-xs font-mono">
+                                <TableCell className="text-center text-xs font-mono tabular-nums">
                                   {item.min_click_to_conv_seconds !== null &&
                                   item.min_click_to_conv_seconds !== undefined ? (
                                     <span>
@@ -727,7 +967,7 @@ export default function SuspiciousListPage({
                               )}
                               <TableCell className="text-center">
                                 <div className="text-sm">
-                                  <span className="font-bold">{item.media_count}</span>
+                                  <span className="font-bold tabular-nums">{item.media_count}</span>
                                   {item.media_names && item.media_names.length > 0 && (
                                     <div
                                       className="text-xs text-muted-foreground truncate max-w-[100px]"
@@ -741,7 +981,7 @@ export default function SuspiciousListPage({
                               </TableCell>
                               <TableCell className="text-center">
                                 <div className="text-sm">
-                                  <span className="font-bold">{item.program_count}</span>
+                                  <span className="font-bold tabular-nums">{item.program_count}</span>
                                   {item.program_names && item.program_names.length > 0 && (
                                     <div
                                       className="text-xs text-muted-foreground truncate max-w-[100px]"
@@ -810,7 +1050,7 @@ export default function SuspiciousListPage({
                                                 <TableRow key={`${d.media_id}-${d.program_id}-${idx}`}>
                                                   <TableCell className="text-xs py-2">{d.media_name}</TableCell>
                                                   <TableCell className="text-xs py-2">{d.program_name}</TableCell>
-                                                  <TableCell className="text-xs text-right py-2 font-medium">
+                                                  <TableCell className="text-xs text-right py-2 font-medium tabular-nums">
                                                     {metricKey === "total_clicks" ? d.click_count : d.conversion_count}
                                                   </TableCell>
                                                 </TableRow>
@@ -835,7 +1075,7 @@ export default function SuspiciousListPage({
               {/* ページネーション */}
               {totalPages > 1 && (
                 <div className="flex items-center justify-between px-2 py-4">
-                  <div className="text-sm text-muted-foreground">
+                  <div className="text-sm text-muted-foreground tabular-nums">
                     {(page - 1) * PAGE_SIZE + 1} - {Math.min(page * PAGE_SIZE, total)} / {total}件
                   </div>
                   <div className="flex items-center space-x-2">
@@ -843,7 +1083,8 @@ export default function SuspiciousListPage({
                       variant="outline"
                       size="sm"
                       onClick={() => handlePageChange(1)}
-                      disabled={page === 1 || loading}
+                      disabled={page === 1 || controlsDisabled}
+                      aria-label="最初のページへ"
                     >
                       <ChevronsLeft className="h-4 w-4" />
                     </Button>
@@ -851,7 +1092,8 @@ export default function SuspiciousListPage({
                       variant="outline"
                       size="sm"
                       onClick={() => handlePageChange(page - 1)}
-                      disabled={page === 1 || loading}
+                      disabled={page === 1 || controlsDisabled}
+                      aria-label="前のページへ"
                     >
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
@@ -862,7 +1104,8 @@ export default function SuspiciousListPage({
                       variant="outline"
                       size="sm"
                       onClick={() => handlePageChange(page + 1)}
-                      disabled={page === totalPages || loading}
+                      disabled={page === totalPages || controlsDisabled}
+                      aria-label="次のページへ"
                     >
                       <ChevronRight className="h-4 w-4" />
                     </Button>
@@ -870,7 +1113,8 @@ export default function SuspiciousListPage({
                       variant="outline"
                       size="sm"
                       onClick={() => handlePageChange(totalPages)}
-                      disabled={page === totalPages || loading}
+                      disabled={page === totalPages || controlsDisabled}
+                      aria-label="最後のページへ"
                     >
                       <ChevronsRight className="h-4 w-4" />
                     </Button>

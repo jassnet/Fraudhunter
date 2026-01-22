@@ -1,15 +1,9 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { getJobStatus } from "@/lib/api";
+import { getJobStatus, JobStatusResponse } from "@/lib/api";
 
-export interface JobState {
-  status: string;
-  job_id?: string | null;
-  message?: string;
-  started_at?: string | null;
-  completed_at?: string | null;
-}
+export type JobState = JobStatusResponse;
 
 type Snapshot = {
   jobState: JobState | null;

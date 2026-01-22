@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from .repository import SQLiteRepository
+from ..repository import SQLiteRepository
 
 
 def get_latest_date(repo: SQLiteRepository, table: str) -> Optional[str]:

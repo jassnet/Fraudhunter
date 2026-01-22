@@ -20,34 +20,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { fetchSummary, fetchDailyStats, DailyStatsItem, getAvailableDates } from "@/lib/api";
+import {
+  fetchSummary,
+  fetchDailyStats,
+  DailyStatsItem,
+  getAvailableDates,
+  getErrorMessage,
+  SummaryResponse,
+} from "@/lib/api";
 import { RefreshDialog } from "@/components/refresh-dialog";
 import { DateQuickSelect } from "@/components/date-quick-select";
 import { LastUpdated } from "@/components/last-updated";
 
-interface SummaryData {
-  date: string;
-  stats: {
-    clicks: {
-      total: number;
-      unique_ips: number;
-      media_count: number;
-      prev_total: number;
-    };
-    conversions: {
-      total: number;
-      unique_ips: number;
-      prev_total: number;
-    };
-    suspicious: {
-      click_based: number;
-      conversion_based: number;
-    };
-  };
-}
-
 export default function DashboardPage() {
-  const [summary, setSummary] = useState<SummaryData | null>(null);
+  const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [dailyStats, setDailyStats] = useState<DailyStatsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,7 +61,8 @@ export default function DashboardPage() {
       }
     } catch (err) {
       console.error("Failed to fetch dashboard data", err);
-      setError("データの取得に失敗しました。バックエンドが起動しているか確認してください。");
+      const message = getErrorMessage(err, "データの取得に失敗しました。");
+      setError(`${message} バックエンドが起動しているか確認してください。`);
     } finally {
       setLoading(false);
     }
@@ -487,6 +474,7 @@ export default function DashboardPage() {
         open={showRefreshDialog} 
         onOpenChange={setShowRefreshDialog}
         onSuccess={handleRefresh}
+        initialDate={selectedDate}
       />
     </div>
   );
