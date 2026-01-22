@@ -435,7 +435,7 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
-                      <Label>{FIELD_DESCRIPTIONS.browser_only.label}</Label>
+                      <Label htmlFor="browser_only">{FIELD_DESCRIPTIONS.browser_only.label}</Label>
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -452,6 +452,7 @@ export default function SettingsPage() {
                     </p>
                   </div>
                   <Switch
+                    id="browser_only"
                     checked={settings.browser_only}
                     onCheckedChange={(checked) => updateField('browser_only', checked)}
                   />
@@ -459,7 +460,9 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <div className="flex items-center gap-2">
-                      <Label>{FIELD_DESCRIPTIONS.exclude_datacenter_ip.label}</Label>
+                      <Label htmlFor="exclude_datacenter_ip">
+                        {FIELD_DESCRIPTIONS.exclude_datacenter_ip.label}
+                      </Label>
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -476,6 +479,7 @@ export default function SettingsPage() {
                     </p>
                   </div>
                   <Switch
+                    id="exclude_datacenter_ip"
                     checked={settings.exclude_datacenter_ip}
                     onCheckedChange={(checked) => updateField('exclude_datacenter_ip', checked)}
                   />
