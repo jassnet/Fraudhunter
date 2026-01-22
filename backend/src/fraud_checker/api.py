@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Depends, Header
@@ -196,6 +196,14 @@ def _filter_findings(findings, details_cache, search: Optional[str], include_nam
             if any(search_lower in name for name in media_names + program_names):
                 filtered.append(finding)
     return filtered
+
+
+def _format_dt(value: object) -> str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value
+    return None
 
 
 # ========== API Endpoints ==========
@@ -594,15 +602,15 @@ def get_job_status():
             status="running",
             job_id=status.job_id,
             message=status.message,
-            started_at=status.started_at,
+            started_at=_format_dt(status.started_at),
         )
     if status.status == "completed":
         return JobStatusResponse(
             status="completed",
             job_id=status.job_id,
             message=status.message,
-            started_at=status.started_at,
-            completed_at=status.completed_at,
+            started_at=_format_dt(status.started_at),
+            completed_at=_format_dt(status.completed_at),
             result=status.result,
         )
     if status.status == "failed":
@@ -611,16 +619,16 @@ def get_job_status():
             status="failed",
             job_id=status.job_id,
             message=message,
-            started_at=status.started_at,
-            completed_at=status.completed_at,
+            started_at=_format_dt(status.started_at),
+            completed_at=_format_dt(status.completed_at),
             result=status.result,
         )
     return JobStatusResponse(
         status="idle",
         job_id=None,
         message=status.message or "No job has been run yet",
-        started_at=status.started_at,
-        completed_at=status.completed_at,
+        started_at=_format_dt(status.started_at),
+        completed_at=_format_dt(status.completed_at),
         result=status.result,
     )
 
