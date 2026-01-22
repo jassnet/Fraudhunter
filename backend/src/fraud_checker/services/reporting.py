@@ -9,7 +9,12 @@ from . import settings as settings_service
 
 def get_latest_date(repo: SQLiteRepository, table: str) -> Optional[str]:
     row = repo.fetch_one(f"SELECT MAX(date) as last_date FROM {table}")
-    return row["last_date"] if row and row.get("last_date") else None
+    if not row or not row.get("last_date"):
+        return None
+    value = row["last_date"]
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
 
 
 def resolve_summary_date(repo: SQLiteRepository, target_date: Optional[str]) -> str:
@@ -41,9 +46,9 @@ def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:
             COUNT(DISTINCT ipaddress) as unique_ips,
             COUNT(DISTINCT media_id) as active_media
         FROM click_ipua_daily
-        WHERE date = ?
+        WHERE date = :resolved_date
         """,
-        (resolved_date,),
+        {"resolved_date": resolved_date},
     )
 
     conv_row = repo.fetch_one(
@@ -52,9 +57,9 @@ def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:
             COALESCE(SUM(conversion_count), 0) as total_conversions,
             COUNT(DISTINCT ipaddress) as conversion_ips
         FROM conversion_ipua_daily
-        WHERE date = ?
+        WHERE date = :resolved_date
         """,
-        (resolved_date,),
+        {"resolved_date": resolved_date},
     )
 
     prev_date = (
@@ -62,12 +67,12 @@ def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:
     ).strftime("%Y-%m-%d")
 
     prev_click = repo.fetch_one(
-        "SELECT COALESCE(SUM(click_count), 0) as total FROM click_ipua_daily WHERE date = ?",
-        (prev_date,),
+        "SELECT COALESCE(SUM(click_count), 0) as total FROM click_ipua_daily WHERE date = :prev_date",
+        {"prev_date": prev_date},
     )
     prev_conv = repo.fetch_one(
-        "SELECT COALESCE(SUM(conversion_count), 0) as total FROM conversion_ipua_daily WHERE date = ?",
-        (prev_date,),
+        "SELECT COALESCE(SUM(conversion_count), 0) as total FROM conversion_ipua_daily WHERE date = :prev_date",
+        {"prev_date": prev_date},
     )
 
     susp_clicks = repo.fetch_one(
@@ -75,12 +80,12 @@ def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:
         SELECT COUNT(*) as count FROM (
             SELECT ipaddress, useragent
             FROM click_ipua_daily
-            WHERE date = ?
+            WHERE date = :resolved_date
             GROUP BY ipaddress, useragent
-            HAVING SUM(click_count) >= ?
+            HAVING SUM(click_count) >= :click_threshold
         )
         """,
-        (resolved_date, click_threshold),
+        {"resolved_date": resolved_date, "click_threshold": click_threshold},
     )
 
     susp_convs = repo.fetch_one(
@@ -88,12 +93,12 @@ def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:
         SELECT COUNT(*) as count FROM (
             SELECT ipaddress, useragent
             FROM conversion_ipua_daily
-            WHERE date = ?
+            WHERE date = :resolved_date
             GROUP BY ipaddress, useragent
-            HAVING SUM(conversion_count) >= ?
+            HAVING SUM(conversion_count) >= :conversion_threshold
         )
         """,
-        (resolved_date, conversion_threshold),
+        {"resolved_date": resolved_date, "conversion_threshold": conversion_threshold},
     )
 
     return {
@@ -128,9 +133,9 @@ def get_daily_stats(repo: SQLiteRepository, limit: int) -> list[dict]:
         FROM click_ipua_daily
         GROUP BY date
         ORDER BY date DESC
-        LIMIT ?
+        LIMIT :limit
         """,
-        (limit,),
+        {"limit": limit},
     )
 
     conv_rows = repo.fetch_all(
@@ -139,9 +144,9 @@ def get_daily_stats(repo: SQLiteRepository, limit: int) -> list[dict]:
         FROM conversion_ipua_daily
         GROUP BY date
         ORDER BY date DESC
-        LIMIT ?
+        LIMIT :limit
         """,
-        (limit,),
+        {"limit": limit},
     )
 
     susp_click_rows = repo.fetch_all(
@@ -151,13 +156,13 @@ def get_daily_stats(repo: SQLiteRepository, limit: int) -> list[dict]:
             SELECT date, ipaddress, useragent
             FROM click_ipua_daily
             GROUP BY date, ipaddress, useragent
-            HAVING SUM(click_count) >= ?
+            HAVING SUM(click_count) >= :click_threshold
         )
         GROUP BY date
         ORDER BY date DESC
-        LIMIT ?
+        LIMIT :limit
         """,
-        (click_threshold, limit),
+        {"click_threshold": click_threshold, "limit": limit},
     )
 
     susp_conv_rows = repo.fetch_all(
@@ -167,41 +172,45 @@ def get_daily_stats(repo: SQLiteRepository, limit: int) -> list[dict]:
             SELECT date, ipaddress, useragent
             FROM conversion_ipua_daily
             GROUP BY date, ipaddress, useragent
-            HAVING SUM(conversion_count) >= ?
+            HAVING SUM(conversion_count) >= :conversion_threshold
         )
         GROUP BY date
         ORDER BY date DESC
-        LIMIT ?
+        LIMIT :limit
         """,
-        (conversion_threshold, limit),
+        {"conversion_threshold": conversion_threshold, "limit": limit},
     )
 
     merged: dict[str, dict] = {}
     for row in click_rows:
-        merged[row["date"]] = {
-            "date": row["date"],
+        row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
+        merged[row_date] = {
+            "date": row_date,
             "clicks": row["clicks"],
             "conversions": 0,
             "suspicious_clicks": 0,
             "suspicious_conversions": 0,
         }
     for row in conv_rows:
-        if row["date"] in merged:
-            merged[row["date"]]["conversions"] = row["conversions"]
+        row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
+        if row_date in merged:
+            merged[row_date]["conversions"] = row["conversions"]
         else:
-            merged[row["date"]] = {
-                "date": row["date"],
+            merged[row_date] = {
+                "date": row_date,
                 "clicks": 0,
                 "conversions": row["conversions"],
                 "suspicious_clicks": 0,
                 "suspicious_conversions": 0,
             }
     for row in susp_click_rows:
-        if row["date"] in merged:
-            merged[row["date"]]["suspicious_clicks"] = row["suspicious_count"]
+        row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
+        if row_date in merged:
+            merged[row_date]["suspicious_clicks"] = row["suspicious_count"]
     for row in susp_conv_rows:
-        if row["date"] in merged:
-            merged[row["date"]]["suspicious_conversions"] = row["suspicious_count"]
+        row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
+        if row_date in merged:
+            merged[row_date]["suspicious_conversions"] = row["suspicious_count"]
 
     return sorted(merged.values(), key=lambda item: item["date"])
 
@@ -214,5 +223,11 @@ def get_available_dates(repo: SQLiteRepository) -> list[str]:
         "SELECT DISTINCT date FROM conversion_ipua_daily ORDER BY date DESC"
     )
 
-    all_dates = {row["date"] for row in click_dates} | {row["date"] for row in conv_dates}
+    all_dates = {
+        (row["date"].isoformat() if isinstance(row["date"], date) else row["date"])
+        for row in click_dates
+    } | {
+        (row["date"].isoformat() if isinstance(row["date"], date) else row["date"])
+        for row in conv_dates
+    }
     return sorted(all_dates, reverse=True)

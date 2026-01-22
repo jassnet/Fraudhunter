@@ -4,10 +4,14 @@ from datetime import date, datetime, timedelta
 from typing import Callable, Dict, Tuple
 
 from ..acs_client import AcsHttpClient
+import os
+
 from ..config import resolve_acs_settings, resolve_db_path, resolve_store_raw
 from ..ingestion import ClickLogIngestor, ConversionIngestor
 from ..job_status import JobStatusStore
+from ..job_status_pg import JobStatusStorePG
 from ..repository import SQLiteRepository
+from ..repository_pg import PostgresRepository
 
 
 class JobConflictError(RuntimeError):
@@ -16,6 +20,13 @@ class JobConflictError(RuntimeError):
 
 def get_repository() -> SQLiteRepository:
     """Create a repository with required schemas ensured."""
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        repo = PostgresRepository(database_url)
+        repo.ensure_schema(store_raw=resolve_store_raw(None))
+        repo.ensure_conversion_schema()
+        repo.ensure_master_schema()
+        return repo
     db_path = resolve_db_path(None)
     repo = SQLiteRepository(db_path)
     repo.ensure_schema(store_raw=resolve_store_raw(None))
@@ -37,6 +48,9 @@ def get_acs_client() -> AcsHttpClient:
 
 def get_job_store() -> JobStatusStore:
     """Get persistent job status store."""
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return JobStatusStorePG(database_url)
     db_path = resolve_db_path(None)
     return JobStatusStore(db_path)
 

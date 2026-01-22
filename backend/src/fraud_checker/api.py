@@ -209,7 +209,8 @@ def health_check():
     
     # 必須環境変数のチェック
     db_path = os.getenv("FRAUD_DB_PATH")
-    if not db_path:
+    database_url = os.getenv("DATABASE_URL")
+    if not db_path and not database_url:
         issues.append({
             "type": "error",
             "field": "FRAUD_DB_PATH",
@@ -275,7 +276,7 @@ def health_check():
         "status": "error" if has_errors else ("warning" if has_warnings else "ok"),
         "issues": issues + warnings,
         "config": {
-            "db_path_configured": bool(db_path),
+            "db_path_configured": bool(db_path or database_url),
             "acs_base_url_configured": bool(acs_base_url),
             "acs_auth_configured": bool(acs_token or (acs_access_key and acs_secret_key)),
         }

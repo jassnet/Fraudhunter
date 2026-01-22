@@ -74,6 +74,9 @@ python -m uvicorn fraud_checker.api:app --reload --app-dir ./src --port 8001
 ```
 API Docs: http://localhost:8001/docs
 
+### PostgreSQL runtime (optional)
+Set `DATABASE_URL` to use PostgreSQL instead of SQLite. When set, the backend will use Postgres repositories automatically.
+
 ## CLI examples
 ```bash
 # クリックログ取り込み

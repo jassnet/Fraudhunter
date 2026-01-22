@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -18,6 +19,7 @@ from .config import (
 )
 from .ingestion import ClickLogIngestor, ConversionIngestor
 from .repository import SQLiteRepository
+from .repository_pg import PostgresRepository
 from .suspicious import (
     CombinedSuspiciousDetector,
     ConversionSuspiciousDetector,
@@ -27,6 +29,14 @@ from .suspicious import (
 
 def _parse_date(value: str) -> date:
     return date.fromisoformat(value)
+
+
+def _resolve_repository(db_path: Optional[str]):
+    database_url = os.getenv("DATABASE_URL")
+    if database_url and not db_path:
+        return PostgresRepository(database_url)
+    resolved_path = resolve_db_path(db_path)
+    return SQLiteRepository(resolved_path)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -322,7 +332,7 @@ def _cmd_ingest(args: argparse.Namespace, acs_client_factory: Optional[Callable]
         log_endpoint=args.endpoint,
     )
 
-    repository = SQLiteRepository(db_path)
+    repository = _resolve_repository(db_path)
     repository.ensure_schema(store_raw=store_raw)
     factory = acs_client_factory or (
         lambda settings: AcsHttpClient(
@@ -357,7 +367,7 @@ def _cmd_suspicious(args: argparse.Namespace) -> int:
         exclude_datacenter_ip=args.exclude_datacenter_ip,
     )
 
-    repository = SQLiteRepository(db_path)
+    repository = _resolve_repository(db_path)
     repository.ensure_schema(store_raw=False)
     detector = SuspiciousDetector(repository, rules)
     findings = detector.find_for_date(target_date)
@@ -394,7 +404,7 @@ def _cmd_daily(args: argparse.Namespace, acs_client_factory: Optional[Callable])
         exclude_datacenter_ip=args.exclude_datacenter_ip,
     )
 
-    repository = SQLiteRepository(db_path)
+    repository = _resolve_repository(db_path)
     repository.ensure_schema(store_raw=store_raw)
     factory = acs_client_factory or (
         lambda settings: AcsHttpClient(
@@ -445,7 +455,7 @@ def _cmd_ingest_conversions(
         log_endpoint=None,  # 成果ログはaction_log_rawを使用
     )
 
-    repository = SQLiteRepository(db_path)
+    repository = _resolve_repository(db_path)
     repository.ensure_conversion_schema()
 
     factory = acs_client_factory or (
@@ -486,7 +496,7 @@ def _cmd_suspicious_conversions(args: argparse.Namespace) -> int:
         exclude_datacenter_ip=args.exclude_datacenter_ip,
     )
 
-    repository = SQLiteRepository(db_path)
+    repository = _resolve_repository(db_path)
     detector = ConversionSuspiciousDetector(repository, rules)
     findings = detector.find_for_date(target_date)
 
@@ -545,7 +555,7 @@ def _cmd_daily_full(
         exclude_datacenter_ip=args.exclude_datacenter_ip,
     )
 
-    repository = SQLiteRepository(db_path)
+    repository = _resolve_repository(db_path)
     repository.ensure_schema(store_raw=store_raw)
     repository.ensure_conversion_schema()
 
@@ -647,7 +657,7 @@ def _cmd_refresh(
         log_endpoint=args.endpoint,
     )
 
-    repository = SQLiteRepository(db_path)
+    repository = _resolve_repository(db_path)
     repository.ensure_schema(store_raw=store_raw)
     repository.ensure_conversion_schema()
 
