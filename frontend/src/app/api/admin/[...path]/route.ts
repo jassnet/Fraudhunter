@@ -59,6 +59,8 @@ async function proxyAdminRequest(request: NextRequest, ctx: RouteContext) {
 
   const res = await fetch(upstreamUrl, init);
   const responseHeaders = new Headers(res.headers);
+  responseHeaders.delete("content-encoding");
+  responseHeaders.delete("content-length");
   return new Response(res.body, { status: res.status, headers: responseHeaders });
 }
 
