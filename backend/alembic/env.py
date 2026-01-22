@@ -13,6 +13,7 @@ from alembic import context
 sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
 
 from fraud_checker.db import Base  # noqa: E402
+from fraud_checker.db.session import normalize_database_url  # noqa: E402
 import fraud_checker.db.models  # noqa: F401, E402
 
 # this is the Alembic Config object, which provides
@@ -28,7 +29,8 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    return os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    url = os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    return normalize_database_url(url)
 
 
 def run_migrations_offline() -> None:
