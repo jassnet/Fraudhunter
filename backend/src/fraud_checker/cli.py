@@ -269,6 +269,16 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--click-threshold", type=int, help="Click threshold for detection")
     refresh.add_argument("--media-threshold", type=int, help="Media threshold for detection")
     refresh.add_argument("--program-threshold", type=int, help="Program threshold for detection")
+    refresh.add_argument(
+        "--burst-click-threshold",
+        type=int,
+        help="Burst click threshold for detection",
+    )
+    refresh.add_argument(
+        "--burst-window-seconds",
+        type=int,
+        help="Burst window (seconds) for detection",
+    )
     refresh.add_argument("--conversion-threshold", type=int, help="Conversion threshold")
     refresh.add_argument(
         "--min-click-to-conv-seconds",
@@ -732,6 +742,8 @@ def _cmd_refresh(
             click_threshold=args.click_threshold,
             media_threshold=args.media_threshold,
             program_threshold=args.program_threshold,
+            burst_click_threshold=args.burst_click_threshold,
+            burst_window_seconds=args.burst_window_seconds,
             browser_only=args.browser_only,
             exclude_datacenter_ip=args.exclude_datacenter_ip,
         )
