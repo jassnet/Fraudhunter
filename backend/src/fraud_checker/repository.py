@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Iterable, List, Dict
 
 from .time_utils import now_local
-
 from .models import (
     AggregatedRow,
     ClickLog,

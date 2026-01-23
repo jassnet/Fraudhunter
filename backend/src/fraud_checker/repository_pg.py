@@ -254,7 +254,6 @@ class PostgresRepository:
             )
             for row in rows
         ]
-
     def fetch_suspicious_rollups(
         self,
         target_date: date,
