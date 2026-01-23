@@ -27,7 +27,7 @@ dependencies = [
 packages = ["src/fraud_checker"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/fraud_checker", "README.md", "examples", "Docs", "pyproject.toml"]
+include = ["src/fraud_checker", "README.md", "pyproject.toml"]
 
 [project.optional-dependencies]
 dev = [

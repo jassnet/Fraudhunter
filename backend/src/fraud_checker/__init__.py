@@ -2,7 +2,7 @@
 
 __all__ = [
     "models",
-    "repository",
+    "repository_pg",
     "ingestion",
     "suspicious",
     "acs_client",

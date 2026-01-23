@@ -86,8 +86,19 @@ def require_admin(
 ) -> None:
     expected = os.getenv("FC_ADMIN_API_KEY")
     if not expected:
-        # Allow in dev when no key is configured.
-        return
+        allow_insecure = os.getenv("FC_ALLOW_INSECURE_ADMIN", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        env = os.getenv("FC_ENV", "production").strip().lower()
+        if allow_insecure or env in {"dev", "development", "local"}:
+            return
+        raise HTTPException(
+            status_code=500,
+            detail="FC_ADMIN_API_KEY is not configured",
+        )
     token = x_api_key or _extract_bearer(authorization)
     if token != expected:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -213,7 +224,7 @@ def root():
     return {"message": "Fraud Checker API v2.0", "status": "running"}
 
 
-@app.get("/api/health")
+@app.get("/api/health", dependencies=[Depends(require_admin)])
 def health_check():
     """システムの状態と環境変数の設定状況をチェック"""
     import os

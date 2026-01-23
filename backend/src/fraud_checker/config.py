@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
 from .env import load_env
@@ -72,17 +71,6 @@ def _parse_token(token: str) -> tuple[str, str]:
         raise ValueError("ACS_TOKEN must be in the form 'access_key:secret_key'.")
     access, secret = token.split(":", 1)
     return access, secret
-
-
-def resolve_db_path(explicit: Optional[str]) -> Path:
-    load_env()
-    env_val = os.getenv("FRAUD_DB_PATH")
-    value = explicit or env_val
-    if value:
-        return Path(value)
-    # Default to fraud_checker.db in the project root (2 levels up from backend/src)
-    project_root = Path(__file__).resolve().parent.parent.parent.parent
-    return project_root / "fraud_checker.db"
 
 
 def resolve_acs_settings(

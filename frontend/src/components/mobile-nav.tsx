@@ -4,43 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import {
-  LayoutDashboard,
-  MousePointerClick,
-  Target,
-  Settings,
-  Menu,
-} from "lucide-react";
 
 const items = [
-  {
-    title: "ダッシュボード",
-    href: "/",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "不正クリック検知",
-    href: "/suspicious/clicks",
-    icon: MousePointerClick,
-  },
-  {
-    title: "不正成果検知",
-    href: "/suspicious/conversions",
-    icon: Target,
-  },
-  {
-    title: "設定",
-    href: "/settings",
-    icon: Settings,
-  },
+  { title: "Dashboard", href: "/" },
+  { title: "Suspicious Clicks", href: "/suspicious/clicks" },
+  { title: "Suspicious Conversions", href: "/suspicious/conversions" },
 ];
 
 export function MobileNav() {
@@ -48,44 +17,51 @@ export function MobileNav() {
   const [open, setOpen] = useState(false);
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="md:hidden">
-          <Menu className="h-5 w-5" />
-          <span className="sr-only">メニューを開く</span>
-        </Button>
-      </SheetTrigger>
-      <SheetContent side="left" className="w-[280px] sm:w-[320px]">
-        <SheetHeader>
-          <SheetTitle>Fraud Checker v2</SheetTitle>
-        </SheetHeader>
-        <nav className="mt-8 grid gap-2">
-          {items.map((item, index) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={index}
-                href={item.href}
-                onClick={() => setOpen(false)}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-all",
-                  isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted hover:text-primary"
-                )}
-              >
-                <Icon className="h-5 w-5" />
-                {item.title}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="absolute bottom-4 left-4 right-4">
-          <p className="text-xs text-muted-foreground">v2.0.0</p>
+    <>
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        Menu
+      </Button>
+
+      {open && (
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setOpen(false)}
+          />
+          <div className="absolute left-0 top-0 h-full w-[280px] bg-background p-4 shadow-lg">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold">Fraud Checker v2</span>
+              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                Close
+              </Button>
+            </div>
+            <nav className="mt-6 grid gap-2">
+              {items.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setOpen(false)}
+                    aria-current={isActive ? "page" : undefined}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors",
+                      isActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-muted hover:text-primary"
+                    )}
+                  >
+                    {item.title}
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="absolute bottom-4 left-4 right-4">
+              <p className="text-xs text-muted-foreground">v2.0.0</p>
+            </div>
+          </div>
         </div>
-      </SheetContent>
-    </Sheet>
+      )}
+    </>
   );
 }
-

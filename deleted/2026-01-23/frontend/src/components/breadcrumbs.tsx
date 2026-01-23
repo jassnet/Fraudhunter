@@ -26,7 +26,9 @@ export function Breadcrumbs({
                 {item.label}
               </Link>
             ) : (
-              <span className="text-foreground">{item.label}</span>
+              <span className="text-foreground" aria-current="page">
+                {item.label}
+              </span>
             )}
             {index < items.length - 1 && <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />}
           </li>

@@ -52,7 +52,8 @@ def load_env(dotenv_path: Optional[Path] = None, force: bool = False) -> Optiona
 
     for candidate in candidates:
         if candidate and candidate.exists():
-            load_dotenv(candidate, override=True)
+            override = bool(force or dotenv_path)
+            load_dotenv(candidate, override=override)
             _DOTENV_LOADED = True
             _DOTENV_PATH = candidate
             return candidate

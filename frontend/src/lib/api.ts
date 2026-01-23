@@ -1,6 +1,6 @@
 // FastAPI Backend URL
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
-const ADMIN_API_BASE_URL = "/api/admin";
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
 type RetryOptions = {
   retries?: number;
@@ -168,11 +168,11 @@ export async function fetchSuspiciousClicks(
   search?: string
 ): Promise<SuspiciousResponse> {
   const params = new URLSearchParams();
-  if (date) params.append('date', date);
-  params.append('limit', limit.toString());
-  params.append('offset', offset.toString());
-  if (search) params.append('search', search);
-  
+  if (date) params.append("date", date);
+  params.append("limit", limit.toString());
+  params.append("offset", offset.toString());
+  if (search) params.append("search", search);
+
   return fetchJson(`${API_BASE_URL}/api/suspicious/clicks?${params}`);
 }
 
@@ -183,105 +183,12 @@ export async function fetchSuspiciousConversions(
   search?: string
 ): Promise<SuspiciousResponse> {
   const params = new URLSearchParams();
-  if (date) params.append('date', date);
-  params.append('limit', limit.toString());
-  params.append('offset', offset.toString());
-  if (search) params.append('search', search);
-  
+  if (date) params.append("date", date);
+  params.append("limit", limit.toString());
+  params.append("offset", offset.toString());
+  if (search) params.append("search", search);
+
   return fetchJson(`${API_BASE_URL}/api/suspicious/conversions?${params}`);
-}
-
-export async function syncMasters() {
-  return fetchJson(
-    `${ADMIN_API_BASE_URL}/sync/masters`,
-    { method: "POST" },
-    { retries: 0 }
-  );
-}
-
-export interface MasterStatus {
-  media_count: number;
-  promotion_count: number;
-  user_count: number;
-  last_synced_at?: string | null;
-}
-
-export async function getMastersStatus(): Promise<MasterStatus> {
-  return fetchJson(`${API_BASE_URL}/api/masters/status`);
-}
-
-// Settings API
-export interface Settings {
-  click_threshold: number;
-  media_threshold: number;
-  program_threshold: number;
-  burst_click_threshold: number;
-  burst_window_seconds: number;
-  conversion_threshold: number;
-  conv_media_threshold: number;
-  conv_program_threshold: number;
-  burst_conversion_threshold: number;
-  burst_conversion_window_seconds: number;
-  min_click_to_conv_seconds: number;
-  max_click_to_conv_seconds: number;
-  browser_only: boolean;
-  exclude_datacenter_ip: boolean;
-}
-
-export async function getSettings(): Promise<Settings> {
-  return fetchJson(`${ADMIN_API_BASE_URL}/settings`);
-}
-
-export async function updateSettings(settings: Settings) {
-  return fetchJson(
-    `${ADMIN_API_BASE_URL}/settings`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settings),
-    },
-    { retries: 0 }
-  );
-}
-
-export async function ingestClicks(date: string) {
-  return fetchJson(
-    `${ADMIN_API_BASE_URL}/ingest/clicks`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date }),
-    },
-    { retries: 0 }
-  );
-}
-
-export async function ingestConversions(date: string) {
-  return fetchJson(
-    `${ADMIN_API_BASE_URL}/ingest/conversions`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date }),
-    },
-    { retries: 0 }
-  );
-}
-
-export async function refreshData(hours = 24, clicks = true, conversions = true) {
-  return fetchJson(
-    `${ADMIN_API_BASE_URL}/refresh`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hours, clicks, conversions }),
-    },
-    { retries: 0 }
-  );
-}
-
-export async function getJobStatus() {
-  return fetchJson<JobStatusResponse>(`${API_BASE_URL}/api/job/status`);
 }
 
 export interface AvailableDatesResponse {
@@ -290,35 +197,4 @@ export interface AvailableDatesResponse {
 
 export async function getAvailableDates(): Promise<AvailableDatesResponse> {
   return fetchJson<AvailableDatesResponse>(`${API_BASE_URL}/api/dates`);
-}
-
-// Health check API
-export interface HealthIssue {
-  type: 'error' | 'warning';
-  field: string;
-  message: string;
-  hint: string;
-}
-
-export interface HealthCheckResponse {
-  status: 'ok' | 'warning' | 'error';
-  issues: HealthIssue[];
-  config: {
-    db_path_configured: boolean;
-    acs_base_url_configured: boolean;
-    acs_auth_configured: boolean;
-  };
-}
-
-export async function getHealthStatus(): Promise<HealthCheckResponse> {
-  return fetchJson(`${API_BASE_URL}/api/health`);
-}
-
-export interface JobStatusResponse {
-  status: "idle" | "running" | "completed" | "failed";
-  job_id?: string | null;
-  message?: string | null;
-  started_at?: string | null;
-  completed_at?: string | null;
-  result?: Record<string, unknown> | null;
 }

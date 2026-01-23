@@ -10,7 +10,7 @@ from .models import (
     SuspiciousConversionFinding,
     SuspiciousFinding,
 )
-from .repository import SQLiteRepository
+from .repository_pg import PostgresRepository
 
 
 def _is_browser_useragent(ua: str) -> bool:
@@ -69,7 +69,7 @@ class SuspiciousRuleSet:
 
 
 class SuspiciousDetector:
-    def __init__(self, repository: SQLiteRepository, rules: SuspiciousRuleSet | None = None):
+    def __init__(self, repository: PostgresRepository, rules: SuspiciousRuleSet | None = None):
         self.repository = repository
         self.rules = rules or SuspiciousRuleSet()
 
@@ -145,7 +145,7 @@ class ConversionSuspiciousDetector:
 
     def __init__(
         self,
-        repository: SQLiteRepository,
+        repository: PostgresRepository,
         rules: ConversionSuspiciousRuleSet | None = None,
     ):
         self.repository = repository
@@ -275,7 +275,7 @@ class CombinedSuspiciousDetector:
 
     def __init__(
         self,
-        repository: SQLiteRepository,
+        repository: PostgresRepository,
         click_rules: SuspiciousRuleSet | None = None,
         conversion_rules: ConversionSuspiciousRuleSet | None = None,
     ):

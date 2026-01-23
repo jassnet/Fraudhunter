@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Callable, Dict, Tuple
 
 from ..acs_client import AcsHttpClient
 import os
 
-from ..config import resolve_acs_settings, resolve_db_path, resolve_store_raw
+from ..config import resolve_acs_settings, resolve_store_raw
 from ..ingestion import ClickLogIngestor, ConversionIngestor
-from ..job_status import JobStatusStore
 from ..job_status_pg import JobStatusStorePG
-from ..repository import SQLiteRepository
 from ..repository_pg import PostgresRepository
 from ..time_utils import now_local
 
@@ -19,17 +17,17 @@ class JobConflictError(RuntimeError):
     """Raised when another background job is already running."""
 
 
-def get_repository() -> SQLiteRepository:
-    """Create a repository with required schemas ensured."""
+def _require_database_url() -> str:
     database_url = os.getenv("DATABASE_URL")
-    if database_url:
-        repo = PostgresRepository(database_url)
-        repo.ensure_schema(store_raw=resolve_store_raw(None))
-        repo.ensure_conversion_schema()
-        repo.ensure_master_schema()
-        return repo
-    db_path = resolve_db_path(None)
-    repo = SQLiteRepository(db_path)
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is required for Postgres mode.")
+    return database_url
+
+
+def get_repository() -> PostgresRepository:
+    """Create a repository with required schemas ensured."""
+    database_url = _require_database_url()
+    repo = PostgresRepository(database_url)
     repo.ensure_schema(store_raw=resolve_store_raw(None))
     repo.ensure_conversion_schema()
     repo.ensure_master_schema()
@@ -47,13 +45,10 @@ def get_acs_client() -> AcsHttpClient:
     )
 
 
-def get_job_store() -> JobStatusStore:
+def get_job_store() -> JobStatusStorePG:
     """Get persistent job status store."""
-    database_url = os.getenv("DATABASE_URL")
-    if database_url:
-        return JobStatusStorePG(database_url)
-    db_path = resolve_db_path(None)
-    return JobStatusStore(db_path)
+    database_url = _require_database_url()
+    return JobStatusStorePG(database_url)
 
 
 def enqueue_job(
@@ -66,7 +61,7 @@ def enqueue_job(
     """
     Common background job runner.
     - Ensures only one job runs at a time.
-    - Persists start/completion/failure state to SQLite.
+    - Persists start/completion/failure state to Postgres.
     """
     store = get_job_store()
     current = store.get()

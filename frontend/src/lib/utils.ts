@@ -1,6 +1,4 @@
-import { twMerge } from "tailwind-merge";
-
-type ClassValue =
+export type ClassValue =
   | string
   | number
   | null
@@ -34,5 +32,5 @@ function clsx(...inputs: ClassValue[]): string {
 }
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(...inputs));
+  return clsx(...inputs);
 }

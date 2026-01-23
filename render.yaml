@@ -31,8 +31,6 @@ services:
         value: 22.20.0
       - key: NEXT_PUBLIC_API_URL
         value: https://fraudchecker-backend.onrender.com
-      - key: API_BASE_URL
-        value: https://fraudchecker-backend.onrender.com
 
   - type: cron
     name: fraudchecker-refresh-hourly

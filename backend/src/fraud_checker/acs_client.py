@@ -69,8 +69,6 @@ class AcsHttpClient:
 
         records = body.get("records", [])
         logger.info("ACS response status=%s records=%s", response.status_code, len(records))
-        if records:
-            logger.debug("ACS first record sample=%s", records[0])
         return [self._to_click(record) for record in records]
 
     def _to_click(self, record: dict) -> ClickLog:
@@ -150,8 +148,6 @@ class AcsHttpClient:
             response.status_code,
             len(records),
         )
-        if records:
-            logger.debug("ACS first conversion record sample=%s", records[0])
         return [self._to_conversion(record) for record in records]
 
     def _to_conversion(self, record: dict) -> ConversionLog:

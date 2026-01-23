@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 // 各設定項目の説明
 const FIELD_DESCRIPTIONS: Record<keyof Settings, { label: string; description: string; min: number; max?: number; recommended?: string }> = {
@@ -146,16 +147,22 @@ function FieldInput({ id, value, onChange, error }: FieldInputProps) {
   return (
     <div className="grid gap-2">
       <div className="flex items-center gap-2">
-        <Label htmlFor={id}>{field.label}</Label>
+        <Label htmlFor={id} className="text-pretty">{field.label}</Label>
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+              <button
+                type="button"
+                className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground"
+                aria-label={`${field.label}の説明`}
+              >
+                <HelpCircle className="h-4 w-4" />
+              </button>
             </TooltipTrigger>
             <TooltipContent side="right" className="max-w-xs">
-              <p className="text-sm">{field.description}</p>
+              <p className="text-sm text-pretty">{field.description}</p>
               {field.recommended && (
-                <p className="text-xs text-muted-foreground mt-1">{field.recommended}</p>
+                <p className="mt-1 text-xs text-pretty text-muted-foreground">{field.recommended}</p>
               )}
             </TooltipContent>
           </Tooltip>
@@ -163,21 +170,28 @@ function FieldInput({ id, value, onChange, error }: FieldInputProps) {
       </div>
       <Input
         id={id}
+        name={id}
         type="number"
         value={Number.isFinite(value) ? value : ""}
         onChange={handleChange}
         onBlur={handleBlur}
         min={field.min}
         max={field.max}
-        className={error ? "border-red-500" : ""}
+        autoComplete="off"
+        className={cn("tabular-nums", error && "border-destructive")}
       />
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {error && (
+        <p className="text-xs text-destructive" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [initialSettings, setInitialSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [syncingMasters, setSyncingMasters] = useState(false);
@@ -193,6 +207,7 @@ export default function SettingsPage() {
     try {
       const data = await getSettings();
       setSettings(data);
+      setInitialSettings(data);
     } catch (err) {
       console.error("Failed to load settings", err);
       setMessage({ type: 'error', text: '設定の読み込みに失敗しました' });
@@ -214,6 +229,21 @@ export default function SettingsPage() {
     loadSettings();
     loadMastersStatus();
   }, []);
+
+  const isDirty = useMemo(() => {
+    if (!settings || !initialSettings) return false;
+    return JSON.stringify(settings) !== JSON.stringify(initialSettings);
+  }, [settings, initialSettings]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isDirty]);
 
   const validateSettings = (settings: Settings): Partial<Record<keyof Settings, string>> => {
     const errors: Partial<Record<keyof Settings, string>> = {};
@@ -251,6 +281,7 @@ export default function SettingsPage() {
     try {
       await updateSettings(settings);
       setMessage({ type: 'success', text: '設定を保存しました' });
+      setInitialSettings(settings);
       setTimeout(() => setMessage(null), 3000);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '保存に失敗しました';
@@ -291,9 +322,11 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6 p-10 pb-16">
-        <Skeleton className="h-8 w-[200px]" />
-        <Skeleton className="h-4 w-[300px]" />
+      <div className="space-y-6 p-6 sm:p-8">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-[160px]" />
+          <Skeleton className="h-4 w-[260px]" />
+        </div>
         <div className="space-y-4">
           {[...Array(3)].map((_, i) => (
             <Skeleton key={i} className="h-[200px] rounded-xl" />
@@ -305,22 +338,56 @@ export default function SettingsPage() {
 
   if (!settings) {
     return (
-      <div className="space-y-6 p-10 pb-16">
-        <div className="text-center py-8 text-red-500">
-          設定の読み込みに失敗しました。バックエンドが起動しているか確認してください。
+      <div className="space-y-6 p-6 sm:p-8">
+        <div className="space-y-1">
+          <h1 className="text-balance text-2xl font-semibold">設定</h1>
+          <p className="text-pretty text-sm text-muted-foreground">
+            不正検知の閾値とフィルタを管理します。
+          </p>
         </div>
+        <Card className="border-destructive/40">
+          <CardHeader>
+            <CardTitle className="text-balance text-destructive">設定の読み込みに失敗しました</CardTitle>
+            <CardDescription className="text-pretty">
+              バックエンドが起動しているか確認してから、再読み込みしてください。
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" onClick={loadSettings}>
+              再読み込み
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 p-10 pb-16 md:block">
+    <div className="space-y-6 p-6 sm:p-8">
+      <div className="space-y-1">
+        <h1 className="text-balance text-2xl font-semibold">設定</h1>
+        <p className="text-pretty text-sm text-muted-foreground">
+          不正検知の閾値とフィルタを管理します。
+        </p>
+      </div>
+
       {message && (
-        <div className={`flex items-center gap-2 p-4 rounded-lg ${
-          message.type === 'success' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
-        }`}>
-          {message.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-          {message.text}
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-lg border px-4 py-3 text-sm",
+            message.type === "success"
+              ? "border-green-500/30 bg-green-500/10 text-green-500"
+              : "border-red-500/30 bg-red-500/10 text-red-500"
+          )}
+          role="status"
+          aria-live="polite"
+        >
+          {message.type === "success" ? (
+            <CheckCircle className="h-4 w-4" />
+          ) : (
+            <XCircle className="h-4 w-4" />
+          )}
+          <span className="text-pretty">{message.text}</span>
         </div>
       )}
 
@@ -329,8 +396,8 @@ export default function SettingsPage() {
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>クリック検知閾値（同一IP/UA）</CardTitle>
-                <CardDescription>
+                <CardTitle className="text-balance">クリック検知閾値（同一IP/UA）</CardTitle>
+                <CardDescription className="text-pretty">
                   同一のIPアドレスとUser-Agentの組み合わせからのクリックを分析し、
                   不正の可能性があるアクセスを検知するための閾値を設定します。
                 </CardDescription>
@@ -371,8 +438,8 @@ export default function SettingsPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>成果検知閾値（同一IP/UA）</CardTitle>
-                <CardDescription>
+                <CardTitle className="text-balance">成果検知閾値（同一IP/UA）</CardTitle>
+                <CardDescription className="text-pretty">
                   同一のIPアドレスとUser-Agentの組み合わせからの成果（コンバージョン）を分析し、
                   不正の可能性がある成果を検知するための閾値を設定します。
                 </CardDescription>
@@ -425,8 +492,8 @@ export default function SettingsPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>フィルタ設定</CardTitle>
-                <CardDescription>
+                <CardTitle className="text-balance">フィルタ設定</CardTitle>
+                <CardDescription className="text-pretty">
                   検知対象を絞り込むためのフィルタ設定です。
                   誤検知を減らしたい場合に有効化してください。
                 </CardDescription>
@@ -439,20 +506,27 @@ export default function SettingsPage() {
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                            <button
+                              type="button"
+                              className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground"
+                              aria-label={`${FIELD_DESCRIPTIONS.browser_only.label}の説明`}
+                            >
+                              <HelpCircle className="h-4 w-4" />
+                            </button>
                           </TooltipTrigger>
                           <TooltipContent side="right" className="max-w-xs">
-                            <p className="text-sm">{FIELD_DESCRIPTIONS.browser_only.description}</p>
+                            <p className="text-sm text-pretty">{FIELD_DESCRIPTIONS.browser_only.description}</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     </div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-pretty text-muted-foreground">
                       ボットやAPIアクセスを除外
                     </p>
                   </div>
                   <Switch
                     id="browser_only"
+                    name="browser_only"
                     checked={settings.browser_only}
                     onCheckedChange={(checked) => updateField('browser_only', checked)}
                   />
@@ -466,20 +540,29 @@ export default function SettingsPage() {
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                            <button
+                              type="button"
+                              className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground"
+                              aria-label={`${FIELD_DESCRIPTIONS.exclude_datacenter_ip.label}の説明`}
+                            >
+                              <HelpCircle className="h-4 w-4" />
+                            </button>
                           </TooltipTrigger>
                           <TooltipContent side="right" className="max-w-xs">
-                            <p className="text-sm">{FIELD_DESCRIPTIONS.exclude_datacenter_ip.description}</p>
+                            <p className="text-sm text-pretty">
+                              {FIELD_DESCRIPTIONS.exclude_datacenter_ip.description}
+                            </p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     </div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-pretty text-muted-foreground">
                       AWS/GCP等のクラウドIPを除外
                     </p>
                   </div>
                   <Switch
                     id="exclude_datacenter_ip"
+                    name="exclude_datacenter_ip"
                     checked={settings.exclude_datacenter_ip}
                     onCheckedChange={(checked) => updateField('exclude_datacenter_ip', checked)}
                   />
@@ -489,7 +572,7 @@ export default function SettingsPage() {
             
             <div className="flex justify-end">
               <Button onClick={handleSave} disabled={saving}>
-                {saving ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                {saving ? <RefreshCw className="mr-2 h-4 w-4 motion-safe:animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 変更を保存
               </Button>
             </div>
@@ -500,11 +583,11 @@ export default function SettingsPage() {
         <div className="w-full lg:w-80">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-balance">
                 <Database className="h-5 w-5" />
                 マスタデータ
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-pretty">
                 ACSから媒体・案件・ユーザー情報を同期します。
                 名前表示に必要です。
               </CardDescription>
@@ -514,20 +597,20 @@ export default function SettingsPage() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">媒体数</span>
-                    <span className="font-medium">{mastersStatus.media_count.toLocaleString()}</span>
+                    <span className="font-medium tabular-nums">{mastersStatus.media_count.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">案件数</span>
-                    <span className="font-medium">{mastersStatus.promotion_count.toLocaleString()}</span>
+                    <span className="font-medium tabular-nums">{mastersStatus.promotion_count.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">ユーザー数</span>
-                    <span className="font-medium">{mastersStatus.user_count.toLocaleString()}</span>
+                    <span className="font-medium tabular-nums">{mastersStatus.user_count.toLocaleString()}</span>
                   </div>
                 </div>
               )}
               {!mastersStatus && (
-                <div className="text-sm text-muted-foreground text-center py-4">
+                <div className="text-sm text-pretty text-muted-foreground text-center py-4">
                   マスタデータが未同期です
                 </div>
               )}
@@ -538,7 +621,7 @@ export default function SettingsPage() {
                 disabled={syncingMasters}
               >
                 {syncingMasters ? (
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  <RefreshCw className="mr-2 h-4 w-4 motion-safe:animate-spin" />
                 ) : (
                   <RefreshCw className="mr-2 h-4 w-4" />
                 )}

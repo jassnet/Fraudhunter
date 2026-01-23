@@ -20,7 +20,7 @@ from ..config import (
     _env_bool,
     _env_int,
 )
-from ..repository import SQLiteRepository
+from ..repository_pg import PostgresRepository
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def _load_settings_from_env() -> dict:
     }
 
 
-def _load_settings(repo: SQLiteRepository) -> dict:
+def _load_settings(repo: PostgresRepository) -> dict:
     try:
         db_settings = repo.load_settings()
         if db_settings:
@@ -67,14 +67,14 @@ def _load_settings(repo: SQLiteRepository) -> dict:
     return _load_settings_from_env()
 
 
-def get_settings(repo: SQLiteRepository) -> dict:
+def get_settings(repo: PostgresRepository) -> dict:
     global _settings_cache
     if not _settings_cache:
         _settings_cache = _load_settings(repo)
     return _settings_cache
 
 
-def update_settings(repo: SQLiteRepository, settings: dict) -> dict:
+def update_settings(repo: PostgresRepository, settings: dict) -> dict:
     global _settings_cache
     try:
         repo.save_settings(settings)

@@ -86,19 +86,19 @@ export function RefreshDialog({ open, onOpenChange, onSuccess, initialDate }: Re
   };
 
   const handleIngestClicks = () =>
-    runJob(`ingest_clicks_${date}`, "クリックログを取り込み中...", async () => {
+    runJob(`ingest_clicks_${date}`, "クリックログを取り込み中…", async () => {
       await ensureMasterSynced();
       return ingestClicks(date);
     });
 
   const handleIngestConversions = () =>
-    runJob(`ingest_conversions_${date}`, "成果ログを取り込み中...", async () => {
+    runJob(`ingest_conversions_${date}`, "成果ログを取り込み中…", async () => {
       await ensureMasterSynced();
       return ingestConversions(date);
     });
 
   const handleSyncMasters = () =>
-    runJob("sync_masters", "マスタデータを同期中...", () => syncMasters());
+    runJob("sync_masters", "マスタデータを同期中…", () => syncMasters());
 
   const handleClose = (openState: boolean) => {
     if (!openState) {
@@ -120,8 +120,10 @@ export function RefreshDialog({ open, onOpenChange, onSuccess, initialDate }: Re
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>データ取り込み</DialogTitle>
-          <DialogDescription>ACS APIからログデータを取得してDBに保存します</DialogDescription>
+          <DialogTitle className="text-balance">データ取り込み</DialogTitle>
+          <DialogDescription className="text-pretty">
+            ACS APIからログデータを取得してDBに保存します
+          </DialogDescription>
         </DialogHeader>
 
         {status === "idle" && (
@@ -147,11 +149,18 @@ export function RefreshDialog({ open, onOpenChange, onSuccess, initialDate }: Re
               </div>
               <div className="space-y-2">
                 <Label htmlFor="date">対象日付</Label>
-                <Input id="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                <Input
+                  id="date"
+                  name="ingest-date"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  autoComplete="off"
+                />
               </div>
               <div className="flex space-x-2">
                 <Button onClick={handleIngestClicks} disabled={buttonDisabled} className="flex-1">
-                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {loading && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
                   クリックログ取込
                 </Button>
                 <Button
@@ -160,7 +169,7 @@ export function RefreshDialog({ open, onOpenChange, onSuccess, initialDate }: Re
                   variant="secondary"
                   className="flex-1"
                 >
-                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {loading && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
                   成果ログ取込
                 </Button>
               </div>
@@ -168,7 +177,7 @@ export function RefreshDialog({ open, onOpenChange, onSuccess, initialDate }: Re
 
             <TabsContent value="master" className="space-y-4">
               <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-pretty text-sm text-muted-foreground">
                   ACSから媒体・案件・アフィリエイター情報を取得し、名前表示に使用するマスタデータを更新します。
                 </p>
               </div>
@@ -184,16 +193,16 @@ export function RefreshDialog({ open, onOpenChange, onSuccess, initialDate }: Re
 
         {status === "running" && (
           <div className="flex flex-col items-center justify-center py-8 space-y-4">
-            <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            <p className="text-muted-foreground text-center">{message}</p>
+            <Loader2 className="h-12 w-12 motion-safe:animate-spin text-primary" />
+            <p className="text-pretty text-center text-muted-foreground">{message}</p>
             {jobId && (
               <Badge variant="outline" className="font-mono text-xs">
                 <Clock className="mr-1 h-3 w-3" />
                 {jobId}
               </Badge>
             )}
-            <p className="text-xs text-muted-foreground">バックグラウンドで処理中です...</p>
-            <p className="text-xs text-muted-foreground">このダイアログを閉じても処理は継続されます</p>
+            <p className="text-xs text-muted-foreground">バックグラウンドで処理中です…</p>
+            <p className="text-pretty text-xs text-muted-foreground">このダイアログを閉じても処理は継続されます</p>
           </div>
         )}
 
@@ -207,7 +216,7 @@ export function RefreshDialog({ open, onOpenChange, onSuccess, initialDate }: Re
                 {jobResult.clicks && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">クリック</span>
-                    <span>
+                    <span className="tabular-nums">
                       新規: {jobResult.clicks.new} / スキップ: {jobResult.clicks.skipped}
                     </span>
                   </div>
@@ -215,7 +224,7 @@ export function RefreshDialog({ open, onOpenChange, onSuccess, initialDate }: Re
                 {jobResult.conversions && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">成果</span>
-                    <span>
+                    <span className="tabular-nums">
                       新規: {jobResult.conversions.new} / スキップ: {jobResult.conversions.skipped}
                     </span>
                   </div>
@@ -223,13 +232,13 @@ export function RefreshDialog({ open, onOpenChange, onSuccess, initialDate }: Re
                 {jobResult.count !== undefined && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">取込件数</span>
-                    <span>{jobResult.count}件</span>
+                    <span className="tabular-nums">{jobResult.count}件</span>
                   </div>
                 )}
                 {jobResult.total !== undefined && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">総件数</span>
-                    <span>{jobResult.total}件</span>
+                    <span className="tabular-nums">{jobResult.total}件</span>
                   </div>
                 )}
               </div>

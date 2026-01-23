@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from typing import Iterable, Protocol
 
 from .models import ClickLog, ConversionLog
-from .repository import SQLiteRepository
+from .repository_pg import PostgresRepository
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class ClickLogIngestor:
     def __init__(
         self,
         client: AcsClient,
-        repository: SQLiteRepository,
+        repository: PostgresRepository,
         *,
         page_size: int = 1000,
         store_raw: bool = False,
@@ -136,7 +136,7 @@ class ConversionIngestor:
     def __init__(
         self,
         client: AcsClient,
-        repository: SQLiteRepository,
+        repository: PostgresRepository,
         *,
         page_size: int = 500,
     ):

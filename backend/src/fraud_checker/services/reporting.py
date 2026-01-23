@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from ..repository import SQLiteRepository
+from ..repository_pg import PostgresRepository
 from . import settings as settings_service
 from ..time_utils import today_local
 
 
-def get_latest_date(repo: SQLiteRepository, table: str) -> Optional[str]:
+def get_latest_date(repo: PostgresRepository, table: str) -> Optional[str]:
     row = repo.fetch_one(f"SELECT MAX(date) as last_date FROM {table}")
     if not row or not row.get("last_date"):
         return None
@@ -18,7 +18,7 @@ def get_latest_date(repo: SQLiteRepository, table: str) -> Optional[str]:
     return value
 
 
-def resolve_summary_date(repo: SQLiteRepository, target_date: Optional[str]) -> str:
+def resolve_summary_date(repo: PostgresRepository, target_date: Optional[str]) -> str:
     if target_date:
         return target_date
 
@@ -34,7 +34,7 @@ def resolve_summary_date(repo: SQLiteRepository, target_date: Optional[str]) -> 
     return (today_local() - timedelta(days=1)).isoformat()
 
 
-def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:
+def get_summary(repo: PostgresRepository, target_date: Optional[str]) -> dict:
     resolved_date = resolve_summary_date(repo, target_date)
     settings = settings_service.get_settings(repo)
     click_threshold = settings["click_threshold"]
@@ -124,7 +124,7 @@ def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:
     }
 
 
-def get_daily_stats(repo: SQLiteRepository, limit: int) -> list[dict]:
+def get_daily_stats(repo: PostgresRepository, limit: int) -> list[dict]:
     settings = settings_service.get_settings(repo)
     click_threshold = settings["click_threshold"]
     conversion_threshold = settings["conversion_threshold"]
@@ -216,7 +216,7 @@ def get_daily_stats(repo: SQLiteRepository, limit: int) -> list[dict]:
     return sorted(merged.values(), key=lambda item: item["date"])
 
 
-def get_available_dates(repo: SQLiteRepository) -> list[str]:
+def get_available_dates(repo: PostgresRepository) -> list[str]:
     click_dates = repo.fetch_all(
         "SELECT DISTINCT date FROM click_ipua_daily ORDER BY date DESC"
     )
