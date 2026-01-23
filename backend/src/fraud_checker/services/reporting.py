@@ -5,6 +5,7 @@ from typing import Optional
 
 from ..repository import SQLiteRepository
 from . import settings as settings_service
+from ..time_utils import today_local
 
 
 def get_latest_date(repo: SQLiteRepository, table: str) -> Optional[str]:
@@ -30,7 +31,7 @@ def resolve_summary_date(repo: SQLiteRepository, target_date: Optional[str]) -> 
         return click_date
     if conv_date:
         return conv_date
-    return (date.today() - timedelta(days=1)).isoformat()
+    return (today_local() - timedelta(days=1)).isoformat()
 
 
 def get_summary(repo: SQLiteRepository, target_date: Optional[str]) -> dict:

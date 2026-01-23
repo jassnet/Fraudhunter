@@ -8,6 +8,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, List, Dict
 
+from .time_utils import now_local
+
 from .models import (
     AggregatedRow,
     ClickLog,
@@ -381,7 +383,7 @@ class SQLiteRepository:
             )
 
     def _insert_raw(self, conn: sqlite3.Connection, click: ClickLog) -> None:
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         conn.execute(
             """
             INSERT OR REPLACE INTO click_raw (
@@ -404,7 +406,7 @@ class SQLiteRepository:
         )
 
     def _upsert_aggregate(self, conn: sqlite3.Connection, click: ClickLog) -> None:
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         conn.execute(
             """
             INSERT INTO click_ipua_daily (
@@ -508,7 +510,7 @@ class SQLiteRepository:
             )
 
     def _insert_conversion_raw(self, conn: sqlite3.Connection, conv: ConversionLog) -> None:
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         conn.execute(
             """
             INSERT OR REPLACE INTO conversion_raw (
@@ -540,7 +542,7 @@ class SQLiteRepository:
         """エントリー時（実ユーザー）のIP/UAで成果を集計"""
         if not conv.entry_ipaddress or not conv.entry_useragent:
             return
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         conn.execute(
             """
             INSERT INTO conversion_ipua_daily (
@@ -813,7 +815,7 @@ class SQLiteRepository:
                 SET click_ipaddress = ?, click_useragent = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (ip, ua, datetime.utcnow().isoformat(), conversion_id),
+                (ip, ua, now_local().isoformat(), conversion_id),
             )
 
     # ==================== マージ機能（重複チェック付き取り込み） ====================
@@ -970,7 +972,7 @@ class SQLiteRepository:
     def upsert_media(self, media_id: str, name: str, user_id: str | None = None, state: str | None = None) -> None:
         """媒体マスタをUpsert"""
         self.ensure_master_schema()
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         with self._connect() as conn:
             conn.execute("""
                 INSERT INTO master_media (id, name, user_id, state, updated_at)
@@ -985,7 +987,7 @@ class SQLiteRepository:
     def upsert_promotion(self, promotion_id: str, name: str, state: str | None = None) -> None:
         """案件マスタをUpsert"""
         self.ensure_master_schema()
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         with self._connect() as conn:
             conn.execute("""
                 INSERT INTO master_promotion (id, name, state, updated_at)
@@ -999,7 +1001,7 @@ class SQLiteRepository:
     def upsert_user(self, user_id: str, name: str, company: str | None = None, state: str | None = None) -> None:
         """ユーザーマスタをUpsert"""
         self.ensure_master_schema()
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         with self._connect() as conn:
             conn.execute("""
                 INSERT INTO master_user (id, name, company, state, updated_at)
@@ -1014,7 +1016,7 @@ class SQLiteRepository:
     def bulk_upsert_media(self, media_list: List[dict]) -> int:
         """媒体マスタを一括Upsert"""
         self.ensure_master_schema()
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         count = 0
         with self._connect() as conn:
             for m in media_list:
@@ -1033,7 +1035,7 @@ class SQLiteRepository:
     def bulk_upsert_promotions(self, promo_list: List[dict]) -> int:
         """案件マスタを一括Upsert"""
         self.ensure_master_schema()
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         count = 0
         with self._connect() as conn:
             for p in promo_list:
@@ -1051,7 +1053,7 @@ class SQLiteRepository:
     def bulk_upsert_users(self, user_list: List[dict]) -> int:
         """ユーザーマスタを一括Upsert"""
         self.ensure_master_schema()
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         count = 0
         with self._connect() as conn:
             for u in user_list:
@@ -1285,7 +1287,7 @@ class SQLiteRepository:
     def save_settings(self, settings: dict) -> None:
         """設定をDBに保存"""
         self.ensure_settings_schema()
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         with self._connect() as conn:
             for key, value in settings.items():
                 # JSON形式で保存（数値やboolを正確に復元するため）

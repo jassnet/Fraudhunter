@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from .time_utils import now_local
 
 @dataclass
 class JobStatus:
@@ -69,7 +70,7 @@ class JobStatusStore:
 
     def start(self, job_id: str, message: str) -> None:
         self.ensure_schema()
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         with self._connect() as conn:
             conn.execute(
                 """
@@ -93,7 +94,7 @@ class JobStatusStore:
 
     def _finish(self, job_id: str, status: str, message: str, result: Optional[dict]) -> None:
         self.ensure_schema()
-        now = datetime.utcnow().isoformat()
+        now = now_local().isoformat()
         result_json = json.dumps(result) if result is not None else None
         with self._connect() as conn:
             conn.execute(

@@ -25,6 +25,7 @@ from .suspicious import (
     ConversionSuspiciousDetector,
     SuspiciousDetector,
 )
+from .time_utils import now_local, today_local
 
 
 def _parse_date(value: str) -> date:
@@ -407,7 +408,7 @@ def _cmd_suspicious(args: argparse.Namespace) -> int:
 
 
 def _cmd_daily(args: argparse.Namespace, acs_client_factory: Optional[Callable]) -> int:
-    target_date = date.today() - timedelta(days=args.days_ago)
+    target_date = today_local() - timedelta(days=args.days_ago)
     db_path = resolve_db_path(args.db)
     store_raw = resolve_store_raw(args.store_raw)
     acs_settings = resolve_acs_settings(
@@ -541,7 +542,7 @@ def _cmd_daily_full(
     args: argparse.Namespace, acs_client_factory: Optional[Callable]
 ) -> int:
     """クリック＋成果の両方を取り込み、統合検知を実行"""
-    target_date = date.today() - timedelta(days=args.days_ago)
+    target_date = today_local() - timedelta(days=args.days_ago)
     db_path = resolve_db_path(args.db)
     # 成果と突合するためにstore_rawは必須
     store_raw = resolve_store_raw(args.store_raw)
@@ -658,7 +659,7 @@ def _cmd_refresh(
     args: argparse.Namespace, acs_client_factory: Optional[Callable]
 ) -> int:
     """最新データを取り込み、既存データとマージ（重複なし）"""
-    end_time = datetime.utcnow()
+    end_time = now_local()
     start_time = end_time - timedelta(hours=args.hours)
     
     db_path = resolve_db_path(args.db)

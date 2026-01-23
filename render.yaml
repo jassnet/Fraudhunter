@@ -17,6 +17,8 @@ services:
         value: https://fraudchecker-frontend.onrender.com
       - key: ACS_ALLOW_INSECURE
         value: "false"
+      - key: FRAUD_TIMEZONE
+        value: "Asia/Tokyo"
 
   - type: web
     name: fraudchecker-frontend
@@ -48,6 +50,8 @@ services:
           property: connectionString
       - key: ACS_ALLOW_INSECURE
         value: "false"
+      - key: FRAUD_TIMEZONE
+        value: "Asia/Tokyo"
 
   - type: cron
     name: fraudchecker-sync-masters-daily
@@ -65,6 +69,8 @@ services:
           property: connectionString
       - key: ACS_ALLOW_INSECURE
         value: "false"
+      - key: FRAUD_TIMEZONE
+        value: "Asia/Tokyo"
 
 databases:
   - name: fraudchecker-db

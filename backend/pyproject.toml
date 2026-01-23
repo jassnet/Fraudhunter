@@ -19,7 +19,8 @@ dependencies = [
   "pydantic>=2.6.0",
   "sqlalchemy>=2.0.30",
   "alembic>=1.13.2",
-  "psycopg>=3.2.0"
+  "psycopg>=3.2.0",
+  "tzdata>=2024.1"
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -10,6 +10,8 @@ from typing import Dict, Iterable, List
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from .time_utils import now_local
+
 from .db import Base
 from .db.session import normalize_database_url
 import fraud_checker.db.models  # noqa: F401
@@ -96,7 +98,7 @@ class PostgresRepository:
 
     def _insert_click_raw(self, conn: sa.Connection, click: ClickLog) -> None:
         table = Base.metadata.tables["click_raw"]
-        now = datetime.utcnow()
+        now = now_local()
         insert_stmt = pg_insert(table)
         update_stmt = {
             "click_time": insert_stmt.excluded.click_time,
@@ -126,7 +128,7 @@ class PostgresRepository:
 
     def _upsert_click_aggregate(self, conn: sa.Connection, click: ClickLog) -> None:
         table = Base.metadata.tables["click_ipua_daily"]
-        now = datetime.utcnow()
+        now = now_local()
         insert_stmt = pg_insert(table).values(
             date=click.click_time.date(),
             media_id=click.media_id,
@@ -391,7 +393,7 @@ class PostgresRepository:
 
     def _insert_conversion_raw(self, conn: sa.Connection, conv: ConversionLog) -> None:
         table = Base.metadata.tables["conversion_raw"]
-        now = datetime.utcnow()
+        now = now_local()
         insert_stmt = pg_insert(table)
         update_stmt = {
             "cid": insert_stmt.excluded.cid,
@@ -433,7 +435,7 @@ class PostgresRepository:
 
     def _upsert_conversion_aggregate(self, conn: sa.Connection, conv: ConversionLog) -> None:
         table = Base.metadata.tables["conversion_ipua_daily"]
-        now = datetime.utcnow()
+        now = now_local()
         insert_stmt = pg_insert(table).values(
             date=conv.conversion_time.date(),
             media_id=conv.media_id,
@@ -641,7 +643,7 @@ class PostgresRepository:
                     WHERE id = :conversion_id
                     """
                 ),
-                {"ip": ip, "ua": ua, "updated_at": datetime.utcnow(), "conversion_id": conversion_id},
+                {"ip": ip, "ua": ua, "updated_at": now_local(), "conversion_id": conversion_id},
             )
 
     def lookup_click_by_cid(self, cid: str) -> tuple[str, str, datetime] | None:
@@ -733,7 +735,7 @@ class PostgresRepository:
             for click in clicks:
                 if store_raw:
                     table = Base.metadata.tables["click_raw"]
-                    now = datetime.utcnow()
+                    now = now_local()
                     insert_stmt = pg_insert(table).values(
                         id=click.click_id or uuid.uuid4().hex,
                         click_time=click.click_time,
@@ -761,7 +763,7 @@ class PostgresRepository:
         with self._connect() as conn:
             for conv in conversions:
                 table = Base.metadata.tables["conversion_raw"]
-                now = datetime.utcnow()
+                now = now_local()
                 insert_stmt = pg_insert(table).values(
                     id=conv.conversion_id,
                     cid=conv.cid,
@@ -791,7 +793,7 @@ class PostgresRepository:
     def upsert_media(self, media_id: str, name: str, user_id: str | None = None, state: str | None = None) -> None:
         self.ensure_master_schema()
         table = Base.metadata.tables["master_media"]
-        now = datetime.utcnow()
+        now = now_local()
         stmt = pg_insert(table).values(
             id=media_id,
             name=name,
@@ -808,7 +810,7 @@ class PostgresRepository:
     def upsert_promotion(self, promotion_id: str, name: str, state: str | None = None) -> None:
         self.ensure_master_schema()
         table = Base.metadata.tables["master_promotion"]
-        now = datetime.utcnow()
+        now = now_local()
         stmt = pg_insert(table).values(
             id=promotion_id,
             name=name,
@@ -824,7 +826,7 @@ class PostgresRepository:
     def upsert_user(self, user_id: str, name: str, company: str | None = None, state: str | None = None) -> None:
         self.ensure_master_schema()
         table = Base.metadata.tables["master_user"]
-        now = datetime.utcnow()
+        now = now_local()
         stmt = pg_insert(table).values(
             id=user_id,
             name=name,
@@ -843,7 +845,7 @@ class PostgresRepository:
             return 0
         self.ensure_master_schema()
         table = Base.metadata.tables["master_media"]
-        now = datetime.utcnow()
+        now = now_local()
         rows = [
             {
                 "id": m.get("id"),
@@ -872,7 +874,7 @@ class PostgresRepository:
             return 0
         self.ensure_master_schema()
         table = Base.metadata.tables["master_promotion"]
-        now = datetime.utcnow()
+        now = now_local()
         rows = [
             {
                 "id": p.get("id"),
@@ -899,7 +901,7 @@ class PostgresRepository:
             return 0
         self.ensure_master_schema()
         table = Base.metadata.tables["master_user"]
-        now = datetime.utcnow()
+        now = now_local()
         rows = [
             {
                 "id": u.get("id"),
@@ -1057,7 +1059,7 @@ class PostgresRepository:
     def save_settings(self, settings: dict) -> None:
         self.ensure_settings_schema()
         table = Base.metadata.tables["app_settings"]
-        now = datetime.utcnow()
+        now = now_local()
         rows = [
             {"key": key, "value": json.dumps(value), "updated_at": now}
             for key, value in settings.items()

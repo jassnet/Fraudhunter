@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from .db import Base
 from .db.session import normalize_database_url
 import fraud_checker.db.models  # noqa: F401
+from .time_utils import now_local
 
 
 @dataclass
@@ -62,7 +63,7 @@ class JobStatusStorePG:
 
     def start(self, job_id: str, message: str) -> None:
         self.ensure_schema()
-        now = datetime.utcnow()
+        now = now_local()
         with self.engine.begin() as conn:
             conn.execute(
                 sa.text(
@@ -88,7 +89,7 @@ class JobStatusStorePG:
 
     def _finish(self, job_id: str, status: str, message: str, result: dict | None) -> None:
         self.ensure_schema()
-        now = datetime.utcnow()
+        now = now_local()
         result_json = json.dumps(result) if result is not None else None
         with self.engine.begin() as conn:
             conn.execute(

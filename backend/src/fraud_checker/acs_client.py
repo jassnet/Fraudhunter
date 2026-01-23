@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 import requests
 
 from .models import ClickLog, ConversionLog
+from .time_utils import parse_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -290,25 +291,8 @@ class AcsHttpClient:
 
     @staticmethod
     def _parse_datetime(value) -> datetime:
-        # Handles ISO8601, epoch seconds, or simple "%Y-%m-%d %H:%M:%S"
-        if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(value)
-        if not value:
-            return datetime.utcnow()
-        if isinstance(value, str):
-            try:
-                return datetime.fromisoformat(value)
-            except Exception:
-                try:
-                    return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    # Try epoch seconds encoded as string
-                    try:
-                        return datetime.fromtimestamp(float(value))
-                    except Exception:
-                        pass
-        # Last resort: now() to avoid crashes; record is still stored in raw_payload.
-        return datetime.utcnow()
+        # Keep timestamps in configured local time (default: JST).
+        return parse_datetime(value)
 
     # ========== マスタデータ取得 ==========
 

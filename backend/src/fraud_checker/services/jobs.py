@@ -12,6 +12,7 @@ from ..job_status import JobStatusStore
 from ..job_status_pg import JobStatusStorePG
 from ..repository import SQLiteRepository
 from ..repository_pg import PostgresRepository
+from ..time_utils import now_local
 
 
 class JobConflictError(RuntimeError):
@@ -113,7 +114,7 @@ def run_conversion_ingestion(target_date: date) -> Tuple[Dict, str]:
 
 
 def run_refresh(hours: int, clicks: bool, conversions: bool) -> Tuple[Dict, str]:
-    end_time = datetime.utcnow()
+    end_time = now_local()
     start_time = end_time - timedelta(hours=hours)
 
     repo = get_repository()
