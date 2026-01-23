@@ -1,0 +1,34 @@
+name: Sync Masters
+
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  sync-masters:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call master sync endpoint
+        env:
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+          FC_ADMIN_API_KEY: ${{ secrets.FC_ADMIN_API_KEY }}
+        run: |
+          if [ -z "$BACKEND_BASE_URL" ] || [ -z "$FC_ADMIN_API_KEY" ]; then
+            echo "Missing BACKEND_BASE_URL or FC_ADMIN_API_KEY secrets"
+            exit 1
+          fi
+          status=$(curl -s -o response.txt -w "%{http_code}" \
+            -X POST "$BACKEND_BASE_URL/api/sync/masters" \
+            -H "Authorization: Bearer $FC_ADMIN_API_KEY")
+          if [ "$status" = "409" ]; then
+            echo "Job already running (409) - ok"
+            cat response.txt || true
+            exit 0
+          fi
+          if [ "$status" -ge 400 ]; then
+            echo "Request failed: $status"
+            cat response.txt || true
+            exit 1
+          fi
+          cat response.txt || true

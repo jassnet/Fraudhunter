@@ -32,6 +32,40 @@ services:
       - key: API_BASE_URL
         value: https://fraudchecker-backend.onrender.com
 
+  - type: cron
+    name: fraudchecker-refresh-hourly
+    env: python
+    rootDir: backend
+    schedule: "0 * * * *"
+    buildCommand: pip install .
+    startCommand: python -m fraud_checker.cli refresh --hours 1 --detect
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fraudchecker-db
+          property: connectionString
+      - key: ACS_ALLOW_INSECURE
+        value: "false"
+
+  - type: cron
+    name: fraudchecker-sync-masters-daily
+    env: python
+    rootDir: backend
+    schedule: "30 3 * * *"
+    buildCommand: pip install .
+    startCommand: python -m fraud_checker.cli sync-masters
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fraudchecker-db
+          property: connectionString
+      - key: ACS_ALLOW_INSECURE
+        value: "false"
+
 databases:
   - name: fraudchecker-db
     databaseName: fraudchecker

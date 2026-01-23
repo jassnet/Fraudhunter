@@ -283,6 +283,17 @@ def build_parser() -> argparse.ArgumentParser:
     refresh.add_argument("--browser-only", action="store_true", default=None)
     refresh.add_argument("--exclude-datacenter-ip", action="store_true", default=None)
 
+    # マスタ同期コマンド
+    sync_masters = sub.add_parser(
+        "sync-masters",
+        help="Sync ACS master data (media/promotion/user) into the database",
+    )
+    sync_masters.add_argument("--db", help="SQLite DB path")
+    sync_masters.add_argument("--base-url", help="ACS base URL")
+    sync_masters.add_argument("--access-key", help="ACS access key")
+    sync_masters.add_argument("--secret-key", help="ACS secret key")
+    sync_masters.add_argument("--page-size", type=int, help="Page size for ACS API")
+
     return parser
 
 
@@ -312,6 +323,8 @@ def main(
             return _cmd_daily_full(args, acs_client_factory)
         if args.command == "refresh":
             return _cmd_refresh(args, acs_client_factory)
+        if args.command == "sync-masters":
+            return _cmd_sync_masters(args, acs_client_factory)
     except ValueError as exc:
         print(f"[error] {exc}", file=sys.stderr)
         return 2
@@ -756,6 +769,43 @@ def _cmd_refresh(
     print("\n=== Refresh Complete ===")
     print(f"Total: {click_new + conv_new} new records added, {click_skip + conv_skip} duplicates skipped")
     
+    return 0
+
+
+def _cmd_sync_masters(args: argparse.Namespace, acs_client_factory: Optional[Callable]) -> int:
+    """ACSマスタデータを同期"""
+    db_path = resolve_db_path(args.db)
+    acs_settings = resolve_acs_settings(
+        base_url=args.base_url,
+        access_key=args.access_key,
+        secret_key=args.secret_key,
+        page_size=args.page_size,
+    )
+
+    repository = _resolve_repository(db_path)
+    factory = acs_client_factory or (
+        lambda settings: AcsHttpClient(
+            base_url=settings.base_url,
+            access_key=settings.access_key,
+            secret_key=settings.secret_key,
+        )
+    )
+    client = factory(acs_settings)
+
+    print("=== Master Sync ===")
+    media_list = client.fetch_all_media_master()
+    media_count = repository.bulk_upsert_media(media_list)
+    print(f"Media masters: {media_count} records updated")
+
+    promo_list = client.fetch_all_promotion_master()
+    promo_count = repository.bulk_upsert_promotions(promo_list)
+    print(f"Promotion masters: {promo_count} records updated")
+
+    user_list = client.fetch_all_user_master()
+    user_count = repository.bulk_upsert_users(user_list)
+    print(f"User masters: {user_count} records updated")
+
+    print("=== Master Sync Complete ===")
     return 0
 
 

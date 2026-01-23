@@ -99,6 +99,9 @@ python -m fraud_checker.cli daily-full --days-ago 1
 
 # リフレッシュ（過去N時間の差分取り込み）
 python -m fraud_checker.cli refresh --hours 12 --detect
+
+# マスタ同期
+python -m fraud_checker.cli sync-masters
 ```
 
 ## Tests
