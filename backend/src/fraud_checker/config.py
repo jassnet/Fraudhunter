@@ -143,9 +143,9 @@ def resolve_store_raw(explicit: Optional[bool]) -> bool:
 
 def resolve_rules(
     *,
-    click_threshold: Optional[int],
-    media_threshold: Optional[int],
-    program_threshold: Optional[int],
+    click_threshold: Optional[int] = None,
+    media_threshold: Optional[int] = None,
+    program_threshold: Optional[int] = None,
     burst_click_threshold: Optional[int] = None,
     burst_window_seconds: Optional[int] = None,
     browser_only: Optional[bool] = None,

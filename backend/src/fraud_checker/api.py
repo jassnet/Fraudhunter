@@ -185,6 +185,72 @@ def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = F
         return {"level": "low", "score": score, "label": "低リスク"}
 
 
+def format_reasons(reasons: list[str]) -> list[str]:
+    # Normalize reason strings for UI display (ASCII-safe).
+    formatted: list[str] = []
+    for reason in reasons:
+        if reason.startswith("total_clicks >="):
+            threshold = reason.split(">=")[1].strip()
+            formatted.append(f"Total clicks >= {threshold}")
+        elif reason.startswith("media_count >="):
+            threshold = reason.split(">=")[1].strip()
+            formatted.append(f"Distinct media count >= {threshold}")
+        elif reason.startswith("program_count >="):
+            threshold = reason.split(">=")[1].strip()
+            formatted.append(f"Distinct program count >= {threshold}")
+        elif reason.startswith("burst:") and "clicks" in reason:
+            formatted.append("Burst clicks in short window")
+        elif reason.startswith("conversion_count >="):
+            threshold = reason.split(">=")[1].strip()
+            formatted.append(f"Total conversions >= {threshold}")
+        elif reason.startswith("burst:") and "conversions" in reason:
+            formatted.append("Burst conversions in short window")
+        elif reason.startswith("click_to_conversion_seconds <="):
+            threshold = reason.split("<=")[1].split("s")[0].strip()
+            formatted.append(f"Click-to-conversion too fast (<= {threshold}s)")
+        elif reason.startswith("click_to_conversion_seconds >="):
+            threshold = reason.split(">=")[1].split("s")[0].strip()
+            formatted.append(f"Click-to-conversion too slow (>= {threshold}s)")
+        else:
+            formatted.append(reason)
+    return formatted
+
+
+def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = False) -> dict:
+    # Compute risk level label and score (ASCII-safe).
+    score = 0
+
+    reason_count = len(reasons)
+    score += reason_count * 20
+
+    for reason in reasons:
+        if "burst" in reason.lower():
+            score += 30  # Burst behavior is higher risk.
+        if "click_to_conversion_seconds <=" in reason:
+            score += 25  # Very fast conversion is higher risk.
+        if "media_count" in reason or "program_count" in reason:
+            score += 15  # Multiple media/programs.
+
+    if is_conversion:
+        if count >= 10:
+            score += 40
+        elif count >= 5:
+            score += 20
+    else:
+        if count >= 200:
+            score += 40
+        elif count >= 100:
+            score += 25
+        elif count >= 50:
+            score += 10
+
+    if score >= 80:
+        return {"level": "high", "score": score, "label": "High Risk"}
+    if score >= 40:
+        return {"level": "medium", "score": score, "label": "Medium Risk"}
+    return {"level": "low", "score": score, "label": "Low Risk"}
+
+
 def _resolve_target_date(repo, table: str, target_date: Optional[str]) -> Optional[str]:
     if target_date:
         return target_date
