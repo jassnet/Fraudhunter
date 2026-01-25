@@ -146,8 +146,8 @@ def resolve_rules(
     click_threshold: Optional[int],
     media_threshold: Optional[int],
     program_threshold: Optional[int],
-    burst_click_threshold: Optional[int],
-    burst_window_seconds: Optional[int],
+    burst_click_threshold: Optional[int] = None,
+    burst_window_seconds: Optional[int] = None,
     browser_only: Optional[bool] = None,
     exclude_datacenter_ip: Optional[bool] = None,
 ) -> SuspiciousRuleSet:
