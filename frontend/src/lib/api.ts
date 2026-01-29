@@ -198,3 +198,16 @@ export interface AvailableDatesResponse {
 export async function getAvailableDates(): Promise<AvailableDatesResponse> {
   return fetchJson<AvailableDatesResponse>(`${API_BASE_URL}/api/dates`);
 }
+
+export interface JobStatusResponse {
+  status: string;
+  job_id?: string | null;
+  message?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  result?: Record<string, unknown> | null;
+}
+
+export async function getJobStatus(): Promise<JobStatusResponse> {
+  return fetchJson<JobStatusResponse>(`${API_BASE_URL}/api/job/status`);
+}
