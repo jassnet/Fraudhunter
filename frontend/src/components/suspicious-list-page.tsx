@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Table,
   TableBody,
@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DateQuickSelect } from "@/components/date-quick-select";
 import { LastUpdated } from "@/components/last-updated";
 import { getAvailableDates, getErrorMessage, SuspiciousItem, SuspiciousResponse } from "@/lib/api";
+import { SuspiciousRowDetails } from "@/components/suspicious-row-details";
 
 // Simple badge helper to avoid shared UI dependency
 function Badge({
@@ -77,11 +78,14 @@ export default function SuspiciousListPage({
   const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState<string>("");
   const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [datesLoaded, setDatesLoaded] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   useEffect(() => {
     const handle = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS);
@@ -96,13 +100,16 @@ export default function SuspiciousListPage({
       setDate((prev) => (prev && dates.includes(prev) ? prev : dates[0] || ""));
     } catch (err) {
       setError(getErrorMessage(err, "Failed to load dates."));
+    } finally {
+      setDatesLoaded(true);
     }
   }, []);
 
   const fetchData = useCallback(
-    async (targetDate: string | undefined, pageNum: number, query?: string) => {
+    async (targetDate: string | undefined, pageNum: number, query?: string, refresh = false) => {
       setError(null);
       setLoading(true);
+      if (refresh) setIsRefreshing(true);
       try {
         const offset = (pageNum - 1) * PAGE_SIZE;
         const json = await fetcher(targetDate || undefined, PAGE_SIZE, offset, query || undefined);
@@ -114,6 +121,7 @@ export default function SuspiciousListPage({
         setError(getErrorMessage(err, "Failed to load data."));
       } finally {
         setLoading(false);
+        if (refresh) setIsRefreshing(false);
       }
     },
     [fetcher]
@@ -124,20 +132,32 @@ export default function SuspiciousListPage({
   }, [loadDates]);
 
   useEffect(() => {
-    if (date) {
-      fetchData(date, page, debouncedSearch);
-    }
-  }, [date, page, debouncedSearch, fetchData]);
+    if (!datesLoaded) return;
+    fetchData(date || undefined, page, debouncedSearch, true);
+  }, [date, page, debouncedSearch, fetchData, datesLoaded]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const canPrev = page > 1;
   const canNext = page < totalPages;
 
   const handleRefresh = useCallback(() => {
-    fetchData(date, page, debouncedSearch);
+    fetchData(date || undefined, page, debouncedSearch, true);
   }, [date, page, debouncedSearch, fetchData]);
 
   const visibleRows = useMemo(() => data, [data]);
+
+  const resultRange = useMemo(() => {
+    if (loading) return "Loading...";
+    if (total === 0) return "No results";
+    if (visibleRows.length === 0) return `Showing 0 of ${total.toLocaleString()}`;
+    const start = (page - 1) * PAGE_SIZE + 1;
+    const end = Math.min(start + visibleRows.length - 1, total);
+    return `Showing ${start}-${end} of ${total.toLocaleString()}`;
+  }, [loading, page, total, visibleRows.length]);
+
+  const toggleRow = useCallback((key: string) => {
+    setExpandedRow((prev) => (prev === key ? null : key));
+  }, []);
 
   return (
     <div className="space-y-6 p-6 sm:p-8">
@@ -153,6 +173,7 @@ export default function SuspiciousListPage({
               value={date}
               onChange={(next) => {
                 setPage(1);
+                setExpandedRow(null);
                 setDate(next);
               }}
               availableDates={availableDates}
@@ -162,7 +183,7 @@ export default function SuspiciousListPage({
             <LastUpdated
               lastUpdated={lastUpdated}
               onRefresh={handleRefresh}
-              isRefreshing={false}
+              isRefreshing={isRefreshing}
               className="flex-wrap"
             />
           </div>
@@ -172,9 +193,11 @@ export default function SuspiciousListPage({
                 name="search"
                 type="search"
                 placeholder="Search IP / UA"
+                aria-label="Search suspicious list"
                 value={search}
                 onChange={(e) => {
                   setPage(1);
+                  setExpandedRow(null);
                   setSearch(e.target.value);
                 }}
                 autoComplete="off"
@@ -182,7 +205,7 @@ export default function SuspiciousListPage({
               />
             </div>
             <div className="text-xs text-muted-foreground">
-              {total > 0 ? `${total.toLocaleString()} results` : "No results"}
+              {resultRange}
             </div>
           </div>
         </CardHeader>
@@ -211,33 +234,57 @@ export default function SuspiciousListPage({
                     <TableHead className="text-right">Media</TableHead>
                     <TableHead className="text-right">Programs</TableHead>
                     <TableHead>Reasons</TableHead>
+                    <TableHead className="text-right">Details</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {visibleRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="h-24 text-center">
+                      <TableCell colSpan={8} className="h-24 text-center">
                         No data
                       </TableCell>
                     </TableRow>
                   ) : (
-                    visibleRows.map((item, idx) => (
-                      <TableRow key={`${item.ipaddress}-${idx}`}>
-                        <TableCell>{riskBadge(item)}</TableCell>
-                        <TableCell className="font-mono text-xs">{item.ipaddress}</TableCell>
-                        <TableCell className="max-w-[320px] truncate text-xs" title={item.useragent}>
-                          {item.useragent}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums">
-                          {item[metricKey] ?? 0}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{item.media_count}</TableCell>
-                        <TableCell className="text-right tabular-nums">{item.program_count}</TableCell>
-                        <TableCell className="max-w-[320px] truncate text-xs" title={(item.reasons_formatted || item.reasons || []).join(", ")}>
-                          {(item.reasons_formatted || item.reasons || []).slice(0, 2).join(", ")}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    visibleRows.map((item, idx) => {
+                      const rowKey = `${item.ipaddress}-${idx}`;
+                      const isExpanded = expandedRow === rowKey;
+                      return (
+                        <Fragment key={rowKey}>
+                          <TableRow>
+                            <TableCell>{riskBadge(item)}</TableCell>
+                            <TableCell className="font-mono text-xs">{item.ipaddress}</TableCell>
+                            <TableCell className="max-w-[320px] truncate text-xs" title={item.useragent}>
+                              {item.useragent}
+                            </TableCell>
+                            <TableCell className="text-right font-semibold tabular-nums">
+                              {item[metricKey] ?? 0}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">{item.media_count}</TableCell>
+                            <TableCell className="text-right tabular-nums">{item.program_count}</TableCell>
+                            <TableCell className="max-w-[320px] truncate text-xs" title={(item.reasons_formatted || item.reasons || []).join(", ")}>
+                              {(item.reasons_formatted || item.reasons || []).slice(0, 2).join(", ")}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => toggleRow(rowKey)}
+                                aria-expanded={isExpanded}
+                              >
+                                {isExpanded ? "Hide" : "Details"}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                          {isExpanded ? (
+                            <TableRow className="bg-muted/30">
+                              <TableCell colSpan={8}>
+                                <SuspiciousRowDetails item={item} />
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -249,16 +296,48 @@ export default function SuspiciousListPage({
               Page {page} / {totalPages}
             </div>
             <div className="space-x-2">
-              <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={!canPrev}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setExpandedRow(null);
+                  setPage(1);
+                }}
+                disabled={!canPrev}
+              >
                 First
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={!canPrev}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setExpandedRow(null);
+                  setPage((p) => Math.max(1, p - 1));
+                }}
+                disabled={!canPrev}
+              >
                 Prev
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={!canNext}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setExpandedRow(null);
+                  setPage((p) => Math.min(totalPages, p + 1));
+                }}
+                disabled={!canNext}
+              >
                 Next
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setPage(totalPages)} disabled={!canNext}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setExpandedRow(null);
+                  setPage(totalPages);
+                }}
+                disabled={!canNext}
+              >
                 Last
               </Button>
             </div>

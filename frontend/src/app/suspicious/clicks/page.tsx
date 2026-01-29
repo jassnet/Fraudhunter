@@ -7,7 +7,7 @@ export default function SuspiciousClicksPage() {
   return (
     <SuspiciousListPage
       title="Suspicious Clicks"
-      description="Click-based suspicious IP/UA patterns."
+      description="IPs and user agents flagged by click-based rules."
       countLabel="Clicks"
       fetcher={fetchSuspiciousClicks}
       metricKey="total_clicks"

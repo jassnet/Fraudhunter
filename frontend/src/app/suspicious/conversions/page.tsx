@@ -7,7 +7,7 @@ export default function SuspiciousConversionsPage() {
   return (
     <SuspiciousListPage
       title="Suspicious Conversions"
-      description="Conversion-based suspicious IP/UA patterns."
+      description="IPs and user agents flagged by conversion-based rules."
       countLabel="Conversions"
       fetcher={fetchSuspiciousConversions}
       metricKey="total_conversions"

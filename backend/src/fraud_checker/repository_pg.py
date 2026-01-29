@@ -10,6 +10,7 @@ from typing import Dict, Iterable, List
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from .ip_filters import BROWSER_UA_INCLUDES, BOT_UA_MARKERS, DATACENTER_IP_PREFIXES
 from .time_utils import now_local
 
 from .db import Base
@@ -37,6 +38,27 @@ class PostgresRepository:
 
     def _table_exists(self, name: str) -> bool:
         return sa.inspect(self.engine).has_table(name)
+
+    def _browser_filter_sql(self) -> str:
+        if not BROWSER_UA_INCLUDES:
+            return ""
+        include_sql = " OR ".join(
+            [f"useragent ILIKE '%{token}%'" for token in BROWSER_UA_INCLUDES]
+        )
+        exclude_sql = " AND ".join(
+            [f"useragent NOT ILIKE '%{marker}%'" for marker in BOT_UA_MARKERS]
+        )
+        return f"""
+                AND ({include_sql})
+                AND {exclude_sql}
+            """
+
+    def _datacenter_filter_sql(self, prefixes: tuple[str, ...]) -> str:
+        if not prefixes:
+            return ""
+        return "\n                " + "\n                ".join(
+            [f"AND ipaddress NOT LIKE '{prefix}%'" for prefix in prefixes]
+        )
 
     def _normalize_query(self, query: str, params: tuple | dict) -> tuple[str, dict]:
         if isinstance(params, dict):
@@ -267,68 +289,11 @@ class PostgresRepository:
     ) -> List[IpUaRollup]:
         browser_filter = ""
         if browser_only:
-            browser_filter = """
-                AND (
-                    useragent LIKE '%Chrome/%'
-                    OR useragent LIKE '%Firefox/%'
-                    OR useragent LIKE '%Safari/%'
-                    OR useragent LIKE '%Edg/%'
-                    OR useragent LIKE '%Edge/%'
-                    OR useragent LIKE '%Opera/%'
-                    OR useragent LIKE '%OPR/%'
-                    OR useragent LIKE '%MSIE %'
-                    OR useragent LIKE '%Trident/%'
-                )
-                AND useragent NOT LIKE '%bot%'
-                AND useragent NOT LIKE '%Bot%'
-                AND useragent NOT LIKE '%crawler%'
-                AND useragent NOT LIKE '%Crawler%'
-                AND useragent NOT LIKE '%spider%'
-                AND useragent NOT LIKE '%Spider%'
-                AND useragent NOT LIKE '%curl%'
-                AND useragent NOT LIKE '%python%'
-                AND useragent NOT LIKE '%Python%'
-                AND useragent NOT LIKE '%axios%'
-                AND useragent NOT LIKE '%node-fetch%'
-                AND useragent NOT LIKE '%Go-http-client%'
-                AND useragent NOT LIKE '%Java/%'
-                AND useragent NOT LIKE '%Apache-HttpClient%'
-                AND useragent NOT LIKE '%libwww-perl%'
-                AND useragent NOT LIKE '%Wget%'
-                AND useragent NOT LIKE '%HeadlessChrome%'
-            """
+            browser_filter = self._browser_filter_sql()
 
         datacenter_filter = ""
         if exclude_datacenter_ip:
-            datacenter_filter = """
-                AND ipaddress NOT LIKE '74.125.%'
-                AND ipaddress NOT LIKE '172.253.%'
-                AND ipaddress NOT LIKE '142.250.%'
-                AND ipaddress NOT LIKE '142.251.%'
-                AND ipaddress NOT LIKE '173.194.%'
-                AND ipaddress NOT LIKE '209.85.%'
-                AND ipaddress NOT LIKE '216.58.%'
-                AND ipaddress NOT LIKE '216.239.%'
-                AND ipaddress NOT LIKE '35.%'
-                AND ipaddress NOT LIKE '34.%'
-                AND ipaddress NOT LIKE '104.%'
-                AND ipaddress NOT LIKE '13.%'
-                AND ipaddress NOT LIKE '52.%'
-                AND ipaddress NOT LIKE '54.%'
-                AND ipaddress NOT LIKE '18.%'
-                AND ipaddress NOT LIKE '3.%'
-                AND ipaddress NOT LIKE '20.%'
-                AND ipaddress NOT LIKE '40.%'
-                AND ipaddress NOT LIKE '51.%'
-                AND ipaddress NOT LIKE '52.%'
-                AND ipaddress NOT LIKE '157.%'
-                AND ipaddress NOT LIKE '168.63.%'
-                AND ipaddress NOT LIKE '23.%'
-                AND ipaddress NOT LIKE '45.%'
-                AND ipaddress NOT LIKE '64.%'
-                AND ipaddress NOT LIKE '66.%'
-                AND ipaddress NOT LIKE '108.%'
-            """
+            datacenter_filter = self._datacenter_filter_sql(DATACENTER_IP_PREFIXES)
 
         query = f"""
             SELECT
@@ -549,6 +514,7 @@ class PostgresRepository:
         conversion_threshold: int = 5,
         media_threshold: int = 2,
         program_threshold: int = 2,
+        burst_conversion_threshold: int = 3,
         browser_only: bool = False,
         exclude_datacenter_ip: bool = False,
     ) -> List[ConversionIpUaRollup]:
@@ -557,33 +523,11 @@ class PostgresRepository:
 
         browser_filter = ""
         if browser_only:
-            browser_filter = """
-                AND (
-                    useragent LIKE '%Chrome/%'
-                    OR useragent LIKE '%Firefox/%'
-                    OR useragent LIKE '%Safari/%'
-                    OR useragent LIKE '%Edg/%'
-                    OR useragent LIKE '%Edge/%'
-                    OR useragent LIKE '%Opera/%'
-                    OR useragent LIKE '%OPR/%'
-                    OR useragent LIKE '%MSIE %'
-                    OR useragent LIKE '%Trident/%'
-                )
-                AND useragent NOT LIKE '%bot%'
-                AND useragent NOT LIKE '%Bot%'
-                AND useragent NOT LIKE '%crawler%'
-                AND useragent NOT LIKE '%Crawler%'
-            """
+            browser_filter = self._browser_filter_sql()
 
         datacenter_filter = ""
         if exclude_datacenter_ip:
-            datacenter_filter = """
-                AND ipaddress NOT LIKE '35.%'
-                AND ipaddress NOT LIKE '34.%'
-                AND ipaddress NOT LIKE '13.%'
-                AND ipaddress NOT LIKE '52.%'
-                AND ipaddress NOT LIKE '54.%'
-            """
+            datacenter_filter = self._datacenter_filter_sql(DATACENTER_IP_PREFIXES)
 
         query = f"""
             SELECT
@@ -604,6 +548,7 @@ class PostgresRepository:
                 SUM(conversion_count) >= :conversion_threshold
                 OR COUNT(DISTINCT media_id) >= :media_threshold
                 OR COUNT(DISTINCT program_id) >= :program_threshold
+                OR SUM(conversion_count) >= :burst_conversion_threshold
         """
 
         with self._connect() as conn:
@@ -614,6 +559,7 @@ class PostgresRepository:
                     "conversion_threshold": conversion_threshold,
                     "media_threshold": media_threshold,
                     "program_threshold": program_threshold,
+                    "burst_conversion_threshold": burst_conversion_threshold,
                 },
             ).fetchall()
         return [

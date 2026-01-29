@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import List, Optional
 
+from .ip_filters import BROWSER_UA_INCLUDES, BOT_UA_MARKERS, DATACENTER_IP_PREFIXES
 from .models import (
     ConversionIpUaRollup,
     IpUaRollup,
@@ -17,44 +18,17 @@ def _is_browser_useragent(ua: str) -> bool:
     """ブラウザ由来のUAかどうかを簡易判定（SQLフィルタと同等の条件）。"""
     if not ua:
         return False
-    browser_hits = [
-        "chrome/",
-        "firefox/",
-        "safari/",
-        "edg/",
-        "edge/",
-        "opera/",
-        "opr/",
-        "msie ",
-        "trident/",
-    ]
     ua_lower = ua.lower()
-    if not any(key in ua_lower for key in browser_hits):
+    if not any(key in ua_lower for key in BROWSER_UA_INCLUDES):
         return False
-    bot_markers = [
-        "bot",
-        "crawler",
-        "spider",
-        "curl",
-        "python",
-        "axios",
-        "node-fetch",
-        "go-http-client",
-        "java/",
-        "apache-httpclient",
-        "libwww-perl",
-        "wget",
-        "headlesschrome",
-    ]
-    return not any(marker in ua_lower for marker in bot_markers)
+    return not any(marker in ua_lower for marker in BOT_UA_MARKERS)
 
 
 def _is_datacenter_ip_conversion(ip: str) -> bool:
     """成果検知で除外するデータセンターIPレンジ（SQLと同等）。"""
     if not ip:
         return False
-    prefixes = ("35.", "34.", "13.", "52.", "54.")
-    return ip.startswith(prefixes)
+    return ip.startswith(DATACENTER_IP_PREFIXES)
 
 
 @dataclass
@@ -158,6 +132,7 @@ class ConversionSuspiciousDetector:
             conversion_threshold=self.rules.conversion_threshold,
             media_threshold=self.rules.media_threshold,
             program_threshold=self.rules.program_threshold,
+            burst_conversion_threshold=self.rules.burst_conversion_threshold,
             browser_only=self.rules.browser_only,
             exclude_datacenter_ip=self.rules.exclude_datacenter_ip,
         )

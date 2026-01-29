@@ -20,6 +20,7 @@ from ..config import (
     _env_bool,
     _env_int,
 )
+from ..suspicious import ConversionSuspiciousRuleSet, SuspiciousRuleSet
 from ..repository_pg import PostgresRepository
 
 logger = logging.getLogger(__name__)
@@ -90,3 +91,30 @@ def update_settings(repo: PostgresRepository, settings: dict) -> dict:
             "persisted": False,
             "warning": str(exc),
         }
+
+
+def build_rule_sets(
+    repo: PostgresRepository,
+) -> tuple[SuspiciousRuleSet, ConversionSuspiciousRuleSet]:
+    settings = get_settings(repo)
+    click_rules = SuspiciousRuleSet(
+        click_threshold=settings["click_threshold"],
+        media_threshold=settings["media_threshold"],
+        program_threshold=settings["program_threshold"],
+        burst_click_threshold=settings["burst_click_threshold"],
+        burst_window_seconds=settings["burst_window_seconds"],
+        browser_only=settings["browser_only"],
+        exclude_datacenter_ip=settings["exclude_datacenter_ip"],
+    )
+    conversion_rules = ConversionSuspiciousRuleSet(
+        conversion_threshold=settings["conversion_threshold"],
+        media_threshold=settings["conv_media_threshold"],
+        program_threshold=settings["conv_program_threshold"],
+        burst_conversion_threshold=settings["burst_conversion_threshold"],
+        burst_window_seconds=settings["burst_conversion_window_seconds"],
+        min_click_to_conv_seconds=settings["min_click_to_conv_seconds"],
+        max_click_to_conv_seconds=settings["max_click_to_conv_seconds"],
+        browser_only=settings["browser_only"],
+        exclude_datacenter_ip=settings["exclude_datacenter_ip"],
+    )
+    return click_rules, conversion_rules

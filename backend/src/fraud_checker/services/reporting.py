@@ -4,11 +4,15 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from ..repository_pg import PostgresRepository
+from ..suspicious import ConversionSuspiciousDetector, SuspiciousDetector
 from . import settings as settings_service
 from ..time_utils import today_local
 
 
 def get_latest_date(repo: PostgresRepository, table: str) -> Optional[str]:
+    allowed_tables = {"click_ipua_daily", "conversion_ipua_daily"}
+    if table not in allowed_tables:
+        raise ValueError(f"Unsupported table: {table}")
     row = repo.fetch_one(f"SELECT MAX(date) as last_date FROM {table}")
     if not row or not row.get("last_date"):
         return None
@@ -36,9 +40,6 @@ def resolve_summary_date(repo: PostgresRepository, target_date: Optional[str]) -
 
 def get_summary(repo: PostgresRepository, target_date: Optional[str]) -> dict:
     resolved_date = resolve_summary_date(repo, target_date)
-    settings = settings_service.get_settings(repo)
-    click_threshold = settings["click_threshold"]
-    conversion_threshold = settings["conversion_threshold"]
 
     click_row = repo.fetch_one(
         """
@@ -76,31 +77,20 @@ def get_summary(repo: PostgresRepository, target_date: Optional[str]) -> dict:
         {"prev_date": prev_date},
     )
 
-    susp_clicks = repo.fetch_one(
-        """
-        SELECT COUNT(*) as count FROM (
-            SELECT ipaddress, useragent
-            FROM click_ipua_daily
-            WHERE date = :resolved_date
-            GROUP BY ipaddress, useragent
-            HAVING SUM(click_count) >= :click_threshold
-        )
-        """,
-        {"resolved_date": resolved_date, "click_threshold": click_threshold},
-    )
+    click_rules, conversion_rules = settings_service.build_rule_sets(repo)
+    try:
+        target_date_obj = date.fromisoformat(resolved_date)
+    except ValueError:
+        target_date_obj = None
 
-    susp_convs = repo.fetch_one(
-        """
-        SELECT COUNT(*) as count FROM (
-            SELECT ipaddress, useragent
-            FROM conversion_ipua_daily
-            WHERE date = :resolved_date
-            GROUP BY ipaddress, useragent
-            HAVING SUM(conversion_count) >= :conversion_threshold
+    if target_date_obj:
+        susp_clicks = SuspiciousDetector(repo, click_rules).find_for_date(target_date_obj)
+        susp_convs = ConversionSuspiciousDetector(repo, conversion_rules).find_for_date(
+            target_date_obj
         )
-        """,
-        {"resolved_date": resolved_date, "conversion_threshold": conversion_threshold},
-    )
+    else:
+        susp_clicks = []
+        susp_convs = []
 
     return {
         "date": resolved_date,
@@ -117,17 +107,14 @@ def get_summary(repo: PostgresRepository, target_date: Optional[str]) -> dict:
                 "prev_total": prev_conv["total"] if prev_conv else 0,
             },
             "suspicious": {
-                "click_based": susp_clicks["count"] if susp_clicks else 0,
-                "conversion_based": susp_convs["count"] if susp_convs else 0,
+                "click_based": len(susp_clicks),
+                "conversion_based": len(susp_convs),
             },
         },
     }
 
 
 def get_daily_stats(repo: PostgresRepository, limit: int) -> list[dict]:
-    settings = settings_service.get_settings(repo)
-    click_threshold = settings["click_threshold"]
-    conversion_threshold = settings["conversion_threshold"]
     click_rows = repo.fetch_all(
         """
         SELECT date, SUM(click_count) as clicks
@@ -148,38 +135,6 @@ def get_daily_stats(repo: PostgresRepository, limit: int) -> list[dict]:
         LIMIT :limit
         """,
         {"limit": limit},
-    )
-
-    susp_click_rows = repo.fetch_all(
-        """
-        SELECT date, COUNT(*) as suspicious_count
-        FROM (
-            SELECT date, ipaddress, useragent
-            FROM click_ipua_daily
-            GROUP BY date, ipaddress, useragent
-            HAVING SUM(click_count) >= :click_threshold
-        )
-        GROUP BY date
-        ORDER BY date DESC
-        LIMIT :limit
-        """,
-        {"click_threshold": click_threshold, "limit": limit},
-    )
-
-    susp_conv_rows = repo.fetch_all(
-        """
-        SELECT date, COUNT(*) as suspicious_count
-        FROM (
-            SELECT date, ipaddress, useragent
-            FROM conversion_ipua_daily
-            GROUP BY date, ipaddress, useragent
-            HAVING SUM(conversion_count) >= :conversion_threshold
-        )
-        GROUP BY date
-        ORDER BY date DESC
-        LIMIT :limit
-        """,
-        {"conversion_threshold": conversion_threshold, "limit": limit},
     )
 
     merged: dict[str, dict] = {}
@@ -204,14 +159,16 @@ def get_daily_stats(repo: PostgresRepository, limit: int) -> list[dict]:
                 "suspicious_clicks": 0,
                 "suspicious_conversions": 0,
             }
-    for row in susp_click_rows:
-        row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
-        if row_date in merged:
-            merged[row_date]["suspicious_clicks"] = row["suspicious_count"]
-    for row in susp_conv_rows:
-        row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
-        if row_date in merged:
-            merged[row_date]["suspicious_conversions"] = row["suspicious_count"]
+    click_rules, conversion_rules = settings_service.build_rule_sets(repo)
+    click_detector = SuspiciousDetector(repo, click_rules)
+    conversion_detector = ConversionSuspiciousDetector(repo, conversion_rules)
+    for row in merged.values():
+        try:
+            row_date = date.fromisoformat(row["date"])
+        except ValueError:
+            continue
+        row["suspicious_clicks"] = len(click_detector.find_for_date(row_date))
+        row["suspicious_conversions"] = len(conversion_detector.find_for_date(row_date))
 
     return sorted(merged.values(), key=lambda item: item["date"])
 

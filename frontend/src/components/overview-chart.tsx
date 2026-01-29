@@ -25,8 +25,18 @@ export function OverviewChart({
   );
 
   return (
-    <div className={cn("space-y-3", className)}>
-      {data.slice(-14).map((row) => {
+    <div className={cn("space-y-4", className)}>
+      <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-blue-500" />
+          Clicks
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          Conversions
+        </span>
+      </div>
+      {data.slice(-30).map((row) => {
         const clickVal = safeNumber(row.clicks);
         const convVal = safeNumber(row.conversions);
         const clickPct = Math.round((clickVal / max) * 100);
@@ -36,7 +46,7 @@ export function OverviewChart({
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>{row.date}</span>
               <span>
-                Clicks {clickVal.toLocaleString()} ? Conversions {convVal.toLocaleString()}
+                Clicks {clickVal.toLocaleString()} | Conversions {convVal.toLocaleString()}
               </span>
             </div>
             <div className="space-y-1">

@@ -22,10 +22,6 @@ from .api_models import (
 )
 
 from .env import load_env
-from .config import (
-    resolve_conversion_rules,
-    resolve_rules,
-)
 from .suspicious import ConversionSuspiciousDetector, SuspiciousDetector
 from .services import reporting, settings as settings_service
 from .services.jobs import (
@@ -183,72 +179,6 @@ def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = F
         return {"level": "medium", "score": score, "label": "中リスク"}
     else:
         return {"level": "low", "score": score, "label": "低リスク"}
-
-
-def format_reasons(reasons: list[str]) -> list[str]:
-    # Normalize reason strings for UI display (ASCII-safe).
-    formatted: list[str] = []
-    for reason in reasons:
-        if reason.startswith("total_clicks >="):
-            threshold = reason.split(">=")[1].strip()
-            formatted.append(f"Total clicks >= {threshold}")
-        elif reason.startswith("media_count >="):
-            threshold = reason.split(">=")[1].strip()
-            formatted.append(f"Distinct media count >= {threshold}")
-        elif reason.startswith("program_count >="):
-            threshold = reason.split(">=")[1].strip()
-            formatted.append(f"Distinct program count >= {threshold}")
-        elif reason.startswith("burst:") and "clicks" in reason:
-            formatted.append("Burst clicks in short window")
-        elif reason.startswith("conversion_count >="):
-            threshold = reason.split(">=")[1].strip()
-            formatted.append(f"Total conversions >= {threshold}")
-        elif reason.startswith("burst:") and "conversions" in reason:
-            formatted.append("Burst conversions in short window")
-        elif reason.startswith("click_to_conversion_seconds <="):
-            threshold = reason.split("<=")[1].split("s")[0].strip()
-            formatted.append(f"Click-to-conversion too fast (<= {threshold}s)")
-        elif reason.startswith("click_to_conversion_seconds >="):
-            threshold = reason.split(">=")[1].split("s")[0].strip()
-            formatted.append(f"Click-to-conversion too slow (>= {threshold}s)")
-        else:
-            formatted.append(reason)
-    return formatted
-
-
-def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = False) -> dict:
-    # Compute risk level label and score (ASCII-safe).
-    score = 0
-
-    reason_count = len(reasons)
-    score += reason_count * 20
-
-    for reason in reasons:
-        if "burst" in reason.lower():
-            score += 30  # Burst behavior is higher risk.
-        if "click_to_conversion_seconds <=" in reason:
-            score += 25  # Very fast conversion is higher risk.
-        if "media_count" in reason or "program_count" in reason:
-            score += 15  # Multiple media/programs.
-
-    if is_conversion:
-        if count >= 10:
-            score += 40
-        elif count >= 5:
-            score += 20
-    else:
-        if count >= 200:
-            score += 40
-        elif count >= 100:
-            score += 25
-        elif count >= 50:
-            score += 10
-
-    if score >= 80:
-        return {"level": "high", "score": score, "label": "High Risk"}
-    if score >= 40:
-        return {"level": "medium", "score": score, "label": "Medium Risk"}
-    return {"level": "low", "score": score, "label": "Low Risk"}
 
 
 def _resolve_target_date(repo, table: str, target_date: Optional[str]) -> Optional[str]:
@@ -419,16 +349,8 @@ def get_suspicious_clicks(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-        rules = resolve_rules(
-            click_threshold=None,
-            media_threshold=None,
-            program_threshold=None,
-            burst_click_threshold=None,
-            burst_window_seconds=None,
-            browser_only=None,
-            exclude_datacenter_ip=None,
-        )
-        detector = SuspiciousDetector(repo, rules)
+        click_rules, _ = settings_service.build_rule_sets(repo)
+        detector = SuspiciousDetector(repo, click_rules)
         findings = detector.find_for_date(target_date_obj)
 
         details_cache = {}
@@ -518,16 +440,8 @@ def get_suspicious_conversions(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-        rules = resolve_conversion_rules(
-            conversion_threshold=None,
-            media_threshold=None,
-            program_threshold=None,
-            burst_conversion_threshold=None,
-            burst_window_seconds=None,
-            browser_only=None,
-            exclude_datacenter_ip=None,
-        )
-        detector = ConversionSuspiciousDetector(repo, rules)
+        _, conversion_rules = settings_service.build_rule_sets(repo)
+        detector = ConversionSuspiciousDetector(repo, conversion_rules)
         findings = detector.find_for_date(target_date_obj)
 
         details_cache = {}
@@ -659,7 +573,12 @@ def refresh_data(request: RefreshRequest, background_tasks: BackgroundTasks):
             background_tasks=background_tasks,
             job_id=f"refresh_{request.hours}h",
             start_message=f"Refresh started for last {request.hours} hours",
-            run_fn=lambda: run_refresh(request.hours, request.clicks, request.conversions),
+            run_fn=lambda: run_refresh(
+                request.hours,
+                request.clicks,
+                request.conversions,
+                request.detect,
+            ),
         )
     except JobConflictError:
         raise HTTPException(status_code=409, detail="Another job is already running")

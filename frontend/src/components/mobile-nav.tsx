@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -15,23 +15,48 @@ const items = [
 export function MobileNav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const panelId = "mobile-nav-panel";
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
 
   return (
     <>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen(true)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-haspopup="dialog"
+      >
         Menu
       </Button>
 
       {open && (
-        <div className="fixed inset-0 z-50">
+        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Navigation">
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute left-0 top-0 h-full w-[280px] bg-background p-4 shadow-lg">
+          <div
+            id={panelId}
+            className="absolute left-0 top-0 h-full w-[280px] bg-background p-4 shadow-lg"
+          >
             <div className="flex items-center justify-between">
               <span className="font-semibold">Fraud Checker v2</span>
-              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setOpen(false)}
+                aria-label="Close navigation"
+              >
                 Close
               </Button>
             </div>

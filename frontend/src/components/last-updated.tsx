@@ -31,12 +31,14 @@ export function LastUpdated({
         Last updated: {timeLabel}
       </span>
 
-      <Button size="sm" variant="outline" onClick={onRefresh}>
+      <Button size="sm" variant="outline" onClick={onRefresh} disabled={isRefreshing}>
         Refresh
       </Button>
 
       {isRefreshing ? (
-        <span className="text-xs text-muted-foreground">Updating?</span>
+        <span className="text-xs text-muted-foreground" aria-live="polite">
+          Updating...
+        </span>
       ) : null}
     </div>
   );

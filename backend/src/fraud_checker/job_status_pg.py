@@ -61,11 +61,11 @@ class JobStatusStorePG:
             result=result,
         )
 
-    def start(self, job_id: str, message: str) -> None:
+    def start(self, job_id: str, message: str) -> bool:
         self.ensure_schema()
         now = now_local()
         with self.engine.begin() as conn:
-            conn.execute(
+            result = conn.execute(
                 sa.text(
                     """
                     UPDATE job_status
@@ -75,11 +75,12 @@ class JobStatusStorePG:
                         started_at = :started_at,
                         completed_at = NULL,
                         result_json = NULL
-                    WHERE id = 1
+                    WHERE id = 1 AND status != 'running'
                     """
                 ),
                 {"job_id": job_id, "message": message, "started_at": now},
             )
+        return result.rowcount == 1
 
     def complete(self, job_id: str, message: str, result: dict | None = None) -> None:
         self._finish(job_id, "completed", message, result)

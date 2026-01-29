@@ -17,6 +17,17 @@ import { Button } from "@/components/ui/button";
 import { DateQuickSelect } from "@/components/date-quick-select";
 import { LastUpdated } from "@/components/last-updated";
 
+const formatDelta = (current: number, previous?: number | null) => {
+  if (previous === undefined || previous === null) return null;
+  const delta = current - previous;
+  const sign = delta > 0 ? "+" : "";
+  const deltaLabel = `${sign}${delta.toLocaleString()}`;
+  if (previous <= 0) return deltaLabel;
+  const pct = Math.round(((delta / previous) * 1000)) / 10;
+  const pctSign = pct > 0 ? "+" : "";
+  return `${deltaLabel} (${pctSign}${pct}%)`;
+};
+
 export default function DashboardPage() {
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [dailyStats, setDailyStats] = useState<DailyStatsItem[]>([]);
@@ -25,9 +36,11 @@ export default function DashboardPage() {
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchData = useCallback(async (targetDate?: string) => {
+  const fetchData = useCallback(async (targetDate?: string, refresh = false) => {
     setError(null);
+    if (refresh) setIsRefreshing(true);
     try {
       const [summaryData, dailyData] = await Promise.all([
         fetchSummary(targetDate),
@@ -44,6 +57,7 @@ export default function DashboardPage() {
       setError(message);
     } finally {
       setLoading(false);
+      if (refresh) setIsRefreshing(false);
     }
   }, []);
 
@@ -67,12 +81,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (selectedDate) {
-      fetchData(selectedDate);
+      fetchData(selectedDate, true);
     }
   }, [selectedDate, fetchData]);
 
   const handleRefresh = useCallback(async () => {
-    await fetchData(selectedDate);
+    await fetchData(selectedDate, true);
   }, [fetchData, selectedDate]);
 
   if (loading) {
@@ -108,15 +122,37 @@ export default function DashboardPage() {
   }
 
   if (!summary) {
-    return <div className="p-8">No data available.</div>;
+    return (
+      <div className="p-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>No data available</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Try another date or check if data ingestion has completed.
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
+
+  const clickDelta = formatDelta(summary.stats.clicks.total, summary.stats.clicks.prev_total);
+  const conversionDelta = formatDelta(
+    summary.stats.conversions.total,
+    summary.stats.conversions.prev_total
+  );
 
   return (
     <div className="flex-1 space-y-6 p-6 sm:p-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Date: {summary.date}</p>
+          <p className="text-sm text-muted-foreground">
+            Reporting date: {summary.date}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            High-level snapshot of traffic and suspicious activity.
+          </p>
         </div>
 
         <div className="w-full lg:w-auto">
@@ -131,7 +167,7 @@ export default function DashboardPage() {
             <LastUpdated
               lastUpdated={lastUpdated}
               onRefresh={handleRefresh}
-              isRefreshing={false}
+              isRefreshing={isRefreshing}
               className="flex-wrap"
             />
           </div>
@@ -149,6 +185,12 @@ export default function DashboardPage() {
             <div className="text-3xl font-semibold tabular-nums">
               {summary.stats.clicks.total.toLocaleString()}
             </div>
+            <div className="text-xs text-muted-foreground">
+              Unique IPs: {summary.stats.clicks.unique_ips.toLocaleString()}
+            </div>
+            {clickDelta ? (
+              <div className="text-xs text-muted-foreground">Prev day: {clickDelta}</div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -162,6 +204,12 @@ export default function DashboardPage() {
             <div className="text-3xl font-semibold tabular-nums">
               {summary.stats.conversions.total.toLocaleString()}
             </div>
+            <div className="text-xs text-muted-foreground">
+              Unique IPs: {summary.stats.conversions.unique_ips.toLocaleString()}
+            </div>
+            {conversionDelta ? (
+              <div className="text-xs text-muted-foreground">Prev day: {conversionDelta}</div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -176,6 +224,7 @@ export default function DashboardPage() {
               <div className="text-3xl font-semibold tabular-nums text-yellow-600">
                 {summary.stats.suspicious.click_based}
               </div>
+              <div className="text-xs text-muted-foreground">Review suspicious click patterns</div>
             </CardContent>
           </Card>
         </Link>
@@ -191,6 +240,7 @@ export default function DashboardPage() {
               <div className="text-3xl font-semibold tabular-nums text-red-600">
                 {summary.stats.suspicious.conversion_based}
               </div>
+              <div className="text-xs text-muted-foreground">Review conversion anomalies</div>
             </CardContent>
           </Card>
         </Link>

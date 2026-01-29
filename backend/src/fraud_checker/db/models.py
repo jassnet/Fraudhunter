@@ -13,6 +13,7 @@ class ClickIpuaDaily(Base):
     __table_args__ = (
         Index("idx_click_ipua_daily_date", "date"),
         Index("idx_click_ipua_daily_date_ip", "date", "ipaddress"),
+        Index("idx_click_ipua_daily_date_ip_ua", "date", "ipaddress", "useragent"),
         Index("idx_click_ipua_daily_media", "date", "media_id"),
         Index("idx_click_ipua_daily_program", "date", "program_id"),
     )
@@ -82,6 +83,7 @@ class ConversionIpuaDaily(Base):
     __table_args__ = (
         Index("idx_conversion_ipua_daily_date", "date"),
         Index("idx_conversion_ipua_daily_date_ip", "date", "ipaddress"),
+        Index("idx_conversion_ipua_daily_date_ip_ua", "date", "ipaddress", "useragent"),
         Index("idx_conversion_ipua_daily_media", "date", "media_id"),
         Index("idx_conversion_ipua_daily_program", "date", "program_id"),
     )

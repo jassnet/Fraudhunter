@@ -6,10 +6,11 @@ import sys
 from datetime import timedelta
 
 from .acs_client import AcsHttpClient
-from .config import resolve_acs_settings, resolve_conversion_rules, resolve_rules, resolve_store_raw
+from .config import resolve_acs_settings, resolve_store_raw
 from .ingestion import ClickLogIngestor, ConversionIngestor
 from .repository_pg import PostgresRepository
 from .suspicious import CombinedSuspiciousDetector
+from .services import settings as settings_service
 from .time_utils import now_local
 
 
@@ -118,26 +119,7 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
             dates_to_check.add(current)
             current += timedelta(days=1)
 
-        click_rules = resolve_rules(
-            click_threshold=None,
-            media_threshold=None,
-            program_threshold=None,
-            burst_click_threshold=None,
-            burst_window_seconds=None,
-            browser_only=None,
-            exclude_datacenter_ip=None,
-        )
-        conversion_rules = resolve_conversion_rules(
-            conversion_threshold=None,
-            media_threshold=None,
-            program_threshold=None,
-            burst_conversion_threshold=None,
-            burst_window_seconds=None,
-            browser_only=None,
-            exclude_datacenter_ip=None,
-            min_click_to_conv_seconds=None,
-            max_click_to_conv_seconds=None,
-        )
+        click_rules, conversion_rules = settings_service.build_rule_sets(repository)
 
         print("\n--- Suspicious Detection ---")
         for target_date in sorted(dates_to_check):

@@ -10,6 +10,8 @@ from ..config import resolve_acs_settings, resolve_store_raw
 from ..ingestion import ClickLogIngestor, ConversionIngestor
 from ..job_status_pg import JobStatusStorePG
 from ..repository_pg import PostgresRepository
+from ..suspicious import CombinedSuspiciousDetector
+from . import settings as settings_service
 from ..time_utils import now_local
 
 
@@ -64,11 +66,8 @@ def enqueue_job(
     - Persists start/completion/failure state to Postgres.
     """
     store = get_job_store()
-    current = store.get()
-    if current.status == "running":
+    if not store.start(job_id, start_message):
         raise JobConflictError("Another job is already running")
-
-    store.start(job_id, start_message)
 
     def _runner():
         try:
@@ -108,7 +107,7 @@ def run_conversion_ingestion(target_date: date) -> Tuple[Dict, str]:
     return {"success": True, "total": total, "enriched": enriched}, message
 
 
-def run_refresh(hours: int, clicks: bool, conversions: bool) -> Tuple[Dict, str]:
+def run_refresh(hours: int, clicks: bool, conversions: bool, detect: bool) -> Tuple[Dict, str]:
     end_time = now_local()
     start_time = end_time - timedelta(hours=hours)
 
@@ -136,6 +135,29 @@ def run_refresh(hours: int, clicks: bool, conversions: bool) -> Tuple[Dict, str]
         )
         conv_new, conv_skip, conv_valid = conv_ingestor.run_for_time_range(start_time, end_time)
         result["conversions"] = {"new": conv_new, "skipped": conv_skip, "valid_entry": conv_valid}
+
+    if detect:
+        click_rules, conv_rules = settings_service.build_rule_sets(repo)
+        dates_to_check = set()
+        current = start_time.date()
+        while current <= end_time.date():
+            dates_to_check.add(current)
+            current += timedelta(days=1)
+
+        detect_results: Dict[str, Dict[str, int]] = {}
+        for target_date in sorted(dates_to_check):
+            combined = CombinedSuspiciousDetector(
+                repository=repo,
+                click_rules=click_rules,
+                conversion_rules=conv_rules,
+            )
+            click_findings, conv_findings, high_risk = combined.find_for_date(target_date)
+            detect_results[target_date.isoformat()] = {
+                "suspicious_clicks": len(click_findings),
+                "suspicious_conversions": len(conv_findings),
+                "high_risk": len(high_risk),
+            }
+        result["detect"] = detect_results
 
     return result, f"Refresh completed for last {hours} hours"
 
