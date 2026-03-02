@@ -1,0 +1,313 @@
+from __future__ import annotations
+
+import argparse
+from datetime import date, datetime, timedelta
+
+import pytest
+
+from fraud_checker import cli
+from fraud_checker.models import ClickLog, ConversionIpUaRollup, ConversionLog, IpUaRollup
+
+
+def _click(click_id: str, at: datetime) -> ClickLog:
+    return ClickLog(
+        click_id=click_id,
+        click_time=at,
+        media_id="m1",
+        program_id="p1",
+        ipaddress="1.1.1.1",
+        useragent="Mozilla/5.0",
+        referrer=None,
+        raw_payload={},
+    )
+
+
+def _conversion(conversion_id: str, at: datetime) -> ConversionLog:
+    return ConversionLog(
+        conversion_id=conversion_id,
+        cid="cid-1",
+        conversion_time=at,
+        click_time=at - timedelta(seconds=10),
+        media_id="m1",
+        program_id="p1",
+        user_id="u1",
+        postback_ipaddress="10.0.0.1",
+        postback_useragent="postback",
+        entry_ipaddress="2.2.2.2",
+        entry_useragent="Mozilla/5.0",
+        state="approved",
+        raw_payload={},
+    )
+
+
+def test_require_database_url_raises_when_missing(monkeypatch):
+    # Given
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    # When / Then
+    with pytest.raises(SystemExit, match="DATABASE_URL is required"):
+        cli._require_database_url()
+
+
+def test_build_parser_accepts_refresh_and_sync_masters():
+    # Given
+    parser = cli.build_parser()
+
+    # When
+    refresh_args = parser.parse_args(["refresh", "--hours", "3", "--detect"])
+    sync_args = parser.parse_args(["sync-masters"])
+
+    # Then
+    assert refresh_args.command == "refresh"
+    assert refresh_args.hours == 3
+    assert refresh_args.detect is True
+    assert sync_args.command == "sync-masters"
+
+
+def test_cmd_refresh_rejects_conflicting_flags():
+    # Given
+    args = argparse.Namespace(
+        hours=1,
+        clicks_only=True,
+        conversions_only=True,
+        detect=False,
+        store_raw=None,
+    )
+
+    # When / Then
+    with pytest.raises(SystemExit, match="Use only one"):
+        cli._cmd_refresh(args)
+
+
+def test_cmd_refresh_runs_ingestion_and_detection(monkeypatch, capsys):
+    # Given
+    class FakeSettings:
+        page_size = 10
+
+    class FakeClient:
+        def fetch_click_logs_for_time_range(self, start_time, end_time, page, limit):
+            if page == 1:
+                return [_click("c1", datetime(2026, 1, 1, 0, 30, 0))]
+            return []
+
+        def fetch_conversion_logs_for_time_range(self, start_time, end_time, page, limit):
+            if page == 1:
+                return [_conversion("v1", datetime(2026, 1, 1, 0, 40, 0))]
+            return []
+
+    class FakeRepo:
+        def __init__(self):
+            self.store_raw_used = None
+
+        def ensure_schema(self, store_raw=False):
+            self.store_raw_used = store_raw
+
+        def ensure_conversion_schema(self):
+            return None
+
+        def ensure_master_schema(self):
+            return None
+
+        def merge_clicks(self, clicks, *, store_raw):
+            return len(list(clicks)), 0
+
+        def merge_conversions(self, conversions):
+            return len(list(conversions)), 0
+
+        def load_settings(self):
+            return {
+                "click_threshold": 1,
+                "media_threshold": 99,
+                "program_threshold": 99,
+                "burst_click_threshold": 99,
+                "burst_window_seconds": 600,
+                "conversion_threshold": 1,
+                "conv_media_threshold": 99,
+                "conv_program_threshold": 99,
+                "burst_conversion_threshold": 99,
+                "burst_conversion_window_seconds": 1800,
+                "min_click_to_conv_seconds": None,
+                "max_click_to_conv_seconds": None,
+                "browser_only": False,
+                "exclude_datacenter_ip": False,
+            }
+
+        def fetch_suspicious_rollups(
+            self,
+            target_date: date,
+            *,
+            click_threshold: int,
+            media_threshold: int,
+            program_threshold: int,
+            burst_click_threshold: int,
+            browser_only: bool,
+            exclude_datacenter_ip: bool,
+        ):
+            start = datetime.combine(target_date, datetime.min.time())
+            return [
+                IpUaRollup(
+                    date=target_date,
+                    ipaddress="1.1.1.1",
+                    useragent="Mozilla/5.0",
+                    total_clicks=1,
+                    media_count=1,
+                    program_count=1,
+                    first_time=start,
+                    last_time=start + timedelta(seconds=10),
+                )
+            ]
+
+        def fetch_suspicious_conversion_rollups(
+            self,
+            target_date: date,
+            *,
+            conversion_threshold: int,
+            media_threshold: int,
+            program_threshold: int,
+            burst_conversion_threshold: int,
+            browser_only: bool,
+            exclude_datacenter_ip: bool,
+        ):
+            start = datetime.combine(target_date, datetime.min.time())
+            return [
+                ConversionIpUaRollup(
+                    date=target_date,
+                    ipaddress="2.2.2.2",
+                    useragent="Mozilla/5.0",
+                    conversion_count=1,
+                    media_count=1,
+                    program_count=1,
+                    first_conversion_time=start,
+                    last_conversion_time=start + timedelta(seconds=10),
+                )
+            ]
+
+        def fetch_click_to_conversion_gaps(self, target_date):
+            return {}
+
+        def fetch_conversion_rollups(self, target_date):
+            return []
+
+    fake_repo = FakeRepo()
+    captured = {"store_raw_arg": None}
+    monkeypatch.setattr(cli, "now_local", lambda: datetime(2026, 1, 1, 1, 0, 0))
+    monkeypatch.setattr(cli, "resolve_store_raw", lambda explicit: False)
+
+    def fake_build_repository(store_raw):
+        captured["store_raw_arg"] = store_raw
+        return fake_repo
+
+    monkeypatch.setattr(cli, "_build_repository", fake_build_repository)
+    monkeypatch.setattr(cli, "_build_client", lambda: (FakeClient(), FakeSettings()))
+    cli.settings_service._settings_cache = None
+    args = argparse.Namespace(
+        hours=1,
+        clicks_only=False,
+        conversions_only=False,
+        detect=True,
+        store_raw=None,
+    )
+
+    # When
+    code = cli._cmd_refresh(args)
+    output = capsys.readouterr().out
+
+    # Then
+    assert code == 0
+    assert captured["store_raw_arg"] is True
+    assert "Clicks: 1 new, 0 skipped" in output
+    assert "Conversions: 1 new, 0 skipped" in output
+    assert "Suspicious clicks: 1" in output
+    assert "Suspicious conversions: 1" in output
+
+
+def test_cmd_refresh_conversions_only_skips_click_warning(monkeypatch, capsys):
+    # Given
+    class FakeSettings:
+        page_size = 10
+
+    class FakeClient:
+        def fetch_conversion_logs_for_time_range(self, start_time, end_time, page, limit):
+            if page == 1:
+                return [_conversion("v1", datetime(2026, 1, 1, 0, 40, 0))]
+            return []
+
+    class FakeRepo:
+        def ensure_schema(self, store_raw=False):
+            return None
+
+        def ensure_conversion_schema(self):
+            return None
+
+        def ensure_master_schema(self):
+            return None
+
+        def merge_conversions(self, conversions):
+            return len(list(conversions)), 0
+
+    monkeypatch.setattr(cli, "now_local", lambda: datetime(2026, 1, 1, 1, 0, 0))
+    monkeypatch.setattr(cli, "resolve_store_raw", lambda explicit: False)
+    monkeypatch.setattr(cli, "_build_repository", lambda store_raw: FakeRepo())
+    monkeypatch.setattr(cli, "_build_client", lambda: (FakeClient(), FakeSettings()))
+    args = argparse.Namespace(
+        hours=1,
+        clicks_only=False,
+        conversions_only=True,
+        detect=False,
+        store_raw=None,
+    )
+
+    # When
+    code = cli._cmd_refresh(args)
+    output = capsys.readouterr().out
+
+    # Then
+    assert code == 0
+    assert "[warning] --store-raw" not in output
+    assert "Conversions: 1 new, 0 skipped" in output
+
+
+def test_cmd_sync_masters_updates_all_master_types(monkeypatch, capsys):
+    # Given
+    class FakeClient:
+        def fetch_all_media_master(self):
+            return [{"id": "m1"}]
+
+        def fetch_all_promotion_master(self):
+            return [{"id": "p1"}, {"id": "p2"}]
+
+        def fetch_all_user_master(self):
+            return [{"id": "u1"}, {"id": "u2"}, {"id": "u3"}]
+
+    class FakeRepo:
+        def bulk_upsert_media(self, media_list):
+            return len(media_list)
+
+        def bulk_upsert_promotions(self, promo_list):
+            return len(promo_list)
+
+        def bulk_upsert_users(self, user_list):
+            return len(user_list)
+
+    monkeypatch.setattr(cli, "_build_repository", lambda store_raw: FakeRepo())
+    monkeypatch.setattr(cli, "_build_client", lambda: (FakeClient(), object()))
+
+    # When
+    code = cli._cmd_sync_masters()
+    output = capsys.readouterr().out
+
+    # Then
+    assert code == 0
+    assert "Media masters: 1 records updated" in output
+    assert "Promotion masters: 2 records updated" in output
+    assert "User masters: 3 records updated" in output
+
+
+def test_main_prints_help_and_returns_1_for_unknown_command(capsys):
+    # When
+    code = cli.main([])
+    output = capsys.readouterr().out
+
+    # Then
+    assert code == 1
+    assert "Fraud checker maintenance tasks" in output

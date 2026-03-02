@@ -32,10 +32,14 @@ include = ["src/fraud_checker", "README.md", "pyproject.toml"]
 [project.optional-dependencies]
 dev = [
   "pytest>=7.4.0",
-  "pytest-cov>=4.1.0"
+  "pytest-cov>=4.1.0",
+  "httpx>=0.27,<1"
 ]
 
 [tool.pytest.ini_options]
 addopts = "-q --disable-warnings"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "integration: tests that require FRAUD_TEST_DATABASE_URL"
+]

@@ -28,6 +28,21 @@ python dev.py
 - Backend: http://localhost:8001 (docs at /docs)
 - Frontend: http://localhost:3000
 
+## E2E integration tests (Playwright)
+Use a disposable Postgres DB for E2E runs.
+
+Required env vars:
+- `FRAUD_TEST_DATABASE_URL` (or `DATABASE_URL`)
+- `E2E_TEST_KEY` (optional; default is `fraudchecker-e2e-key`)
+
+Run:
+```bash
+cd frontend
+npm run test:e2e
+```
+
+The backend exposes test-only seed/reset endpoints under `/api/test/*` and only enables them when `FC_ENV=test`.
+
 ## Security
 Admin endpoints require FC_ADMIN_API_KEY. For local dev only, you can set
 FC_ENV=dev or FC_ALLOW_INSECURE_ADMIN=true to bypass the check.

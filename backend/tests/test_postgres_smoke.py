@@ -5,6 +5,7 @@ import pytest
 from fraud_checker.repository_pg import PostgresRepository
 
 
+@pytest.mark.integration
 def test_postgres_smoke():
     database_url = os.getenv("FRAUD_TEST_DATABASE_URL")
     if not database_url:

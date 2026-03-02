@@ -19,11 +19,12 @@ from .api_models import (
     SettingsModel,
     SummaryResponse,
     SuspiciousResponse,
+    TestDataResponse,
 )
 
 from .env import load_env
 from .suspicious import ConversionSuspiciousDetector, SuspiciousDetector
-from .services import reporting, settings as settings_service
+from .services import e2e_seed, reporting, settings as settings_service
 from .services.jobs import (
     JobConflictError,
     enqueue_job,
@@ -97,6 +98,21 @@ def require_admin(
         )
     token = x_api_key or _extract_bearer(authorization)
     if token != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _require_test_mode() -> None:
+    env = os.getenv("FC_ENV", "production").strip().lower()
+    if env != "test":
+        raise HTTPException(status_code=404, detail="Not Found")
+
+
+def require_test_key(x_test_key: str | None = Header(None, alias="X-Test-Key")) -> None:
+    _require_test_mode()
+    expected = os.getenv("FC_E2E_TEST_KEY")
+    if not expected:
+        raise HTTPException(status_code=500, detail="FC_E2E_TEST_KEY is not configured")
+    if x_test_key != expected:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -688,6 +704,46 @@ def update_settings(settings: SettingsModel):
     settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else settings.dict()
     repo = get_repository()
     return settings_service.update_settings(repo, settings_dict)
+
+
+# ========== E2E Test Data API ==========
+
+@app.post("/api/test/reset", response_model=TestDataResponse, dependencies=[Depends(require_test_key)])
+def reset_test_data():
+    """Reset all tables used by E2E tests (test mode only)."""
+    try:
+        details = e2e_seed.reset_all(get_repository())
+        return TestDataResponse(
+            success=True,
+            message="Test data reset completed",
+            details=details,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error resetting E2E test data")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post(
+    "/api/test/seed/baseline",
+    response_model=TestDataResponse,
+    dependencies=[Depends(require_test_key)],
+)
+def seed_test_baseline():
+    """Insert deterministic baseline records for E2E tests (test mode only)."""
+    try:
+        details = e2e_seed.seed_baseline(get_repository())
+        return TestDataResponse(
+            success=True,
+            message="Baseline test data seeded",
+            details=details,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error seeding E2E baseline data")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ========== Main ==========

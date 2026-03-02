@@ -47,6 +47,12 @@ class IngestResponse(BaseModel):
     details: Optional[dict] = None
 
 
+class TestDataResponse(BaseModel):
+    success: bool
+    message: str
+    details: Optional[dict] = None
+
+
 class JobStatusResponse(BaseModel):
     status: str
     job_id: Optional[str] = None
