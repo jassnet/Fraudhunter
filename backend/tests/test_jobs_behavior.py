@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
@@ -256,7 +256,7 @@ def test_enqueue_job_persists_failure_when_runner_raises(monkeypatch):
             return True
 
         def complete(self, job_id, message, result):
-            raise AssertionError("failure path では complete は呼ばれない")
+            raise AssertionError("失敗系では complete を呼び出してはいけない")
 
         def fail(self, job_id, message, result):
             self.fail_calls.append((job_id, message, result))
@@ -298,7 +298,7 @@ def test_enqueue_job_completes_when_runner_succeeds(monkeypatch):
             self.complete_calls.append((job_id, message, result))
 
         def fail(self, job_id, message, result):
-            raise AssertionError("success path では fail は呼ばれない")
+            raise AssertionError("成功系では fail を呼び出してはいけない")
 
     store = DummyStore()
     monkeypatch.setattr(jobs, "get_job_store", lambda: store)
@@ -410,3 +410,4 @@ def test_run_master_sync_returns_upsert_counts(monkeypatch):
         "user_count": 3,
     }
     assert message == "Master sync completed"
+

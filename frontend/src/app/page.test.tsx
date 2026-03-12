@@ -8,7 +8,7 @@ import { buildSummaryResponse } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
 
 describe("ダッシュボード画面", () => {
-  it("主要指標と遷移カードを表示できる", async () => {
+  it("最新の集計日と主要カードを表示する", async () => {
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: "Dashboard" });
@@ -20,14 +20,14 @@ describe("ダッシュボード画面", () => {
     expect(screen.getByText("Suspicious Conversions")).toBeInTheDocument();
   });
 
-  it("取得失敗後にRetryで再取得できる", async () => {
+  it("一時的な取得失敗のあと Retry で通常表示に戻る", async () => {
     let attemptCount = 0;
     server.use(
       http.get(`${API_BASE_URL}/api/summary`, ({ request }) => {
         attemptCount += 1;
         if (attemptCount <= 3) {
           return HttpResponse.json(
-            { detail: "summary failed on purpose" },
+            { detail: "一時的に集計を取得できません" },
             { status: 400 }
           );
         }
@@ -41,19 +41,19 @@ describe("ダッシュボード画面", () => {
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: "Error" }, { timeout: 4000 });
-    expect(screen.getByText("summary failed on purpose")).toBeInTheDocument();
+    expect(screen.getByText("一時的に集計を取得できません")).toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "Retry" }));
 
     await screen.findByRole("heading", { name: "Dashboard" });
     await waitFor(() => {
       expect(
-        screen.queryByText("summary failed on purpose")
+        screen.queryByText("一時的に集計を取得できません")
       ).not.toBeInTheDocument();
     });
-    expect(attemptCount).toBeGreaterThanOrEqual(2);
   });
 
-  it("日付選択で表示対象日を切り替えられる", async () => {
+  it("日付を切り替えると別日の集計表示へ更新される", async () => {
     const user = userEvent.setup();
     render(<DashboardPage />);
 

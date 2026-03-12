@@ -5,9 +5,8 @@ import { DateQuickSelect } from "@/components/date-quick-select";
 
 const formatDate = (date: Date) => date.toISOString().slice(0, 10);
 
-describe("日付クイック選択コンポーネント", () => {
-
-  it("Latestボタンで先頭日付を選択する", async () => {
+describe("日付クイック選択", () => {
+  it("Latest ボタンで利用可能な最新日を選べる", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
@@ -22,7 +21,7 @@ describe("日付クイック選択コンポーネント", () => {
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
-  it("Todayボタンで当日日付を選択する", async () => {
+  it("Today ボタンで利用可能な当日を選べる", async () => {
     const today = formatDate(new Date());
     const onChange = vi.fn();
     const user = userEvent.setup();
@@ -38,7 +37,7 @@ describe("日付クイック選択コンポーネント", () => {
     expect(onChange).toHaveBeenCalledWith(today);
   });
 
-  it("Yesterdayが候補にない場合は先頭日付を選択する", async () => {
+  it("Yesterday の候補がなければ利用可能な最新日へ寄せる", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
@@ -53,7 +52,7 @@ describe("日付クイック選択コンポーネント", () => {
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
-  it("ドロップダウン選択で日付を変更する", async () => {
+  it("セレクト操作で選択日を変更できる", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(

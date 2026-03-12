@@ -1,21 +1,13 @@
-"use client";
+﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  fetchDailyStats,
-  fetchSummary,
-  getAvailableDates,
-  getErrorMessage,
-  DailyStatsItem,
-  SummaryResponse,
-} from "@/lib/api";
 import { OverviewChart } from "@/components/overview-chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { DateQuickSelect } from "@/components/date-quick-select";
 import { LastUpdated } from "@/components/last-updated";
+import { useDashboardData } from "@/hooks/use-dashboard-data";
 
 const formatDelta = (current: number, previous?: number | null) => {
   if (previous === undefined || previous === null) return null;
@@ -23,71 +15,24 @@ const formatDelta = (current: number, previous?: number | null) => {
   const sign = delta > 0 ? "+" : "";
   const deltaLabel = `${sign}${delta.toLocaleString()}`;
   if (previous <= 0) return deltaLabel;
-  const pct = Math.round(((delta / previous) * 1000)) / 10;
+  const pct = Math.round((delta / previous) * 1000) / 10;
   const pctSign = pct > 0 ? "+" : "";
   return `${deltaLabel} (${pctSign}${pct}%)`;
 };
 
 export default function DashboardPage() {
-  const [summary, setSummary] = useState<SummaryResponse | null>(null);
-  const [dailyStats, setDailyStats] = useState<DailyStatsItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string>("");
-  const [availableDates, setAvailableDates] = useState<string[]>([]);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  const fetchData = useCallback(async (targetDate?: string, refresh = false) => {
-    setError(null);
-    if (refresh) setIsRefreshing(true);
-    try {
-      const [summaryData, dailyData] = await Promise.all([
-        fetchSummary(targetDate),
-        fetchDailyStats(),
-      ]);
-      setSummary(summaryData);
-      setDailyStats(dailyData.data || []);
-      setLastUpdated(new Date());
-      if (!targetDate && summaryData.date) {
-        setSelectedDate(summaryData.date);
-      }
-    } catch (err) {
-      const message = getErrorMessage(err, "Failed to load dashboard data.");
-      setError(message);
-    } finally {
-      setLoading(false);
-      if (refresh) setIsRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const init = async () => {
-      try {
-        const result = await getAvailableDates();
-        const dates = result.dates || [];
-        setAvailableDates(dates);
-        if (dates.length > 0) {
-          setSelectedDate(dates[0]);
-        } else {
-          fetchData();
-        }
-      } catch {
-        fetchData();
-      }
-    };
-    init();
-  }, [fetchData]);
-
-  useEffect(() => {
-    if (selectedDate) {
-      fetchData(selectedDate, true);
-    }
-  }, [selectedDate, fetchData]);
-
-  const handleRefresh = useCallback(async () => {
-    await fetchData(selectedDate, true);
-  }, [fetchData, selectedDate]);
+  const {
+    summary,
+    dailyStats,
+    loading,
+    error,
+    selectedDate,
+    availableDates,
+    lastUpdated,
+    isRefreshing,
+    handleDateChange,
+    handleRefresh,
+  } = useDashboardData();
 
   if (loading) {
     return (
@@ -147,9 +92,7 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            Reporting date: {summary.date}
-          </p>
+          <p className="text-sm text-muted-foreground">Reporting date: {summary.date}</p>
           <p className="text-xs text-muted-foreground">
             High-level snapshot of traffic and suspicious activity.
           </p>
@@ -159,7 +102,7 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-3 rounded-xl border bg-card/60 p-3 sm:p-4 lg:flex-row lg:items-center lg:gap-4">
             <DateQuickSelect
               value={selectedDate}
-              onChange={setSelectedDate}
+              onChange={handleDateChange}
               availableDates={availableDates}
               showQuickButtons
               className="w-full flex-wrap lg:w-auto lg:flex-nowrap"

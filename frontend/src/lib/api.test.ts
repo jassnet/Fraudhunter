@@ -10,21 +10,26 @@ import {
 import { buildSummaryResponse } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
 
-describe("APIユーティリティ", () => {
-  it("ApiErrorのdetailを優先してエラーメッセージ化する", () => {
+describe("API helper", () => {
+  it("ApiError.detail があれば fallback より優先して返す", () => {
     const error = new ApiError("fallback");
-    error.detail = "詳細メッセージ";
+    error.detail = "詳細なエラーメッセージ";
 
-    expect(getErrorMessage(error, "代替メッセージ")).toBe("詳細メッセージ");
+    expect(getErrorMessage(error, "代替メッセージ")).toBe(
+      "詳細なエラーメッセージ"
+    );
   });
 
-  it("一時的なサーバーエラー時は再試行して成功できる", async () => {
+  it("一時的な summary 失敗は再試行後の成功 payload を返す", async () => {
     let attemptCount = 0;
     server.use(
       http.get(`${API_BASE_URL}/api/summary`, ({ request }) => {
         attemptCount += 1;
         if (attemptCount < 3) {
-          return HttpResponse.json({ detail: "temporary error" }, { status: 500 });
+          return HttpResponse.json(
+            { detail: "一時的なエラーです" },
+            { status: 500 }
+          );
         }
         const url = new URL(request.url);
         const targetDate = url.searchParams.get("target_date") || "2026-01-21";
@@ -38,17 +43,20 @@ describe("APIユーティリティ", () => {
     expect(attemptCount).toBe(3);
   });
 
-  it("400エラー時は詳細メッセージ付きで失敗する", async () => {
+  it("不正クリック API の 400 detail を利用者向けエラーへ載せる", async () => {
     server.use(
       http.get(`${API_BASE_URL}/api/suspicious/clicks`, () => {
-        return HttpResponse.json({ detail: "不正なパラメータです" }, { status: 400 });
+        return HttpResponse.json(
+          { detail: "無効な検索条件です" },
+          { status: 400 }
+        );
       })
     );
 
     await expect(fetchSuspiciousClicks("2026-01-21")).rejects.toMatchObject({
       status: 400,
-      detail: "不正なパラメータです",
-      message: "不正なパラメータです",
+      detail: "無効な検索条件です",
+      message: "無効な検索条件です",
     });
   });
 });

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from dataclasses import dataclass
@@ -22,6 +22,20 @@ class JobStatus:
     result: dict | None
 
 
+def _normalize_job_message(status: str, message: str | None) -> str | None:
+    if message == "No job has been run yet":
+        return "まだジョブは実行されていません"
+    if message == "Job failed":
+        return "ジョブが失敗しました"
+    if message is not None:
+        return message
+    if status == "idle":
+        return "まだジョブは実行されていません"
+    if status == "failed":
+        return "ジョブが失敗しました"
+    return None
+
+
 class JobStatusStorePG:
     def __init__(self, database_url: str):
         self.database_url = normalize_database_url(database_url)
@@ -34,8 +48,17 @@ class JobStatusStorePG:
                 sa.text(
                     """
                     INSERT INTO job_status (id, status, message)
-                    VALUES (1, 'idle', 'No job has been run yet')
+                    VALUES (1, 'idle', 'まだジョブは実行されていません')
                     ON CONFLICT (id) DO NOTHING
+                    """
+                )
+            )
+            conn.execute(
+                sa.text(
+                    """
+                    UPDATE job_status
+                    SET message = 'まだジョブは実行されていません'
+                    WHERE id = 1 AND status = 'idle' AND message = 'No job has been run yet'
                     """
                 )
             )
@@ -55,7 +78,7 @@ class JobStatusStorePG:
         return JobStatus(
             status=row["status"] if row else "idle",
             job_id=row["job_id"] if row else None,
-            message=row["message"] if row else "No job has been run yet",
+            message=_normalize_job_message(row["status"], row["message"]) if row else "まだジョブは実行されていません",
             started_at=row["started_at"] if row else None,
             completed_at=row["completed_at"] if row else None,
             result=result,

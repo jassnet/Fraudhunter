@@ -1,4 +1,4 @@
-import { http, HttpResponse } from "msw";
+﻿import { http, HttpResponse } from "msw";
 import { API_BASE_URL } from "@/lib/api";
 
 export const DEFAULT_DATES = ["2026-01-21", "2026-01-20", "2026-01-19"];
@@ -58,20 +58,20 @@ function buildSuspiciousRows(kind: SuspiciousKind) {
       first_time: `${DEFAULT_DATES[0]}T00:00:${String(index % 60).padStart(2, "0")}Z`,
       last_time: `${DEFAULT_DATES[0]}T01:00:${String(index % 60).padStart(2, "0")}Z`,
       reasons: ["ip_frequency_high"],
-      reasons_formatted: ["IP頻度が高い"],
+      reasons_formatted: ["IP からのアクセス頻度が高すぎます"],
       risk_level: index % 2 === 0 ? "high" : "medium",
       risk_score: 70 + (index % 20),
-      risk_label: index % 2 === 0 ? "High Risk" : "Medium Risk",
-      media_names: [`Media ${index}`],
-      program_names: [`Program ${index}`],
-      affiliate_names: [`Affiliate ${index}`],
+      risk_label: index % 2 === 0 ? "高リスク" : "中リスク",
+      media_names: [`メディア ${index}`],
+      program_names: [`案件 ${index}`],
+      affiliate_names: [`提携先 ${index}`],
       details: [
         {
           media_id: `M-${index}`,
           program_id: `P-${index}`,
-          media_name: `Media ${index}`,
-          program_name: `Program ${index}`,
-          affiliate_name: `Affiliate ${index}`,
+          media_name: `メディア ${index}`,
+          program_name: `案件 ${index}`,
+          affiliate_name: `提携先 ${index}`,
           click_count: 100 - (index % 40),
           conversion_count: 30 - (index % 20),
         },
@@ -179,7 +179,7 @@ export const handlers = [
   http.get(`${API_BASE_URL}/api/job/status`, () => {
     return HttpResponse.json({
       status: "idle",
-      message: "No job has been run yet",
+      message: "まだジョブは実行されていません",
       job_id: null,
       result: null,
     });

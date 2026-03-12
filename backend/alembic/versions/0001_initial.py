@@ -142,7 +142,7 @@ def upgrade() -> None:
     )
     op.execute(
         "INSERT INTO job_status (id, status, message) "
-        "VALUES (1, 'idle', 'No job has been run yet') "
+        "VALUES (1, 'idle', 'まだジョブは実行されていません') "
         "ON CONFLICT (id) DO NOTHING;"
     )
 

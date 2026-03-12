@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from contextlib import contextmanager
@@ -47,7 +47,7 @@ def test_ensure_schema_creates_table_and_inserts_singleton_row(monkeypatch):
 
     # Then
     assert calls["create_all"] == 1
-    assert calls["executed"] == 1
+    assert calls["executed"] == 2
 
 
 def test_get_returns_default_idle_when_row_is_missing(monkeypatch):
@@ -78,7 +78,45 @@ def test_get_returns_default_idle_when_row_is_missing(monkeypatch):
     # Then
     assert status.status == "idle"
     assert status.job_id is None
+    assert status.message == "まだジョブは実行されていません"
     assert status.result is None
+
+
+def test_get_normalizes_legacy_english_messages(monkeypatch):
+    # Given
+    store = _new_store()
+    monkeypatch.setattr(store, "ensure_schema", lambda: None)
+    row = {
+        "status": "idle",
+        "job_id": None,
+        "message": "No job has been run yet",
+        "started_at": None,
+        "completed_at": None,
+        "result_json": None,
+    }
+
+    class DummyResult:
+        def mappings(self):
+            return self
+
+        def first(self):
+            return row
+
+    class DummyConn:
+        def execute(self, stmt, params=None):
+            return DummyResult()
+
+    class DummyEngine:
+        def begin(self):
+            return _DummyContext(DummyConn())
+
+    store.engine = DummyEngine()
+
+    # When
+    status = store.get()
+
+    # Then
+    assert status.message == "まだジョブは実行されていません"
 
 
 def test_get_parses_json_result_when_row_exists(monkeypatch):

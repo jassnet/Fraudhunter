@@ -3,16 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { LastUpdated } from "@/components/last-updated";
 
-describe("最終更新表示コンポーネント", () => {
-  it("更新時刻がない場合はハイフンを表示する", () => {
-    render(
-      <LastUpdated lastUpdated={null} onRefresh={vi.fn()} />
-    );
+describe("最終更新表示", () => {
+  it("まだ更新が完了していないときはプレースホルダーを表示する", () => {
+    render(<LastUpdated lastUpdated={null} onRefresh={vi.fn()} />);
 
     expect(screen.getByText("Last updated: -")).toBeInTheDocument();
   });
 
-  it("更新中はボタンを無効化して進行表示する", () => {
+  it("更新中は Refresh を無効化して loading 表示を出す", () => {
     render(
       <LastUpdated
         lastUpdated={new Date("2026-01-21T03:30:00Z")}
@@ -25,7 +23,7 @@ describe("最終更新表示コンポーネント", () => {
     expect(screen.getByText("Updating...")).toBeInTheDocument();
   });
 
-  it("Refreshボタン押下で再取得処理を呼び出す", async () => {
+  it("Refresh 操作で公開 callback を呼び出す", async () => {
     const onRefresh = vi.fn();
     const user = userEvent.setup();
     render(

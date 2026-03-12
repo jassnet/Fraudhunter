@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment } from "react";
 import {
   Table,
   TableBody,
@@ -15,10 +15,10 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DateQuickSelect } from "@/components/date-quick-select";
 import { LastUpdated } from "@/components/last-updated";
-import { getAvailableDates, getErrorMessage, SuspiciousItem, SuspiciousResponse } from "@/lib/api";
+import { SuspiciousItem, SuspiciousResponse } from "@/lib/api";
 import { SuspiciousRowDetails } from "@/components/suspicious-row-details";
+import { useSuspiciousList } from "@/hooks/use-suspicious-list";
 
-// Simple badge helper to avoid shared UI dependency
 function Badge({
   children,
   className,
@@ -49,9 +49,6 @@ interface SuspiciousListPageProps {
   metricKey: MetricKey;
 }
 
-const PAGE_SIZE = 50;
-const SEARCH_DEBOUNCE_MS = 350;
-
 const riskBadge = (item: SuspiciousItem) => {
   const level = item.risk_level || "unknown";
   const label = item.risk_label || level;
@@ -73,91 +70,30 @@ export default function SuspiciousListPage({
   fetcher,
   metricKey,
 }: SuspiciousListPageProps) {
-  const [data, setData] = useState<SuspiciousItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [date, setDate] = useState<string>("");
-  const [availableDates, setAvailableDates] = useState<string[]>([]);
-  const [datesLoaded, setDatesLoaded] = useState(false);
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
-
-  useEffect(() => {
-    const handle = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(handle);
-  }, [search]);
-
-  const loadDates = useCallback(async () => {
-    try {
-      const result = await getAvailableDates();
-      const dates = result.dates || [];
-      setAvailableDates(dates);
-      setDate((prev) => (prev && dates.includes(prev) ? prev : dates[0] || ""));
-    } catch (err) {
-      setError(getErrorMessage(err, "Failed to load dates."));
-    } finally {
-      setDatesLoaded(true);
-    }
-  }, []);
-
-  const fetchData = useCallback(
-    async (targetDate: string | undefined, pageNum: number, query?: string, refresh = false) => {
-      setError(null);
-      setLoading(true);
-      if (refresh) setIsRefreshing(true);
-      try {
-        const offset = (pageNum - 1) * PAGE_SIZE;
-        const json = await fetcher(targetDate || undefined, PAGE_SIZE, offset, query || undefined);
-        setData(json.data || []);
-        setTotal(json.total || 0);
-        if (!targetDate && json.date) setDate(json.date);
-        setLastUpdated(new Date());
-      } catch (err) {
-        setError(getErrorMessage(err, "Failed to load data."));
-      } finally {
-        setLoading(false);
-        if (refresh) setIsRefreshing(false);
-      }
-    },
-    [fetcher]
-  );
-
-  useEffect(() => {
-    loadDates();
-  }, [loadDates]);
-
-  useEffect(() => {
-    if (!datesLoaded) return;
-    fetchData(date || undefined, page, debouncedSearch, true);
-  }, [date, page, debouncedSearch, fetchData, datesLoaded]);
-
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const canPrev = page > 1;
-  const canNext = page < totalPages;
-
-  const handleRefresh = useCallback(() => {
-    fetchData(date || undefined, page, debouncedSearch, true);
-  }, [date, page, debouncedSearch, fetchData]);
-
-  const visibleRows = useMemo(() => data, [data]);
-
-  const resultRange = useMemo(() => {
-    if (loading) return "Loading...";
-    if (total === 0) return "No results";
-    if (visibleRows.length === 0) return `Showing 0 of ${total.toLocaleString()}`;
-    const start = (page - 1) * PAGE_SIZE + 1;
-    const end = Math.min(start + visibleRows.length - 1, total);
-    return `Showing ${start}-${end} of ${total.toLocaleString()}`;
-  }, [loading, page, total, visibleRows.length]);
-
-  const toggleRow = useCallback((key: string) => {
-    setExpandedRow((prev) => (prev === key ? null : key));
-  }, []);
+  const {
+    data,
+    loading,
+    error,
+    date,
+    availableDates,
+    search,
+    page,
+    totalPages,
+    lastUpdated,
+    isRefreshing,
+    expandedRow,
+    canPrev,
+    canNext,
+    resultRange,
+    handleRefresh,
+    handleDateChange,
+    handleSearchChange,
+    toggleRow,
+    goToFirstPage,
+    goToPreviousPage,
+    goToNextPage,
+    goToLastPage,
+  } = useSuspiciousList(fetcher);
 
   return (
     <div className="space-y-6 p-6 sm:p-8">
@@ -171,11 +107,7 @@ export default function SuspiciousListPage({
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <DateQuickSelect
               value={date}
-              onChange={(next) => {
-                setPage(1);
-                setExpandedRow(null);
-                setDate(next);
-              }}
+              onChange={handleDateChange}
               availableDates={availableDates}
               showQuickButtons
               className="w-full flex-wrap lg:w-auto lg:flex-nowrap"
@@ -195,18 +127,12 @@ export default function SuspiciousListPage({
                 placeholder="Search IP / UA"
                 aria-label="Search suspicious list"
                 value={search}
-                onChange={(e) => {
-                  setPage(1);
-                  setExpandedRow(null);
-                  setSearch(e.target.value);
-                }}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 autoComplete="off"
                 className="max-w-sm"
               />
             </div>
-            <div className="text-xs text-muted-foreground">
-              {resultRange}
-            </div>
+            <div className="text-xs text-muted-foreground">{resultRange}</div>
           </div>
         </CardHeader>
         <CardContent>
@@ -238,14 +164,14 @@ export default function SuspiciousListPage({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {visibleRows.length === 0 ? (
+                  {data.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="h-24 text-center">
                         No data
                       </TableCell>
                     </TableRow>
                   ) : (
-                    visibleRows.map((item, idx) => {
+                    data.map((item, idx) => {
                       const rowKey = `${item.ipaddress}-${idx}`;
                       const isExpanded = expandedRow === rowKey;
                       return (
@@ -261,7 +187,10 @@ export default function SuspiciousListPage({
                             </TableCell>
                             <TableCell className="text-right tabular-nums">{item.media_count}</TableCell>
                             <TableCell className="text-right tabular-nums">{item.program_count}</TableCell>
-                            <TableCell className="max-w-[320px] truncate text-xs" title={(item.reasons_formatted || item.reasons || []).join(", ")}>
+                            <TableCell
+                              className="max-w-[320px] truncate text-xs"
+                              title={(item.reasons_formatted || item.reasons || []).join(", ")}
+                            >
                               {(item.reasons_formatted || item.reasons || []).slice(0, 2).join(", ")}
                             </TableCell>
                             <TableCell className="text-right">
@@ -296,48 +225,16 @@ export default function SuspiciousListPage({
               Page {page} / {totalPages}
             </div>
             <div className="space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setExpandedRow(null);
-                  setPage(1);
-                }}
-                disabled={!canPrev}
-              >
+              <Button variant="outline" size="sm" onClick={goToFirstPage} disabled={!canPrev}>
                 First
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setExpandedRow(null);
-                  setPage((p) => Math.max(1, p - 1));
-                }}
-                disabled={!canPrev}
-              >
+              <Button variant="outline" size="sm" onClick={goToPreviousPage} disabled={!canPrev}>
                 Prev
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setExpandedRow(null);
-                  setPage((p) => Math.min(totalPages, p + 1));
-                }}
-                disabled={!canNext}
-              >
+              <Button variant="outline" size="sm" onClick={goToNextPage} disabled={!canNext}>
                 Next
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setExpandedRow(null);
-                  setPage(totalPages);
-                }}
-                disabled={!canNext}
-              >
+              <Button variant="outline" size="sm" onClick={goToLastPage} disabled={!canNext}>
                 Last
               </Button>
             </div>
