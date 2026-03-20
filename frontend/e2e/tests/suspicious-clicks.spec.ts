@@ -15,8 +15,8 @@ test.describe("suspicious clicks e2e", () => {
 
     await page.getByRole("button", { name: "Details" }).first().click();
     await expect(page.getByText("Breakdown")).toBeVisible();
-    await expect(page.getByText("Media Alpha")).toBeVisible();
-    await expect(page.getByText("Affiliate Alpha")).toBeVisible();
+    await expect(page.getByRole("cell", { name: "Media Alpha", exact: true })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "Affiliate Alpha", exact: true })).toBeVisible();
   });
 
   test("filters by media name and supports pagination", async ({ page }) => {
@@ -30,7 +30,7 @@ test.describe("suspicious clicks e2e", () => {
     await searchInput.fill("");
     await expect(page.getByText("Showing 1-50 of 55")).toBeVisible();
 
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
     await expect(page.getByText("Showing 51-55 of 55")).toBeVisible();
   });
 });

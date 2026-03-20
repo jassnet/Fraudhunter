@@ -16,6 +16,6 @@ test.describe("suspicious conversions e2e", () => {
 
     await page.getByRole("button", { name: "Details" }).first().click();
     await expect(page.getByText("Click to conversion")).toBeVisible();
-    await expect(page.getByText("Program Alpha")).toBeVisible();
+    await expect(page.getByRole("cell", { name: "Program Alpha", exact: true })).toBeVisible();
   });
 });

@@ -12,11 +12,19 @@ test.describe("dashboard e2e", () => {
 
     await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
     await expect(page.getByText("Reporting date: 2026-01-21")).toBeVisible();
-    await expect(page.getByText("3,300")).toBeVisible();
-    await expect(page.getByText("6")).toBeVisible();
+    await expect(
+      page.locator("div").filter({ has: page.getByText("Total Clicks") }).first()
+    ).toContainText("3,300");
+    await expect(
+      page.locator("div").filter({ has: page.getByText("Total Conversions") }).first()
+    ).toContainText("6");
 
-    const suspiciousClicksCard = page.getByRole("link", { name: /Suspicious Clicks/i });
-    const suspiciousConversionsCard = page.getByRole("link", { name: /Suspicious Conversions/i });
+    const suspiciousClicksCard = page.getByRole("link", {
+      name: /Suspicious Clicks\s+\d+\s+Review/i,
+    });
+    const suspiciousConversionsCard = page.getByRole("link", {
+      name: /Suspicious Conversions\s+\d+\s+Review/i,
+    });
     await expect(suspiciousClicksCard).toContainText("55");
     await expect(suspiciousConversionsCard).toContainText("1");
   });
@@ -28,7 +36,11 @@ test.describe("dashboard e2e", () => {
     await page.getByLabel("Select date").selectOption("2026-01-20");
 
     await expect(page.getByText("Reporting date: 2026-01-20")).toBeVisible();
-    await expect(page.getByText("22")).toBeVisible();
-    await expect(page.getByRole("link", { name: /Suspicious Clicks/i })).toContainText("0");
+    await expect(
+      page.locator("div").filter({ has: page.getByText("Total Clicks") }).first()
+    ).toContainText("22");
+    await expect(
+      page.getByRole("link", { name: /Suspicious Clicks\s+\d+\s+Review/i })
+    ).toContainText("0");
   });
 });
