@@ -8,26 +8,26 @@ import { buildSummaryResponse } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
 
 describe("ダッシュボード画面", () => {
-  it("最新の集計日と主要カードを表示する", async () => {
+  it("最新の基準日と主要カードを表示する", async () => {
     render(<DashboardPage />);
 
-    await screen.findByRole("heading", { name: "Dashboard" });
-    await screen.findByText("Reporting date: 2026-01-21");
+    await screen.findByRole("heading", { name: "ダッシュボード" });
+    await screen.findByText("基準日: 2026-01-21");
 
-    expect(screen.getByText("Total Clicks")).toBeInTheDocument();
-    expect(screen.getByText("Total Conversions")).toBeInTheDocument();
-    expect(screen.getByText("Suspicious Clicks")).toBeInTheDocument();
-    expect(screen.getByText("Suspicious Conversions")).toBeInTheDocument();
+    expect(screen.getByText("総クリック数")).toBeInTheDocument();
+    expect(screen.getByText("総コンバージョン数")).toBeInTheDocument();
+    expect(screen.getByText("不審クリック")).toBeInTheDocument();
+    expect(screen.getByText("不審コンバージョン")).toBeInTheDocument();
   });
 
-  it("一時的な取得失敗のあと Retry で通常表示に戻る", async () => {
+  it("一時的な取得失敗のあと再試行で通常表示に戻る", async () => {
     let attemptCount = 0;
     server.use(
       http.get(`${API_BASE_URL}/api/summary`, ({ request }) => {
         attemptCount += 1;
         if (attemptCount <= 3) {
           return HttpResponse.json(
-            { detail: "一時的に集計を取得できません" },
+            { detail: "一時的に取得に失敗しました" },
             { status: 400 }
           );
         }
@@ -40,16 +40,14 @@ describe("ダッシュボード画面", () => {
     const user = userEvent.setup();
     render(<DashboardPage />);
 
-    await screen.findByRole("heading", { name: "Error" }, { timeout: 4000 });
-    expect(screen.getByText("一時的に集計を取得できません")).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "取得エラー" }, { timeout: 4000 });
+    expect(screen.getByText("一時的に取得に失敗しました")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "再試行" }));
 
-    await screen.findByRole("heading", { name: "Dashboard" });
+    await screen.findByRole("heading", { name: "ダッシュボード" });
     await waitFor(() => {
-      expect(
-        screen.queryByText("一時的に集計を取得できません")
-      ).not.toBeInTheDocument();
+      expect(screen.queryByText("一時的に取得に失敗しました")).not.toBeInTheDocument();
     });
   });
 
@@ -57,13 +55,13 @@ describe("ダッシュボード画面", () => {
     const user = userEvent.setup();
     render(<DashboardPage />);
 
-    await screen.findByRole("heading", { name: "Dashboard" });
-    await screen.findByText("Reporting date: 2026-01-21");
+    await screen.findByRole("heading", { name: "ダッシュボード" });
+    await screen.findByText("基準日: 2026-01-21");
 
-    await user.selectOptions(screen.getByLabelText("Select date"), "2026-01-20");
+    await user.selectOptions(screen.getByLabelText("対象日を選択"), "2026-01-20");
 
     await waitFor(() => {
-      expect(screen.getByText("Reporting date: 2026-01-20")).toBeInTheDocument();
+      expect(screen.getByText("基準日: 2026-01-20")).toBeInTheDocument();
     });
   });
 });

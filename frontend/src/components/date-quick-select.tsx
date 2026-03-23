@@ -1,16 +1,15 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-type QuickDateOption = "latest" | "yesterday" | "today" | "none";
+type QuickDateOption = "latest" | "yesterday" | "today";
 
 const quickDateLabels: Record<QuickDateOption, string> = {
-  latest: "Latest",
-  today: "Today",
-  yesterday: "Yesterday",
-  none: "Pick date",
+  latest: "最新日",
+  today: "今日",
+  yesterday: "前日",
 };
 
 interface DateQuickSelectProps {
@@ -46,14 +45,13 @@ export function DateQuickSelect({
   showQuickButtons = true,
   className,
 }: DateQuickSelectProps) {
-  const selectRef = useRef<HTMLSelectElement>(null);
   const options = useMemo(() => {
     const dates = availableDates || [];
     return dates.map((date) => ({ value: date, label: date }));
   }, [availableDates]);
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+    <div className={cn("flex flex-wrap items-center gap-2.5", className)}>
       {showQuickButtons && (
         <div className="flex flex-wrap gap-2">
           {(Object.keys(quickDateLabels) as QuickDateOption[]).map((option) => (
@@ -61,16 +59,13 @@ export function DateQuickSelect({
               key={option}
               type="button"
               size="sm"
-              variant={option === "none" ? "outline" : "secondary"}
+              variant="secondary"
+              className="rounded-md border border-slate-200 bg-slate-100 text-slate-700 shadow-none hover:bg-slate-200"
               onClick={() => {
-                if (option === "none") {
-                  selectRef.current?.focus();
-                  return;
-                }
                 const nextDate = getQuickDate(option, availableDates);
                 if (nextDate) onChange(nextDate);
               }}
-              disabled={option !== "none" && availableDates.length === 0}
+              disabled={availableDates.length === 0}
             >
               {quickDateLabels[option]}
             </Button>
@@ -78,15 +73,14 @@ export function DateQuickSelect({
         </div>
       )}
       <select
-        ref={selectRef}
-        className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+        className="h-10 rounded-md border border-input bg-white px-4 text-sm shadow-sm outline-none transition focus:border-primary/50"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        aria-label="Select date"
+        aria-label="対象日を選択"
       >
         {options.length === 0 ? (
           <option value="" disabled>
-            No dates
+            利用可能な日付はありません
           </option>
         ) : (
           options.map((option) => (

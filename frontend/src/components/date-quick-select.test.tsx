@@ -6,7 +6,7 @@ import { DateQuickSelect } from "@/components/date-quick-select";
 const formatDate = (date: Date) => date.toISOString().slice(0, 10);
 
 describe("日付クイック選択", () => {
-  it("Latest ボタンで利用可能な最新日を選べる", async () => {
+  it("最新日ボタンで利用可能な最新日を選べる", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
@@ -17,11 +17,11 @@ describe("日付クイック選択", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Latest" }));
+    await user.click(screen.getByRole("button", { name: "最新日" }));
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
-  it("Today ボタンで利用可能な当日を選べる", async () => {
+  it("今日ボタンで利用可能な当日を選べる", async () => {
     const today = formatDate(new Date());
     const onChange = vi.fn();
     const user = userEvent.setup();
@@ -33,11 +33,11 @@ describe("日付クイック選択", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Today" }));
+    await user.click(screen.getByRole("button", { name: "今日" }));
     expect(onChange).toHaveBeenCalledWith(today);
   });
 
-  it("Yesterday の候補がなければ利用可能な最新日へ寄せる", async () => {
+  it("前日の候補がなければ利用可能な最新日へ寄せる", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
@@ -48,7 +48,7 @@ describe("日付クイック選択", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Yesterday" }));
+    await user.click(screen.getByRole("button", { name: "前日" }));
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
@@ -63,7 +63,7 @@ describe("日付クイック選択", () => {
       />
     );
 
-    await user.selectOptions(screen.getByLabelText("Select date"), "2026-01-20");
+    await user.selectOptions(screen.getByLabelText("対象日を選択"), "2026-01-20");
     expect(onChange).toHaveBeenCalledWith("2026-01-20");
   });
 });

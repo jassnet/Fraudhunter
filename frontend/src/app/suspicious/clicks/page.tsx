@@ -6,9 +6,9 @@ import { fetchSuspiciousClicks } from "@/lib/api";
 export default function SuspiciousClicksPage() {
   return (
     <SuspiciousListPage
-      title="Suspicious Clicks"
-      description="IPs and user agents flagged by click-based rules."
-      countLabel="Clicks"
+      title="不審クリック"
+      description="クリック起点の検知ルールに該当した IP アドレスと User-Agent を確認します。"
+      countLabel="クリック数"
       fetcher={fetchSuspiciousClicks}
       metricKey="total_clicks"
     />

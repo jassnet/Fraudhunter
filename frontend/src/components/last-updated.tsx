@@ -26,18 +26,23 @@ export function LastUpdated({
   }, [lastUpdated]);
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
-      <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold">
-        Last updated: {timeLabel}
+    <div className={cn("flex items-center gap-3", className)}>
+      <span className="text-sm text-slate-500">
+        最終更新: {timeLabel}
       </span>
 
-      <Button size="sm" variant="outline" onClick={onRefresh} disabled={isRefreshing}>
-        Refresh
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={onRefresh}
+        disabled={isRefreshing}
+      >
+        再読み込み
       </Button>
 
       {isRefreshing ? (
         <span className="text-xs text-muted-foreground" aria-live="polite">
-          Updating...
+          更新しています...
         </span>
       ) : null}
     </div>

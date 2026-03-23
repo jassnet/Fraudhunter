@@ -10,12 +10,12 @@ test.describe("suspicious conversions e2e", () => {
   test("shows conversion list and details", async ({ page }) => {
     await page.goto("/suspicious/conversions");
 
-    await expect(page.getByRole("heading", { name: "Suspicious Conversions" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Conversions" })).toBeVisible();
-    await expect(page.getByText("Showing 1-1 of 1")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "不審コンバージョン" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "CV 数" })).toBeVisible();
+    await expect(page.getByText("1-1件目 / 全1件", { exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "Details" }).first().click();
-    await expect(page.getByText("Click to conversion")).toBeVisible();
+    await page.getByRole("button", { name: "詳細" }).first().click();
+    await expect(page.getByText("クリックから CV まで")).toBeVisible();
     await expect(page.getByRole("cell", { name: "Program Alpha", exact: true })).toBeVisible();
   });
 });

@@ -7,10 +7,10 @@ describe("最終更新表示", () => {
   it("まだ更新が完了していないときはプレースホルダーを表示する", () => {
     render(<LastUpdated lastUpdated={null} onRefresh={vi.fn()} />);
 
-    expect(screen.getByText("Last updated: -")).toBeInTheDocument();
+    expect(screen.getByText("最終更新: -")).toBeInTheDocument();
   });
 
-  it("更新中は Refresh を無効化して loading 表示を出す", () => {
+  it("更新中は再読み込みを無効化して loading 表示を出す", () => {
     render(
       <LastUpdated
         lastUpdated={new Date("2026-01-21T03:30:00Z")}
@@ -19,11 +19,11 @@ describe("最終更新表示", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
-    expect(screen.getByText("Updating...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "再読み込み" })).toBeDisabled();
+    expect(screen.getByText("更新しています...")).toBeInTheDocument();
   });
 
-  it("Refresh 操作で公開 callback を呼び出す", async () => {
+  it("再読み込み操作で公開 callback を呼び出す", async () => {
     const onRefresh = vi.fn();
     const user = userEvent.setup();
     render(
@@ -33,7 +33,7 @@ describe("最終更新表示", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    await user.click(screen.getByRole("button", { name: "再読み込み" }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 });

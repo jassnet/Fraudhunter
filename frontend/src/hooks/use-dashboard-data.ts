@@ -39,7 +39,7 @@ export function useDashboardData() {
         setSelectedDate(summaryData.date);
       }
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to load dashboard data."));
+      setError(getErrorMessage(err, "ダッシュボードの取得に失敗しました。"));
     } finally {
       setLoading(false);
       if (refresh) {

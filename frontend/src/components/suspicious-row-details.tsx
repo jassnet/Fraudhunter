@@ -19,7 +19,10 @@ const renderTags = (items?: string[]) => {
   return (
     <div className="flex flex-wrap gap-2">
       {items.map((item, idx) => (
-        <span key={`${item}-${idx}`} className="rounded-full border px-2 py-0.5 text-xs">
+        <span
+          key={`${item}-${idx}`}
+          className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700"
+        >
           {item}
         </span>
       ))}
@@ -35,37 +38,40 @@ export function SuspiciousRowDetails({ item }: { item: SuspiciousItem }) {
   const visibleDetails = details.slice(0, 5);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-5">
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-1 text-xs">
-          <div className="text-muted-foreground">First seen</div>
-          <div className="font-mono text-xs">{item.first_time || "-"}</div>
+        <div className="rounded-md border border-slate-200 bg-white p-4 text-xs">
+          <div className="text-muted-foreground">初回検知時刻</div>
+          <div className="mt-2 font-mono text-xs text-slate-800">{item.first_time || "-"}</div>
         </div>
-        <div className="space-y-1 text-xs">
-          <div className="text-muted-foreground">Last seen</div>
-          <div className="font-mono text-xs">{item.last_time || "-"}</div>
+        <div className="rounded-md border border-slate-200 bg-white p-4 text-xs">
+          <div className="text-muted-foreground">最終検知時刻</div>
+          <div className="mt-2 font-mono text-xs text-slate-800">{item.last_time || "-"}</div>
         </div>
-        <div className="space-y-1 text-xs">
-          <div className="text-muted-foreground">Risk</div>
-          <div className="text-xs">
+        <div className="rounded-md border border-slate-200 bg-white p-4 text-xs">
+          <div className="text-muted-foreground">リスク</div>
+          <div className="mt-2 text-xs text-slate-800">
             {item.risk_label || item.risk_level || "-"}
-            {typeof item.risk_score === "number" ? ` (score ${item.risk_score})` : ""}
+            {typeof item.risk_score === "number" ? ` (スコア ${item.risk_score})` : ""}
           </div>
         </div>
-        <div className="space-y-1 text-xs">
-          <div className="text-muted-foreground">Click to conversion</div>
-          <div className="text-xs">
-            Min {formatSeconds(item.min_click_to_conv_seconds)} / Max {formatSeconds(item.max_click_to_conv_seconds)}
+        <div className="rounded-md border border-slate-200 bg-white p-4 text-xs">
+          <div className="text-muted-foreground">クリックから CV まで</div>
+          <div className="mt-2 text-xs text-slate-800">
+            最短 {formatSeconds(item.min_click_to_conv_seconds)} / 最長 {formatSeconds(item.max_click_to_conv_seconds)}
           </div>
         </div>
       </div>
 
       <div className="space-y-2">
-        <div className="text-xs text-muted-foreground">Reasons</div>
+        <div className="text-xs text-muted-foreground">検知理由</div>
         {reasons.length ? (
           <div className="flex flex-wrap gap-2">
             {reasons.map((reason, idx) => (
-              <span key={`${reason}-${idx}`} className="rounded-full border px-2 py-0.5 text-xs">
+              <span
+                key={`${reason}-${idx}`}
+                className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700"
+              >
                 {reason}
               </span>
             ))}
@@ -77,31 +83,31 @@ export function SuspiciousRowDetails({ item }: { item: SuspiciousItem }) {
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-2">
-          <div className="text-xs text-muted-foreground">Media</div>
+          <div className="text-xs text-muted-foreground">メディア</div>
           {renderTags(item.media_names)}
         </div>
         <div className="space-y-2">
-          <div className="text-xs text-muted-foreground">Programs</div>
+          <div className="text-xs text-muted-foreground">案件</div>
           {renderTags(item.program_names)}
         </div>
         <div className="space-y-2">
-          <div className="text-xs text-muted-foreground">Affiliates</div>
+          <div className="text-xs text-muted-foreground">アフィリエイター</div>
           {renderTags(item.affiliate_names)}
         </div>
       </div>
 
       {details.length > 0 ? (
         <div className="space-y-2">
-          <div className="text-xs text-muted-foreground">Breakdown</div>
-          <div className="overflow-hidden rounded-md border">
+          <div className="text-xs text-muted-foreground">内訳</div>
+          <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
             <table className="w-full text-xs">
-              <thead className="bg-muted/40 text-muted-foreground">
+              <thead className="bg-slate-50/85 text-muted-foreground">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium">Media</th>
-                  <th className="px-3 py-2 text-left font-medium">Program</th>
-                  <th className="px-3 py-2 text-left font-medium">Affiliate</th>
-                  <th className="px-3 py-2 text-right font-medium">Clicks</th>
-                  <th className="px-3 py-2 text-right font-medium">Conversions</th>
+                  <th className="px-3 py-2 text-left font-medium">メディア</th>
+                  <th className="px-3 py-2 text-left font-medium">案件</th>
+                  <th className="px-3 py-2 text-left font-medium">アフィリエイター</th>
+                  <th className="px-3 py-2 text-right font-medium">クリック数</th>
+                  <th className="px-3 py-2 text-right font-medium">CV 数</th>
                 </tr>
               </thead>
               <tbody>
@@ -123,7 +129,7 @@ export function SuspiciousRowDetails({ item }: { item: SuspiciousItem }) {
           </div>
           {details.length > visibleDetails.length ? (
             <div className="text-xs text-muted-foreground">
-              Showing {visibleDetails.length} of {details.length} rows
+              {visibleDetails.length}件を表示中 / 全{details.length}件
             </div>
           ) : null}
         </div>

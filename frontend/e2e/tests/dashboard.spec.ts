@@ -10,20 +10,20 @@ test.describe("dashboard e2e", () => {
   test("shows seeded summary metrics for the latest date", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-    await expect(page.getByText("Reporting date: 2026-01-21")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
+    await expect(page.getByText("基準日: 2026-01-21")).toBeVisible();
     await expect(
-      page.locator("div").filter({ has: page.getByText("Total Clicks") }).first()
+      page.locator("div").filter({ has: page.getByText("総クリック数") }).first()
     ).toContainText("3,300");
     await expect(
-      page.locator("div").filter({ has: page.getByText("Total Conversions") }).first()
+      page.locator("div").filter({ has: page.getByText("総コンバージョン数") }).first()
     ).toContainText("6");
 
     const suspiciousClicksCard = page.getByRole("link", {
-      name: /Suspicious Clicks\s+\d+\s+Review/i,
+      name: /不審クリック 55件の一覧を確認/i,
     });
     const suspiciousConversionsCard = page.getByRole("link", {
-      name: /Suspicious Conversions\s+\d+\s+Review/i,
+      name: /不審コンバージョン 1件の一覧を確認/i,
     });
     await expect(suspiciousClicksCard).toContainText("55");
     await expect(suspiciousConversionsCard).toContainText("1");
@@ -31,16 +31,16 @@ test.describe("dashboard e2e", () => {
 
   test("switches dashboard date using the date selector", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByText("Reporting date: 2026-01-21")).toBeVisible();
+    await expect(page.getByText("基準日: 2026-01-21")).toBeVisible();
 
-    await page.getByLabel("Select date").selectOption("2026-01-20");
+    await page.getByLabel("対象日を選択").selectOption("2026-01-20");
 
-    await expect(page.getByText("Reporting date: 2026-01-20")).toBeVisible();
+    await expect(page.getByText("基準日: 2026-01-20")).toBeVisible();
     await expect(
-      page.locator("div").filter({ has: page.getByText("Total Clicks") }).first()
+      page.locator("div").filter({ has: page.getByText("総クリック数") }).first()
     ).toContainText("22");
     await expect(
-      page.getByRole("link", { name: /Suspicious Clicks\s+\d+\s+Review/i })
+      page.getByRole("link", { name: /不審クリック 0件の一覧を確認/i })
     ).toContainText("0");
   });
 });

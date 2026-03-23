@@ -45,7 +45,7 @@ export function useSuspiciousList(fetcher: SuspiciousFetcher) {
       setAvailableDates(dates);
       setDate((prev) => (prev && dates.includes(prev) ? prev : dates[0] || ""));
     } catch (err) {
-      setError(getErrorMessage(err, "Failed to load dates."));
+      setError(getErrorMessage(err, "対象日の取得に失敗しました。"));
     } finally {
       setDatesLoaded(true);
     }
@@ -74,7 +74,7 @@ export function useSuspiciousList(fetcher: SuspiciousFetcher) {
         }
         setLastUpdated(new Date());
       } catch (err) {
-        setError(getErrorMessage(err, "Failed to load data."));
+        setError(getErrorMessage(err, "一覧データの取得に失敗しました。"));
       } finally {
         setLoading(false);
         if (refresh) {
@@ -102,17 +102,17 @@ export function useSuspiciousList(fetcher: SuspiciousFetcher) {
 
   const resultRange = useMemo(() => {
     if (loading) {
-      return "Loading...";
+      return "読み込み中...";
     }
     if (total === 0) {
-      return "No results";
+      return "検索結果はありません";
     }
     if (data.length === 0) {
-      return `Showing 0 of ${total.toLocaleString()}`;
+      return `0件 / 全${total.toLocaleString()}件`;
     }
     const start = (page - 1) * PAGE_SIZE + 1;
     const end = Math.min(start + data.length - 1, total);
-    return `Showing ${start}-${end} of ${total.toLocaleString()}`;
+    return `${start}-${end}件目 / 全${total.toLocaleString()}件`;
   }, [data.length, loading, page, total]);
 
   const handleRefresh = useCallback(async () => {
