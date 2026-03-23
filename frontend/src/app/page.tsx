@@ -1,12 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { OverviewChart } from "@/components/overview-chart";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { MetricBlock, MetricStrip } from "@/components/ui/metric-strip";
+import { PageHeader } from "@/components/ui/page-header";
+import { SectionFrame } from "@/components/ui/section-frame";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DateQuickSelect } from "@/components/date-quick-select";
 import { LastUpdated } from "@/components/last-updated";
+import { OverviewChart } from "@/components/overview-chart";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 
 const formatDelta = (current: number, previous?: number | null) => {
@@ -14,10 +16,10 @@ const formatDelta = (current: number, previous?: number | null) => {
   const delta = current - previous;
   const sign = delta > 0 ? "+" : "";
   const deltaLabel = `${sign}${delta.toLocaleString()}`;
-  if (previous <= 0) return deltaLabel;
+  if (previous <= 0) return `前日比 ${deltaLabel}`;
   const pct = Math.round((delta / previous) * 1000) / 10;
   const pctSign = pct > 0 ? "+" : "";
-  return `${deltaLabel}（${pctSign}${pct}%）`;
+  return `前日比 ${deltaLabel} (${pctSign}${pct}%)`;
 };
 
 export default function DashboardPage() {
@@ -34,47 +36,75 @@ export default function DashboardPage() {
     handleRefresh,
   } = useDashboardData();
 
+  const actions = (
+    <>
+      <DateQuickSelect
+        value={selectedDate}
+        onChange={handleDateChange}
+        availableDates={availableDates}
+        showQuickButtons
+      />
+      <LastUpdated
+        lastUpdated={lastUpdated}
+        onRefresh={handleRefresh}
+        isRefreshing={isRefreshing}
+      />
+    </>
+  );
+
   if (loading) {
     return (
-      <div className="flex-1 space-y-5 p-6 sm:p-8">
-        <Skeleton className="h-12 rounded" />
-        <div className="grid grid-cols-2 xl:grid-cols-4 divide-x divide-y divide-slate-200 border border-slate-200">
-          {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-[130px] rounded-none" />
-          ))}
+      <div className="flex h-full min-h-0 flex-col">
+        <PageHeader title="ダッシュボード" meta="読込中" actions={actions} />
+        <div className="min-h-0 flex-1 overflow-auto">
+          <div className="space-y-4 p-4 sm:p-6">
+          <MetricStrip>
+            {[...Array(4)].map((_, index) => (
+              <div key={index} className="border-t border-border p-4 first:border-t-0 md:odd:border-r xl:border-t-0 xl:border-r xl:last:border-r-0">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="mt-5 h-12 w-28" />
+                <Skeleton className="mt-6 h-3 w-32" />
+              </div>
+            ))}
+          </MetricStrip>
+          <SectionFrame title="30日推移">
+            <Skeleton className="h-64 w-full" />
+          </SectionFrame>
         </div>
-        <Skeleton className="h-[460px] rounded" />
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex-1 p-6 sm:p-8">
-        <Card className="border-destructive/30 bg-white">
-          <CardHeader>
-            <CardTitle className="text-destructive">取得エラー</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">{error}</p>
-            <Button onClick={handleRefresh}>再試行</Button>
-          </CardContent>
-        </Card>
+      <div className="flex h-full min-h-0 flex-col">
+        <PageHeader title="ダッシュボード" actions={actions} />
+        <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
+          <EmptyState
+            title="取得エラー"
+            message={error}
+            action={
+              <Button onClick={handleRefresh} variant="outline">
+                再試行
+              </Button>
+            }
+          />
+        </div>
       </div>
     );
   }
 
   if (!summary) {
     return (
-      <div className="p-6 sm:p-8">
-        <Card className="border-slate-200 bg-white">
-          <CardHeader>
-            <CardTitle>表示できるデータがありません</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            別の日付を選択するか、データ取込が完了しているか確認してください。
-          </CardContent>
-        </Card>
+      <div className="flex h-full min-h-0 flex-col">
+        <PageHeader title="ダッシュボード" actions={actions} />
+        <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
+          <EmptyState
+            title="データなし"
+            message="表示対象の集計がありません。"
+          />
+        </div>
       </div>
     );
   }
@@ -86,94 +116,44 @@ export default function DashboardPage() {
   );
 
   return (
-    <div className="flex-1">
-      <header className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-slate-200 px-6 py-5 sm:px-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-950">ダッシュボード</h1>
-        <span className="text-sm text-slate-500">基準日: {summary.date}</span>
-        <div className="ml-auto flex flex-wrap items-center gap-3">
-          <DateQuickSelect
-            value={selectedDate}
-            onChange={handleDateChange}
-            availableDates={availableDates}
-            showQuickButtons
-          />
-          <LastUpdated
-            lastUpdated={lastUpdated}
-            onRefresh={handleRefresh}
-            isRefreshing={isRefreshing}
-          />
-        </div>
-      </header>
+    <div className="flex h-full min-h-0 flex-col">
+      <PageHeader title="ダッシュボード" meta={`対象日 ${summary.date}`} actions={actions} />
 
-      <div className="p-6 sm:p-8">
-        <section className="grid grid-cols-2 xl:grid-cols-4 divide-x divide-y divide-slate-200 border border-slate-200 bg-white">
-          <div>
-            <div className="h-1.5 bg-slate-700" />
-            <div className="p-5">
-              <div className="text-xs font-semibold tracking-[0.08em] text-slate-500">総クリック数</div>
-              <div className="mt-3 text-[2.4rem] font-semibold tracking-[-0.04em] text-slate-900 tabular-nums">
-                {summary.stats.clicks.total.toLocaleString()}
-              </div>
-              <div className="mt-3 text-sm leading-6 text-slate-500">
-                ユニーク IP {summary.stats.clicks.unique_ips.toLocaleString()}
-                {clickDelta ? ` / 前日比 ${clickDelta}` : ""}
-              </div>
-            </div>
-          </div>
-          <div>
-            <div className="h-1.5 bg-teal-600" />
-            <div className="p-5">
-              <div className="text-xs font-semibold tracking-[0.08em] text-slate-500">総コンバージョン数</div>
-              <div className="mt-3 text-[2.4rem] font-semibold tracking-[-0.04em] text-slate-900 tabular-nums">
-                {summary.stats.conversions.total.toLocaleString()}
-              </div>
-              <div className="mt-3 text-sm leading-6 text-slate-500">
-                ユニーク IP {summary.stats.conversions.unique_ips.toLocaleString()}
-                {conversionDelta ? ` / 前日比 ${conversionDelta}` : ""}
-              </div>
-            </div>
-          </div>
-          <Link
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="space-y-4 p-4 sm:p-6">
+        <MetricStrip>
+          <MetricBlock
+            label="クリック"
+            value={summary.stats.clicks.total.toLocaleString()}
+            meta={`ユニークIP ${summary.stats.clicks.unique_ips.toLocaleString()}${clickDelta ? ` / ${clickDelta}` : ""}`}
+          />
+          <MetricBlock
+            label="CV"
+            value={summary.stats.conversions.total.toLocaleString()}
+            meta={`ユニークIP ${summary.stats.conversions.unique_ips.toLocaleString()}${conversionDelta ? ` / ${conversionDelta}` : ""}`}
+          />
+          <MetricBlock
+            label="不審クリック"
+            value={summary.stats.suspicious.click_based.toLocaleString()}
+            meta="一覧を開く"
+            tone="warning"
             href="/suspicious/clicks"
-            className="block"
-            aria-label={`不審クリック ${summary.stats.suspicious.click_based}件の一覧を確認`}
-          >
-            <div className="h-1.5 bg-amber-400" />
-            <div className="p-5">
-              <div className="text-xs font-semibold tracking-[0.08em] text-amber-700">不審クリック</div>
-              <div className="mt-3 text-[2.4rem] font-semibold tracking-[-0.04em] text-amber-700 tabular-nums">
-                {summary.stats.suspicious.click_based}
-              </div>
-              <div className="mt-3 text-sm leading-6 text-amber-800">閾値超過のクリックを一覧で確認</div>
-              <div className="mt-1 text-xs font-medium tracking-[0.04em] text-amber-700">一覧で詳細を確認 →</div>
-            </div>
-          </Link>
-          <Link
+            ariaLabel={`不審クリック ${summary.stats.suspicious.click_based}件を開く`}
+          />
+          <MetricBlock
+            label="不審CV"
+            value={summary.stats.suspicious.conversion_based.toLocaleString()}
+            meta="一覧を開く"
+            tone="danger"
             href="/suspicious/conversions"
-            className="block"
-            aria-label={`不審コンバージョン ${summary.stats.suspicious.conversion_based}件の一覧を確認`}
-          >
-            <div className="h-1.5 bg-rose-400" />
-            <div className="p-5">
-              <div className="text-xs font-semibold tracking-[0.08em] text-rose-700">不審コンバージョン</div>
-              <div className="mt-3 text-[2.4rem] font-semibold tracking-[-0.04em] text-rose-700 tabular-nums">
-                {summary.stats.suspicious.conversion_based}
-              </div>
-              <div className="mt-3 text-sm leading-6 text-rose-800">CV 起点の不審な流入を一覧で確認</div>
-              <div className="mt-1 text-xs font-medium tracking-[0.04em] text-rose-700">一覧で詳細を確認 →</div>
-            </div>
-          </Link>
-        </section>
+            ariaLabel={`不審コンバージョン ${summary.stats.suspicious.conversion_based}件を開く`}
+          />
+        </MetricStrip>
 
-        <section className="mt-2 border-t border-slate-200 pt-5">
-          <div className="mb-4 flex flex-col gap-1">
-            <h2 className="text-lg font-semibold tracking-[-0.02em] text-slate-900">直近30日の推移</h2>
-            <p className="text-sm text-muted-foreground">
-              日次のクリック数とコンバージョン数の変化を確認できます。
-            </p>
-          </div>
+        <SectionFrame title="30日推移">
           <OverviewChart data={dailyStats} />
-        </section>
+        </SectionFrame>
+      </div>
       </div>
     </div>
   );

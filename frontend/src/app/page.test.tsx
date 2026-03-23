@@ -8,16 +8,16 @@ import { buildSummaryResponse } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
 
 describe("ダッシュボード画面", () => {
-  it("最新の基準日と主要カードを表示する", async () => {
+  it("最新の対象日と KPI 帯を表示する", async () => {
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: "ダッシュボード" });
-    await screen.findByText("基準日: 2026-01-21");
+    await screen.findByText("対象日 2026-01-21");
 
-    expect(screen.getByText("総クリック数")).toBeInTheDocument();
-    expect(screen.getByText("総コンバージョン数")).toBeInTheDocument();
+    expect(screen.getByText("クリック")).toBeInTheDocument();
+    expect(screen.getAllByText("CV")[0]).toBeInTheDocument();
     expect(screen.getByText("不審クリック")).toBeInTheDocument();
-    expect(screen.getByText("不審コンバージョン")).toBeInTheDocument();
+    expect(screen.getByText("不審CV")).toBeInTheDocument();
   });
 
   it("一時的な取得失敗のあと再試行で通常表示に戻る", async () => {
@@ -51,17 +51,17 @@ describe("ダッシュボード画面", () => {
     });
   });
 
-  it("日付を切り替えると別日の集計表示へ更新される", async () => {
+  it("対象日を切り替えると表示を更新する", async () => {
     const user = userEvent.setup();
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: "ダッシュボード" });
-    await screen.findByText("基準日: 2026-01-21");
+    await screen.findByText("対象日 2026-01-21");
 
-    await user.selectOptions(screen.getByLabelText("対象日を選択"), "2026-01-20");
+    await user.selectOptions(screen.getByLabelText("対象日"), "2026-01-20");
 
     await waitFor(() => {
-      expect(screen.getByText("基準日: 2026-01-20")).toBeInTheDocument();
+      expect(screen.getByText("対象日 2026-01-20")).toBeInTheDocument();
     });
   });
 });

@@ -3,19 +3,18 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const items = [
-  { title: "ダッシュボード", description: "全体傾向の確認", href: "/" },
-  { title: "不審クリック", description: "クリック起点の検知一覧", href: "/suspicious/clicks" },
-  { title: "不審コンバージョン", description: "CV 起点の検知一覧", href: "/suspicious/conversions" },
+  { title: "ダッシュボード", href: "/" },
+  { title: "不審クリック", href: "/suspicious/clicks" },
+  { title: "不審コンバージョン", href: "/suspicious/conversions" },
 ];
 
 export function MobileNav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const panelId = "mobile-nav-panel";
 
   useEffect(() => {
     if (!open) return;
@@ -29,41 +28,41 @@ export function MobileNav() {
   return (
     <>
       <Button
+        type="button"
         variant="ghost"
         size="sm"
         onClick={() => setOpen(true)}
         aria-expanded={open}
-        aria-controls={panelId}
+        aria-controls="mobile-nav-panel"
         aria-haspopup="dialog"
-        className="rounded"
+        className="border border-border text-xs uppercase tracking-[0.16em]"
       >
-        メニュー
+        Menu
       </Button>
 
-      {open && (
-        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="ナビゲーション">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
-          <div id={panelId} className="absolute left-0 top-0 h-full w-[300px] bg-white p-5 shadow-lg">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-slate-400">
-                  Fraud Checker v2
-                </p>
-                <span className="mt-2 block text-lg font-semibold tracking-[-0.03em] text-slate-900">
-                  不正チェック管理
-                </span>
+      {open ? (
+        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="ナビゲーション">
+          <div className="absolute inset-0 bg-black/70" onClick={() => setOpen(false)} />
+          <div
+            id="mobile-nav-panel"
+            className="absolute left-0 top-0 flex h-full w-[280px] flex-col border-r border-border bg-card"
+          >
+            <div className="flex items-center justify-between border-b border-border p-4">
+              <div className="text-sm font-semibold uppercase tracking-[0.16em] text-foreground">
+                Dashboard
               </div>
               <Button
+                type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => setOpen(false)}
                 aria-label="ナビゲーションを閉じる"
-                className="rounded text-slate-600"
+                className="text-xs uppercase tracking-[0.16em]"
               >
-                閉じる
+                Close
               </Button>
             </div>
-            <nav className="mt-6 grid gap-2.5">
+            <nav className="grid gap-1.5 p-3">
               {items.map((item) => {
                 const isActive = pathname === item.href;
                 return (
@@ -73,29 +72,23 @@ export function MobileNav() {
                     onClick={() => setOpen(false)}
                     aria-current={isActive ? "page" : undefined}
                     className={cn(
-                      "rounded border px-4 py-3.5 text-sm transition-colors",
+                      "flex h-11 items-center border-l px-3 text-sm",
                       isActive
-                        ? "border-slate-200 bg-slate-100 text-slate-900"
-                        : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900"
+                        ? "border-foreground bg-foreground/[0.04] text-foreground"
+                        : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
                     )}
                   >
-                    <div className="space-y-1.5">
-                      <div className="font-medium">{item.title}</div>
-                      <div className="text-xs leading-5 text-slate-400">{item.description}</div>
-                    </div>
+                    {item.title}
                   </Link>
                 );
               })}
             </nav>
-            <div className="absolute bottom-4 left-4 right-4 rounded border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Notes</p>
-              <p className="mt-3 text-xs leading-5 text-slate-500">
-                画面は参照専用です。更新系の操作は管理 API または CLI から実行してください。
-              </p>
+            <div className="mt-auto border-t border-border p-4 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+              Read Only
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </>
   );
 }

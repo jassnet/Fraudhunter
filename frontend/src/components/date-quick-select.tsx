@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 type QuickDateOption = "latest" | "yesterday" | "today";
 
 const quickDateLabels: Record<QuickDateOption, string> = {
-  latest: "最新日",
+  latest: "最新",
   today: "今日",
   yesterday: "前日",
 };
@@ -30,12 +30,9 @@ const pickAvailableDate = (candidate: string, dates: string[]) => {
 const getQuickDate = (option: QuickDateOption, dates: string[]) => {
   if (option === "latest") return dates[0] || "";
   if (option === "today") return pickAvailableDate(formatDate(new Date()), dates);
-  if (option === "yesterday") {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return pickAvailableDate(formatDate(d), dates);
-  }
-  return "";
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return pickAvailableDate(formatDate(d), dates);
 };
 
 export function DateQuickSelect({
@@ -45,22 +42,21 @@ export function DateQuickSelect({
   showQuickButtons = true,
   className,
 }: DateQuickSelectProps) {
-  const options = useMemo(() => {
-    const dates = availableDates || [];
-    return dates.map((date) => ({ value: date, label: date }));
-  }, [availableDates]);
+  const options = useMemo(
+    () => (availableDates || []).map((date) => ({ value: date, label: date })),
+    [availableDates]
+  );
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-2.5", className)}>
-      {showQuickButtons && (
+    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+      {showQuickButtons ? (
         <div className="flex flex-wrap gap-2">
           {(Object.keys(quickDateLabels) as QuickDateOption[]).map((option) => (
             <Button
               key={option}
               type="button"
               size="sm"
-              variant="secondary"
-              className="rounded-md border border-slate-200 bg-slate-100 text-slate-700 shadow-none hover:bg-slate-200"
+              variant="outline"
               onClick={() => {
                 const nextDate = getQuickDate(option, availableDates);
                 if (nextDate) onChange(nextDate);
@@ -71,16 +67,17 @@ export function DateQuickSelect({
             </Button>
           ))}
         </div>
-      )}
+      ) : null}
+
       <select
-        className="h-10 rounded-md border border-input bg-white px-4 text-sm shadow-sm outline-none transition focus:border-primary/50"
+        className="h-10 border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors focus:border-white"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        aria-label="対象日を選択"
+        aria-label="対象日"
       >
         {options.length === 0 ? (
           <option value="" disabled>
-            利用可能な日付はありません
+            利用可能な日付なし
           </option>
         ) : (
           options.map((option) => (

@@ -15,9 +15,7 @@ describe("API helper", () => {
     const error = new ApiError("fallback");
     error.detail = "詳細なエラーメッセージ";
 
-    expect(getErrorMessage(error, "代替メッセージ")).toBe(
-      "詳細なエラーメッセージ"
-    );
+    expect(getErrorMessage(error, "別のメッセージ")).toBe("詳細なエラーメッセージ");
   });
 
   it("一時的な summary 失敗は再試行後の成功 payload を返す", async () => {
@@ -26,10 +24,7 @@ describe("API helper", () => {
       http.get(`${API_BASE_URL}/api/summary`, ({ request }) => {
         attemptCount += 1;
         if (attemptCount < 3) {
-          return HttpResponse.json(
-            { detail: "一時的なエラーです" },
-            { status: 500 }
-          );
+          return HttpResponse.json({ detail: "一時的なエラーです" }, { status: 500 });
         }
         const url = new URL(request.url);
         const targetDate = url.searchParams.get("target_date") || "2026-01-21";
@@ -45,18 +40,15 @@ describe("API helper", () => {
 
   it("不正クリック API の 400 detail を利用者向けエラーへ載せる", async () => {
     server.use(
-      http.get(`${API_BASE_URL}/api/suspicious/clicks`, () => {
-        return HttpResponse.json(
-          { detail: "無効な検索条件です" },
-          { status: 400 }
-        );
-      })
+      http.get(`${API_BASE_URL}/api/suspicious/clicks`, () =>
+        HttpResponse.json({ detail: "不正な検索条件です" }, { status: 400 })
+      )
     );
 
     await expect(fetchSuspiciousClicks("2026-01-21")).rejects.toMatchObject({
       status: 400,
-      detail: "無効な検索条件です",
-      message: "無効な検索条件です",
+      detail: "不正な検索条件です",
+      message: "不正な検索条件です",
     });
   });
 });

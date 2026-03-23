@@ -12,7 +12,7 @@ interface LastUpdatedProps {
 }
 
 const formatTime = (date: Date) =>
-  date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 
 export function LastUpdated({
   lastUpdated,
@@ -20,29 +20,17 @@ export function LastUpdated({
   isRefreshing = false,
   className,
 }: LastUpdatedProps) {
-  const timeLabel = useMemo(() => {
-    if (!lastUpdated) return "-";
-    return formatTime(lastUpdated);
-  }, [lastUpdated]);
+  const timeLabel = useMemo(() => (lastUpdated ? formatTime(lastUpdated) : "-"), [lastUpdated]);
 
   return (
-    <div className={cn("flex items-center gap-3", className)}>
-      <span className="text-sm text-slate-500">
-        最終更新: {timeLabel}
-      </span>
-
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={onRefresh}
-        disabled={isRefreshing}
-      >
-        再読み込み
+    <div className={cn("flex items-center gap-2 text-xs text-muted-foreground", className)}>
+      <span>最終更新 {timeLabel}</span>
+      <Button size="sm" variant="outline" onClick={onRefresh} disabled={isRefreshing}>
+        再読込
       </Button>
-
       {isRefreshing ? (
-        <span className="text-xs text-muted-foreground" aria-live="polite">
-          更新しています...
+        <span aria-live="polite" className="text-[11px] uppercase tracking-[0.14em]">
+          更新中
         </span>
       ) : null}
     </div>
