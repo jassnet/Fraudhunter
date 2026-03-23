@@ -42,20 +42,16 @@ export function MobileNav() {
 
       {open && (
         <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="ナビゲーション">
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setOpen(false)}
-          />
-          <div
-            id={panelId}
-            className="absolute left-0 top-0 h-full w-[300px] bg-white p-5 shadow-lg"
-          >
+          <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
+          <div id={panelId} className="absolute left-0 top-0 h-full w-[300px] bg-white p-5 shadow-lg">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-slate-400">
                   Fraud Checker v2
                 </p>
-                <span className="mt-2 block text-lg font-semibold tracking-[-0.03em] text-slate-900">不正チェック管理</span>
+                <span className="mt-2 block text-lg font-semibold tracking-[-0.03em] text-slate-900">
+                  不正チェック管理
+                </span>
               </div>
               <Button
                 variant="ghost"

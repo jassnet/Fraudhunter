@@ -26,14 +26,21 @@ def _require_database_url() -> str:
     return database_url
 
 
-def get_repository() -> PostgresRepository:
-    """Create a repository with required schemas ensured."""
+def initialize_repository() -> PostgresRepository:
+    """Create a repository and ensure required schemas once at startup."""
     database_url = _require_database_url()
     repo = PostgresRepository(database_url)
     repo.ensure_schema(store_raw=resolve_store_raw(None))
     repo.ensure_conversion_schema()
     repo.ensure_master_schema()
+    repo.ensure_settings_schema()
     return repo
+
+
+def get_repository() -> PostgresRepository:
+    """Create a repository for request handling without DDL work."""
+    database_url = _require_database_url()
+    return PostgresRepository(database_url)
 
 
 def get_acs_client() -> AcsHttpClient:

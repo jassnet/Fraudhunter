@@ -26,6 +26,7 @@ from .services.jobs import (
     enqueue_job,
     get_job_store,
     get_repository,
+    initialize_repository,
     run_click_ingestion,
     run_conversion_ingestion,
     run_master_sync,
@@ -59,6 +60,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def startup() -> None:
+    initialize_repository()
+    get_job_store()
 
 for router in (
     health_router,
