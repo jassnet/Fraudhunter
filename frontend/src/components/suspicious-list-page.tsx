@@ -189,7 +189,7 @@ export default function SuspiciousListPage({
                       <TableHead className="hidden 2xl:table-cell 2xl:w-[24%]">
                         理由
                       </TableHead>
-                      <TableHead className="w-20 text-right">詳細</TableHead>
+                      <TableHead className="w-28 text-right">詳細</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -239,6 +239,7 @@ export default function SuspiciousListPage({
                                 size="sm"
                                 onClick={() => toggleRow(rowKey)}
                                 aria-expanded={isExpanded}
+                                className="min-w-[4.75rem] whitespace-nowrap px-2"
                               >
                                 {isExpanded ? "閉じる" : "詳細"}
                               </Button>
