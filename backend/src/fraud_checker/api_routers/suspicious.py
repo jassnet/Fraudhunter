@@ -8,13 +8,11 @@ from fastapi import APIRouter, HTTPException, Query
 from ..api_models import SuspiciousResponse
 from ..api_parsers import parse_iso_date
 from ..api_presenters import (
-    filter_findings_by_search,
-    present_click_finding,
-    present_conversion_finding,
+    present_click_finding_record,
+    present_conversion_finding_record,
 )
-from ..services import reporting, settings as settings_service
+from ..services import reporting
 from ..services.jobs import get_repository
-from ..suspicious import ConversionSuspiciousDetector, SuspiciousDetector
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/suspicious", tags=["suspicious"])
@@ -26,6 +24,22 @@ def _resolve_target_date(repo, table: str, target_date: Optional[str]) -> Option
     return reporting.get_latest_date(repo, table)
 
 
+def _load_click_details(repo, row: dict) -> list[dict]:
+    detail_map = repo.get_suspicious_click_details_bulk(
+        row["date"],
+        [(row["ipaddress"], row["useragent"])],
+    )
+    return detail_map.get((row["ipaddress"], row["useragent"]), [])
+
+
+def _load_conversion_details(repo, row: dict) -> list[dict]:
+    detail_map = repo.get_suspicious_conversion_details_bulk(
+        row["date"],
+        [(row["ipaddress"], row["useragent"])],
+    )
+    return detail_map.get((row["ipaddress"], row["useragent"]), [])
+
+
 @router.get("/clicks", response_model=SuspiciousResponse)
 def get_suspicious_clicks(
     target_date: Optional[str] = Query(None, alias="date"),
@@ -33,6 +47,10 @@ def get_suspicious_clicks(
     offset: int = Query(0, ge=0),
     search: Optional[str] = Query(None, description="IP/UA/媒体名/案件名で検索"),
     include_names: bool = Query(True, description="媒体/案件名を含める"),
+    include_details: bool = Query(True, description="詳細行を含める"),
+    risk_level: Optional[str] = Query(None, pattern="^(high|medium|low)$"),
+    sort_by: str = Query("count", pattern="^(count|risk|latest)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
 ):
     try:
         repo = get_repository()
@@ -41,33 +59,33 @@ def get_suspicious_clicks(
             return SuspiciousResponse(date="", data=[], total=0, limit=limit, offset=offset)
 
         target_date_obj = parse_iso_date(resolved_date)
-        click_rules, _ = settings_service.build_rule_sets(repo)
-        findings = SuspiciousDetector(repo, click_rules).find_for_date(target_date_obj)
+        rows, total = repo.list_click_findings(
+            target_date=target_date_obj,
+            limit=limit,
+            offset=offset,
+            search=search,
+            risk_level=risk_level,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
 
         details_cache = {}
-        if include_names and search:
+        if include_details and include_names and rows:
             details_cache = repo.get_suspicious_click_details_bulk(
                 target_date_obj,
-                [(finding.ipaddress, finding.useragent) for finding in findings],
-            )
-
-        findings = filter_findings_by_search(findings, details_cache, search, include_names)
-        total = len(findings)
-        paginated = sorted(findings, key=lambda finding: finding.total_clicks, reverse=True)[offset : offset + limit]
-
-        if include_names and not details_cache:
-            details_cache = repo.get_suspicious_click_details_bulk(
-                target_date_obj,
-                [(finding.ipaddress, finding.useragent) for finding in paginated],
+                [(row["ipaddress"], row["useragent"]) for row in rows],
             )
 
         data = [
-            present_click_finding(
-                finding,
-                include_names,
-                details_cache.get((finding.ipaddress, finding.useragent), []),
+            present_click_finding_record(
+                row,
+                (
+                    details_cache.get((row["ipaddress"], row["useragent"]), [])
+                    if include_details and include_names
+                    else None
+                ),
             )
-            for finding in paginated
+            for row in rows
         ]
         return SuspiciousResponse(
             date=target_date_obj.isoformat(),
@@ -90,6 +108,10 @@ def get_suspicious_conversions(
     offset: int = Query(0, ge=0),
     search: Optional[str] = Query(None, description="IP/UA/媒体名/案件名で検索"),
     include_names: bool = Query(True, description="媒体/案件名を含める"),
+    include_details: bool = Query(True, description="詳細行を含める"),
+    risk_level: Optional[str] = Query(None, pattern="^(high|medium|low)$"),
+    sort_by: str = Query("count", pattern="^(count|risk|latest)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
 ):
     try:
         repo = get_repository()
@@ -98,37 +120,33 @@ def get_suspicious_conversions(
             return SuspiciousResponse(date="", data=[], total=0, limit=limit, offset=offset)
 
         target_date_obj = parse_iso_date(resolved_date)
-        _, conversion_rules = settings_service.build_rule_sets(repo)
-        findings = ConversionSuspiciousDetector(repo, conversion_rules).find_for_date(target_date_obj)
+        rows, total = repo.list_conversion_findings(
+            target_date=target_date_obj,
+            limit=limit,
+            offset=offset,
+            search=search,
+            risk_level=risk_level,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
 
         details_cache = {}
-        if include_names and search:
+        if include_details and include_names and rows:
             details_cache = repo.get_suspicious_conversion_details_bulk(
                 target_date_obj,
-                [(finding.ipaddress, finding.useragent) for finding in findings],
-            )
-
-        findings = filter_findings_by_search(findings, details_cache, search, include_names)
-        total = len(findings)
-        paginated = sorted(
-            findings,
-            key=lambda finding: finding.conversion_count,
-            reverse=True,
-        )[offset : offset + limit]
-
-        if include_names and not details_cache:
-            details_cache = repo.get_suspicious_conversion_details_bulk(
-                target_date_obj,
-                [(finding.ipaddress, finding.useragent) for finding in paginated],
+                [(row["ipaddress"], row["useragent"]) for row in rows],
             )
 
         data = [
-            present_conversion_finding(
-                finding,
-                include_names,
-                details_cache.get((finding.ipaddress, finding.useragent), []),
+            present_conversion_finding_record(
+                row,
+                (
+                    details_cache.get((row["ipaddress"], row["useragent"]), [])
+                    if include_details and include_names
+                    else None
+                ),
             )
-            for finding in paginated
+            for row in rows
         ]
         return SuspiciousResponse(
             date=target_date_obj.isoformat(),
@@ -141,4 +159,50 @@ def get_suspicious_conversions(
         raise
     except Exception:
         logger.exception("Error getting suspicious conversions")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/clicks/{finding_key}")
+def get_suspicious_click_detail(
+    finding_key: str,
+    include_names: bool = Query(True, description="媒体/案件名を含める"),
+    include_details: bool = Query(True, description="詳細行を含める"),
+):
+    try:
+        repo = get_repository()
+        row = repo.get_click_finding_by_key(finding_key)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Finding not found")
+
+        details = None
+        if include_names and include_details:
+            details = _load_click_details(repo, row)
+        return present_click_finding_record(row, details)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error getting suspicious click detail")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/conversions/{finding_key}")
+def get_suspicious_conversion_detail(
+    finding_key: str,
+    include_names: bool = Query(True, description="媒体/案件名を含める"),
+    include_details: bool = Query(True, description="詳細行を含める"),
+):
+    try:
+        repo = get_repository()
+        row = repo.get_conversion_finding_by_key(finding_key)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Finding not found")
+
+        details = None
+        if include_names and include_details:
+            details = _load_conversion_details(repo, row)
+        return present_conversion_finding_record(row, details)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error getting suspicious conversion detail")
         raise HTTPException(status_code=500, detail="Internal server error")

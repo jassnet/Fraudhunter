@@ -38,7 +38,10 @@ async function fetchJson<T>(
           if (typeof payload === "string") {
             detail = payload;
           } else if (payload?.detail) {
-            detail = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+            detail =
+              typeof payload.detail === "string"
+                ? payload.detail
+                : JSON.stringify(payload.detail);
           } else if (payload?.message) {
             detail = payload.message;
           }
@@ -101,6 +104,22 @@ export interface SummaryResponse {
       conversion_based: number;
     };
   };
+  quality?: {
+    last_successful_ingest_at?: string | null;
+    click_ip_ua_coverage?: {
+      total: number;
+      missing: number;
+      missing_rate: number;
+    } | null;
+    conversion_click_enrichment?: {
+      total: number;
+      enriched: number;
+      success_rate: number;
+    } | null;
+    master_sync?: {
+      last_synced_at?: string | null;
+    } | null;
+  };
 }
 
 export async function fetchSummary(date?: string): Promise<SummaryResponse> {
@@ -122,6 +141,10 @@ export async function fetchDailyStats(limit = 30): Promise<{ data: DailyStatsIte
   return fetchJson(`${API_BASE_URL}/api/stats/daily?limit=${limit}`);
 }
 
+export type SuspiciousRiskLevel = "high" | "medium" | "low";
+export type SuspiciousSortBy = "count" | "risk" | "latest";
+export type SuspiciousSortOrder = "asc" | "desc";
+
 export interface SuspiciousResponse {
   date: string;
   data: SuspiciousItem[];
@@ -131,6 +154,7 @@ export interface SuspiciousResponse {
 }
 
 export interface SuspiciousItem {
+  finding_key?: string;
   date: string;
   ipaddress: string;
   useragent: string;
@@ -147,7 +171,7 @@ export interface SuspiciousItem {
   media_names?: string[];
   program_names?: string[];
   affiliate_names?: string[];
-  risk_level?: "high" | "medium" | "low";
+  risk_level?: SuspiciousRiskLevel;
   risk_score?: number;
   risk_label?: string;
   details?: {
@@ -161,17 +185,41 @@ export interface SuspiciousItem {
   }[];
 }
 
+export interface SuspiciousQueryOptions {
+  search?: string;
+  riskLevel?: SuspiciousRiskLevel;
+  sortBy?: SuspiciousSortBy;
+  sortOrder?: SuspiciousSortOrder;
+  includeDetails?: boolean;
+}
+
+function appendSuspiciousParams(
+  params: URLSearchParams,
+  options?: SuspiciousQueryOptions
+) {
+  if (!options) {
+    return;
+  }
+  if (options.search) params.append("search", options.search);
+  if (options.riskLevel) params.append("risk_level", options.riskLevel);
+  if (options.sortBy) params.append("sort_by", options.sortBy);
+  if (options.sortOrder) params.append("sort_order", options.sortOrder);
+  if (typeof options.includeDetails === "boolean") {
+    params.append("include_details", String(options.includeDetails));
+  }
+}
+
 export async function fetchSuspiciousClicks(
   date?: string,
   limit = 500,
   offset = 0,
-  search?: string
+  options?: SuspiciousQueryOptions
 ): Promise<SuspiciousResponse> {
   const params = new URLSearchParams();
   if (date) params.append("date", date);
   params.append("limit", limit.toString());
   params.append("offset", offset.toString());
-  if (search) params.append("search", search);
+  appendSuspiciousParams(params, options);
 
   return fetchJson(`${API_BASE_URL}/api/suspicious/clicks?${params}`);
 }
@@ -180,15 +228,27 @@ export async function fetchSuspiciousConversions(
   date?: string,
   limit = 500,
   offset = 0,
-  search?: string
+  options?: SuspiciousQueryOptions
 ): Promise<SuspiciousResponse> {
   const params = new URLSearchParams();
   if (date) params.append("date", date);
   params.append("limit", limit.toString());
   params.append("offset", offset.toString());
-  if (search) params.append("search", search);
+  appendSuspiciousParams(params, options);
 
   return fetchJson(`${API_BASE_URL}/api/suspicious/conversions?${params}`);
+}
+
+export async function fetchSuspiciousClickDetail(
+  findingKey: string
+): Promise<SuspiciousItem> {
+  return fetchJson(`${API_BASE_URL}/api/suspicious/clicks/${findingKey}`);
+}
+
+export async function fetchSuspiciousConversionDetail(
+  findingKey: string
+): Promise<SuspiciousItem> {
+  return fetchJson(`${API_BASE_URL}/api/suspicious/conversions/${findingKey}`);
 }
 
 export interface AvailableDatesResponse {

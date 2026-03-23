@@ -9,7 +9,7 @@ type QuickDateOption = "latest" | "yesterday" | "today";
 const quickDateLabels: Record<QuickDateOption, string> = {
   latest: "最新",
   today: "今日",
-  yesterday: "前日",
+  yesterday: "昨日",
 };
 
 interface DateQuickSelectProps {
@@ -77,7 +77,7 @@ export function DateQuickSelect({
       >
         {options.length === 0 ? (
           <option value="" disabled>
-            利用可能な日付なし
+            利用可能な日付はありません
           </option>
         ) : (
           options.map((option) => (

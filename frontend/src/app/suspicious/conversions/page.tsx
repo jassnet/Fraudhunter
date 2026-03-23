@@ -1,7 +1,10 @@
 "use client";
 
 import SuspiciousListPage from "@/components/suspicious-list-page";
-import { fetchSuspiciousConversions } from "@/lib/api";
+import {
+  fetchSuspiciousConversionDetail,
+  fetchSuspiciousConversions,
+} from "@/lib/api";
 
 export default function SuspiciousConversionsPage() {
   return (
@@ -9,6 +12,7 @@ export default function SuspiciousConversionsPage() {
       title="不審コンバージョン"
       countLabel="CV数"
       fetcher={fetchSuspiciousConversions}
+      fetchDetail={fetchSuspiciousConversionDetail}
       metricKey="total_conversions"
     />
   );

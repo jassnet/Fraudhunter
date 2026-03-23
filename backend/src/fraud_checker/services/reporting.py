@@ -4,8 +4,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from ..repository_pg import PostgresRepository
-from ..suspicious import ConversionSuspiciousDetector, SuspiciousDetector
-from . import settings as settings_service
+from ..job_status_pg import JobStatusStorePG
 from ..time_utils import today_local
 
 
@@ -77,20 +76,29 @@ def get_summary(repo: PostgresRepository, target_date: Optional[str]) -> dict:
         {"prev_date": prev_date},
     )
 
-    click_rules, conversion_rules = settings_service.build_rule_sets(repo)
     try:
         target_date_obj = date.fromisoformat(resolved_date)
     except ValueError:
         target_date_obj = None
 
     if target_date_obj:
-        susp_clicks = SuspiciousDetector(repo, click_rules).find_for_date(target_date_obj)
-        susp_convs = ConversionSuspiciousDetector(repo, conversion_rules).find_for_date(
-            target_date_obj
-        )
+        susp_click_count = repo.count_current_click_findings(target_date_obj)
+        susp_conv_count = repo.count_current_conversion_findings(target_date_obj)
+        click_coverage = repo.get_click_ipua_coverage(target_date_obj)
+        conversion_enrichment = repo.get_conversion_click_enrichment(target_date_obj)
     else:
-        susp_clicks = []
-        susp_convs = []
+        susp_click_count = 0
+        susp_conv_count = 0
+        click_coverage = None
+        conversion_enrichment = None
+
+    last_successful_ingest = JobStatusStorePG(repo.database_url).get_latest_successful_finished_at(
+        ["ingest_clicks", "ingest_conversions", "refresh"]
+    )
+    masters = repo.get_all_masters()
+    last_master_sync = masters.get("last_synced_at")
+    if isinstance(last_master_sync, datetime):
+        last_master_sync = last_master_sync.isoformat()
 
     return {
         "date": resolved_date,
@@ -107,8 +115,18 @@ def get_summary(repo: PostgresRepository, target_date: Optional[str]) -> dict:
                 "prev_total": prev_conv["total"] if prev_conv else 0,
             },
             "suspicious": {
-                "click_based": len(susp_clicks),
-                "conversion_based": len(susp_convs),
+                "click_based": susp_click_count,
+                "conversion_based": susp_conv_count,
+            },
+        },
+        "quality": {
+            "last_successful_ingest_at": (
+                last_successful_ingest.isoformat() if last_successful_ingest else None
+            ),
+            "click_ip_ua_coverage": click_coverage,
+            "conversion_click_enrichment": conversion_enrichment,
+            "master_sync": {
+                "last_synced_at": last_master_sync,
             },
         },
     }
@@ -159,16 +177,20 @@ def get_daily_stats(repo: PostgresRepository, limit: int) -> list[dict]:
                 "suspicious_clicks": 0,
                 "suspicious_conversions": 0,
             }
-    click_rules, conversion_rules = settings_service.build_rule_sets(repo)
-    click_detector = SuspiciousDetector(repo, click_rules)
-    conversion_detector = ConversionSuspiciousDetector(repo, conversion_rules)
-    for row in merged.values():
-        try:
-            row_date = date.fromisoformat(row["date"])
-        except ValueError:
-            continue
-        row["suspicious_clicks"] = len(click_detector.find_for_date(row_date))
-        row["suspicious_conversions"] = len(conversion_detector.find_for_date(row_date))
+    finding_counts = repo.get_daily_finding_counts(limit)
+    for row_date, counts in finding_counts.items():
+        merged.setdefault(
+            row_date,
+            {
+                "date": row_date,
+                "clicks": 0,
+                "conversions": 0,
+                "suspicious_clicks": 0,
+                "suspicious_conversions": 0,
+            },
+        )
+        merged[row_date]["suspicious_clicks"] = counts.get("suspicious_clicks", 0)
+        merged[row_date]["suspicious_conversions"] = counts.get("suspicious_conversions", 0)
 
     return sorted(merged.values(), key=lambda item: item["date"])
 

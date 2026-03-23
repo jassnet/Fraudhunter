@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Integer, Text
+from sqlalchemy import Boolean, Date, DateTime, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import CheckConstraint, Index
 from . import Base
@@ -148,3 +148,94 @@ class JobStatus(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
     result_json: Mapped[str | None] = mapped_column(Text)
+
+
+class JobRun(Base):
+    __tablename__ = "job_runs"
+    __table_args__ = (
+        Index("idx_job_runs_status_queued_at", "status", "queued_at"),
+        Index("idx_job_runs_job_type_queued_at", "job_type", "queued_at"),
+        Index("idx_job_runs_locked_until", "locked_until"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    job_type: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    params_json: Mapped[str | None] = mapped_column(Text)
+    result_json: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    message: Mapped[str | None] = mapped_column(Text)
+    queued_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime)
+    worker_id: Mapped[str | None] = mapped_column(Text)
+
+
+class SuspiciousClickFindingRecord(Base):
+    __tablename__ = "suspicious_click_findings"
+    __table_args__ = (
+        Index("idx_scf_date_current", "date", "is_current"),
+        Index("idx_scf_date_current_risk", "date", "is_current", "risk_level"),
+    )
+
+    finding_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    ipaddress: Mapped[str] = mapped_column(Text, nullable=False)
+    useragent: Mapped[str] = mapped_column(Text, nullable=False)
+    ua_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    media_ids_json: Mapped[str | None] = mapped_column(Text)
+    program_ids_json: Mapped[str | None] = mapped_column(Text)
+    media_names_json: Mapped[str | None] = mapped_column(Text)
+    program_names_json: Mapped[str | None] = mapped_column(Text)
+    affiliate_names_json: Mapped[str | None] = mapped_column(Text)
+    risk_level: Mapped[str] = mapped_column(Text, nullable=False)
+    risk_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    reasons_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reasons_formatted_json: Mapped[str] = mapped_column(Text, nullable=False)
+    metrics_json: Mapped[str] = mapped_column(Text, nullable=False)
+    total_clicks: Mapped[int] = mapped_column(Integer, nullable=False)
+    media_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    program_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    last_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    rule_version: Mapped[str] = mapped_column(Text, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    search_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class SuspiciousConversionFindingRecord(Base):
+    __tablename__ = "suspicious_conversion_findings"
+    __table_args__ = (
+        Index("idx_scof_date_current", "date", "is_current"),
+        Index("idx_scof_date_current_risk", "date", "is_current", "risk_level"),
+    )
+
+    finding_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    ipaddress: Mapped[str] = mapped_column(Text, nullable=False)
+    useragent: Mapped[str] = mapped_column(Text, nullable=False)
+    ua_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    media_ids_json: Mapped[str | None] = mapped_column(Text)
+    program_ids_json: Mapped[str | None] = mapped_column(Text)
+    media_names_json: Mapped[str | None] = mapped_column(Text)
+    program_names_json: Mapped[str | None] = mapped_column(Text)
+    affiliate_names_json: Mapped[str | None] = mapped_column(Text)
+    risk_level: Mapped[str] = mapped_column(Text, nullable=False)
+    risk_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    reasons_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reasons_formatted_json: Mapped[str] = mapped_column(Text, nullable=False)
+    metrics_json: Mapped[str] = mapped_column(Text, nullable=False)
+    total_conversions: Mapped[int] = mapped_column(Integer, nullable=False)
+    media_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    program_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    min_click_to_conv_seconds: Mapped[int | None] = mapped_column(Integer)
+    max_click_to_conv_seconds: Mapped[int | None] = mapped_column(Integer)
+    first_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    last_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    rule_version: Mapped[str] = mapped_column(Text, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    search_text: Mapped[str] = mapped_column(Text, nullable=False)

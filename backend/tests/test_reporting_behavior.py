@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -76,6 +76,8 @@ def test_resolve_summary_date_falls_back_to_yesterday(monkeypatch):
 def test_get_summary_returns_business_facing_totals(monkeypatch):
     # Given
     class DummyRepo:
+        database_url = "postgresql://example/db"
+
         def fetch_one(self, query, params=None):
             if "total_clicks" in query:
                 return {"total_clicks": 120, "unique_ips": 12, "active_media": 3}
@@ -87,24 +89,23 @@ def test_get_summary_returns_business_facing_totals(monkeypatch):
                 return {"total": 6}
             raise AssertionError(f"Unexpected query: {query}")
 
-    class DummyClickDetector:
-        def __init__(self, repo, rules):
-            pass
+        def get_click_ipua_coverage(self, target_date):
+            return {"total": 100, "missing": 4, "missing_rate": 0.04}
 
-        def find_for_date(self, target_date):
-            return [1, 2]
+        def get_conversion_click_enrichment(self, target_date):
+            return {"total": 10, "enriched": 8, "success_rate": 0.8}
 
-    class DummyConversionDetector:
-        def __init__(self, repo, rules):
-            pass
-
-        def find_for_date(self, target_date):
-            return [1]
+        def get_all_masters(self):
+            return {"last_synced_at": datetime(2026, 1, 3, 8, 0, 0)}
 
     monkeypatch.setattr(reporting, "resolve_summary_date", lambda repo, target_date: "2026-01-03")
-    monkeypatch.setattr(reporting.settings_service, "build_rule_sets", lambda repo: ("c", "v"))
-    monkeypatch.setattr(reporting, "SuspiciousDetector", DummyClickDetector)
-    monkeypatch.setattr(reporting, "ConversionSuspiciousDetector", DummyConversionDetector)
+    monkeypatch.setattr(
+        reporting.JobStatusStorePG,
+        "get_latest_successful_finished_at",
+        lambda self, job_types: datetime(2026, 1, 3, 9, 0, 0),
+    )
+    DummyRepo.count_current_click_findings = lambda self, target_date: 2
+    DummyRepo.count_current_conversion_findings = lambda self, target_date: 1
 
     # When
     payload = reporting.get_summary(DummyRepo(), target_date=None)
@@ -115,6 +116,8 @@ def test_get_summary_returns_business_facing_totals(monkeypatch):
     assert payload["stats"]["conversions"]["total"] == 8
     assert payload["stats"]["suspicious"]["click_based"] == 2
     assert payload["stats"]["suspicious"]["conversion_based"] == 1
+    assert payload["quality"]["last_successful_ingest_at"] == "2026-01-03T09:00:00"
+    assert payload["quality"]["click_ip_ua_coverage"]["missing_rate"] == 0.04
 
 
 def test_get_daily_stats_merges_click_and_conversion_rows(monkeypatch):
@@ -133,23 +136,10 @@ def test_get_daily_stats_merges_click_and_conversion_rows(monkeypatch):
                 ]
             raise AssertionError(f"Unexpected query: {query}")
 
-    class DummyClickDetector:
-        def __init__(self, repo, rules):
-            pass
-
-        def find_for_date(self, target_date):
-            return [1] if target_date == date(2026, 1, 2) else []
-
-    class DummyConversionDetector:
-        def __init__(self, repo, rules):
-            pass
-
-        def find_for_date(self, target_date):
-            return [1, 2] if target_date == date(2026, 1, 2) else []
-
-    monkeypatch.setattr(reporting.settings_service, "build_rule_sets", lambda repo: ("c", "v"))
-    monkeypatch.setattr(reporting, "SuspiciousDetector", DummyClickDetector)
-    monkeypatch.setattr(reporting, "ConversionSuspiciousDetector", DummyConversionDetector)
+        def get_daily_finding_counts(self, limit):
+            return {
+                "2026-01-02": {"suspicious_clicks": 1, "suspicious_conversions": 2},
+            }
 
     # When
     rows = reporting.get_daily_stats(DummyRepo(), limit=30)
@@ -184,6 +174,8 @@ def test_get_available_dates_returns_unique_descending():
 def test_get_summary_handles_datetime_style_resolved_date(monkeypatch):
     # Given
     class DummyRepo:
+        database_url = "postgresql://example/db"
+
         def fetch_one(self, query, params=None):
             if "total_clicks" in query:
                 return {"total_clicks": 0, "unique_ips": 0, "active_media": 0}
@@ -195,12 +187,27 @@ def test_get_summary_handles_datetime_style_resolved_date(monkeypatch):
                 return {"total": 0}
             raise AssertionError(f"Unexpected query: {query}")
 
+        def get_click_ipua_coverage(self, target_date):
+            return None
+
+        def get_conversion_click_enrichment(self, target_date):
+            return None
+
+        def get_all_masters(self):
+            return {"last_synced_at": None}
+
     monkeypatch.setattr(
         reporting,
         "resolve_summary_date",
         lambda repo, target_date: "2026-01-03T12:00:00",
     )
-    monkeypatch.setattr(reporting.settings_service, "build_rule_sets", lambda repo: ("c", "v"))
+    monkeypatch.setattr(
+        reporting.JobStatusStorePG,
+        "get_latest_successful_finished_at",
+        lambda self, job_types: None,
+    )
+    DummyRepo.count_current_click_findings = lambda self, target_date: 0
+    DummyRepo.count_current_conversion_findings = lambda self, target_date: 0
 
     # When
     payload = reporting.get_summary(DummyRepo(), target_date=None)
@@ -221,16 +228,8 @@ def test_get_daily_stats_skips_invalid_date_rows(monkeypatch):
                 return [{"date": date(2026, 1, 2), "conversions": 3}]
             raise AssertionError(f"Unexpected query: {query}")
 
-    class DummyDetector:
-        def __init__(self, repo, rules):
-            pass
-
-        def find_for_date(self, target_date):
-            return []
-
-    monkeypatch.setattr(reporting.settings_service, "build_rule_sets", lambda repo: ("c", "v"))
-    monkeypatch.setattr(reporting, "SuspiciousDetector", DummyDetector)
-    monkeypatch.setattr(reporting, "ConversionSuspiciousDetector", DummyDetector)
+        def get_daily_finding_counts(self, limit):
+            return {}
 
     # When
     rows = reporting.get_daily_stats(DummyRepo(), limit=30)

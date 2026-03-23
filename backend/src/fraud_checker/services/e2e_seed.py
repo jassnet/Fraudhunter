@@ -7,6 +7,7 @@ import sqlalchemy as sa
 from ..db import Base
 from ..job_status_pg import JobStatusStorePG
 from ..repository_pg import PostgresRepository
+from . import findings as findings_service
 from . import settings as settings_service
 import fraud_checker.db.models  # noqa: F401
 
@@ -23,6 +24,9 @@ RESET_TABLES = (
     "master_user",
     "app_settings",
     "job_status",
+    "job_runs",
+    "suspicious_click_findings",
+    "suspicious_conversion_findings",
 )
 
 
@@ -36,6 +40,13 @@ def _ensure_seed_schemas(repo: PostgresRepository) -> None:
     repo.ensure_master_schema()
     repo.ensure_settings_schema()
     JobStatusStorePG(repo.database_url).ensure_schema()
+    Base.metadata.create_all(
+        repo.engine,
+        tables=[
+            Base.metadata.tables["suspicious_click_findings"],
+            Base.metadata.tables["suspicious_conversion_findings"],
+        ],
+    )
 
 
 def reset_all(repo: PostgresRepository) -> dict:
@@ -51,7 +62,6 @@ def reset_all(repo: PostgresRepository) -> dict:
             result = conn.execute(sa.delete(_table(table_name)))
             deleted[table_name] = int(result.rowcount or 0)
 
-    # Recreate the singleton job status row after cleanup.
     JobStatusStorePG(repo.database_url).ensure_schema()
     settings_service._settings_cache = None
 
@@ -218,6 +228,7 @@ def seed_baseline(repo: PostgresRepository) -> dict:
         conn.execute(sa.insert(_table("conversion_raw")), conversion_raw_rows)
 
     settings_service._settings_cache = None
+    recomputed = findings_service.recompute_findings_for_dates(repo, [PREVIOUS_DATE, TARGET_DATE])
 
     return {
         "target_date": TARGET_DATE.isoformat(),
@@ -229,6 +240,13 @@ def seed_baseline(repo: PostgresRepository) -> dict:
             "master_media": len(media_rows),
             "master_promotion": len(promotion_rows),
             "master_user": len(user_rows),
+            "suspicious_click_findings": sum(
+                item.get("suspicious_clicks", 0) for item in recomputed.values()
+            ),
+            "suspicious_conversion_findings": sum(
+                item.get("suspicious_conversions", 0) for item in recomputed.values()
+            ),
         },
+        "recomputed_findings": recomputed,
         "reset": reset_details,
     }

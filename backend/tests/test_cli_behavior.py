@@ -49,19 +49,22 @@ def test_require_database_url_raises_when_missing(monkeypatch):
         cli._require_database_url()
 
 
-def test_build_parser_accepts_refresh_and_sync_masters():
+def test_build_parser_accepts_refresh_sync_masters_and_worker():
     # Given
     parser = cli.build_parser()
 
     # When
     refresh_args = parser.parse_args(["refresh", "--hours", "3", "--detect"])
     sync_args = parser.parse_args(["sync-masters"])
+    worker_args = parser.parse_args(["run-worker", "--max-jobs", "2"])
 
     # Then
     assert refresh_args.command == "refresh"
     assert refresh_args.hours == 3
     assert refresh_args.detect is True
     assert sync_args.command == "sync-masters"
+    assert worker_args.command == "run-worker"
+    assert worker_args.max_jobs == 2
 
 
 def test_cmd_refresh_rejects_conflicting_flags():
@@ -113,6 +116,9 @@ def test_cmd_refresh_runs_ingestion_and_detection(monkeypatch, capsys):
 
         def merge_conversions(self, conversions):
             return len(list(conversions)), 0
+
+        def enrich_conversions_with_click_info(self, conversions):
+            return list(conversions)
 
         def load_settings(self):
             return {
@@ -199,6 +205,14 @@ def test_cmd_refresh_runs_ingestion_and_detection(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "_build_repository", fake_build_repository)
     monkeypatch.setattr(cli, "_build_client", lambda: (FakeClient(), FakeSettings()))
+    monkeypatch.setattr(
+        cli.findings_service,
+        "recompute_findings_for_dates",
+        lambda repo, dates: {
+            target_date.isoformat(): {"suspicious_clicks": 1, "suspicious_conversions": 1}
+            for target_date in dates
+        },
+    )
     cli.settings_service._settings_cache = None
     args = argparse.Namespace(
         hours=1,
@@ -245,10 +259,18 @@ def test_cmd_refresh_conversions_only_skips_click_warning(monkeypatch, capsys):
         def merge_conversions(self, conversions):
             return len(list(conversions)), 0
 
+        def enrich_conversions_with_click_info(self, conversions):
+            return list(conversions)
+
     monkeypatch.setattr(cli, "now_local", lambda: datetime(2026, 1, 1, 1, 0, 0))
     monkeypatch.setattr(cli, "resolve_store_raw", lambda explicit: False)
     monkeypatch.setattr(cli, "_build_repository", lambda store_raw: FakeRepo())
     monkeypatch.setattr(cli, "_build_client", lambda: (FakeClient(), FakeSettings()))
+    monkeypatch.setattr(
+        cli.findings_service,
+        "recompute_findings_for_dates",
+        lambda repo, dates: {target_date.isoformat(): {"suspicious_clicks": 0, "suspicious_conversions": 1} for target_date in dates},
+    )
     args = argparse.Namespace(
         hours=1,
         clicks_only=False,
@@ -311,3 +333,13 @@ def test_main_prints_help_and_returns_1_for_unknown_command(capsys):
     # Then
     assert code == 1
     assert "Fraud checker maintenance tasks" in output
+
+
+def test_cmd_run_worker_delegates_to_job_processor(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "process_queued_jobs", lambda max_jobs: 2)
+
+    code = cli._cmd_run_worker(argparse.Namespace(max_jobs=3))
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "Processed 2 queued job(s)" in output

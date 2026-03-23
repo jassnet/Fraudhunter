@@ -188,3 +188,55 @@ def present_conversion_finding(finding, include_names: bool, details: list[dict]
     if include_names:
         item.update(_detail_fields(details or []))
     return item
+
+
+def present_click_finding_record(row: dict, details: list[dict] | None = None) -> dict:
+    item = {
+        "finding_key": row["finding_key"],
+        "date": row["date"].isoformat() if hasattr(row["date"], "isoformat") else row["date"],
+        "ipaddress": row["ipaddress"],
+        "useragent": row["useragent"],
+        "total_clicks": row["total_clicks"],
+        "media_count": row["media_count"],
+        "program_count": row["program_count"],
+        "first_time": row["first_time"].isoformat() if hasattr(row["first_time"], "isoformat") else row["first_time"],
+        "last_time": row["last_time"].isoformat() if hasattr(row["last_time"], "isoformat") else row["last_time"],
+        "reasons": row["reasons_json"],
+        "reasons_formatted": row["reasons_formatted_json"],
+        "risk_level": row["risk_level"],
+        "risk_score": row["risk_score"],
+        "risk_label": {"high": "高リスク", "medium": "中リスク", "low": "低リスク"}.get(row["risk_level"], row["risk_level"]),
+        "media_names": row.get("media_names_json") or [],
+        "program_names": row.get("program_names_json") or [],
+        "affiliate_names": row.get("affiliate_names_json") or [],
+    }
+    if details is not None:
+        item["details"] = details
+    return item
+
+
+def present_conversion_finding_record(row: dict, details: list[dict] | None = None) -> dict:
+    item = {
+        "finding_key": row["finding_key"],
+        "date": row["date"].isoformat() if hasattr(row["date"], "isoformat") else row["date"],
+        "ipaddress": row["ipaddress"],
+        "useragent": row["useragent"],
+        "total_conversions": row["total_conversions"],
+        "media_count": row["media_count"],
+        "program_count": row["program_count"],
+        "first_time": row["first_time"].isoformat() if hasattr(row["first_time"], "isoformat") else row["first_time"],
+        "last_time": row["last_time"].isoformat() if hasattr(row["last_time"], "isoformat") else row["last_time"],
+        "reasons": row["reasons_json"],
+        "reasons_formatted": row["reasons_formatted_json"],
+        "min_click_to_conv_seconds": row.get("min_click_to_conv_seconds"),
+        "max_click_to_conv_seconds": row.get("max_click_to_conv_seconds"),
+        "risk_level": row["risk_level"],
+        "risk_score": row["risk_score"],
+        "risk_label": {"high": "高リスク", "medium": "中リスク", "low": "低リスク"}.get(row["risk_level"], row["risk_level"]),
+        "media_names": row.get("media_names_json") or [],
+        "program_names": row.get("program_names_json") or [],
+        "affiliate_names": row.get("affiliate_names_json") or [],
+    }
+    if details is not None:
+        item["details"] = details
+    return item

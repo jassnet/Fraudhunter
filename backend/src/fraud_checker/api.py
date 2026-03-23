@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,13 +21,13 @@ from .api_routers import (
     testdata_router,
 )
 from .env import load_env
+from .logging_utils import log_event
+from .runtime_guards import should_enable_docs, validate_runtime_guards
 from .services import e2e_seed, reporting, settings as settings_service
 from .services.jobs import (
     JobConflictError,
     enqueue_job,
-    get_job_store,
     get_repository,
-    initialize_repository,
     run_click_ingestion,
     run_conversion_ingestion,
     run_master_sync,
@@ -37,11 +38,16 @@ from .suspicious import ConversionSuspiciousDetector, SuspiciousDetector
 load_env()
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s - %(message)s")
+logger = logging.getLogger(__name__)
+docs_enabled = should_enable_docs()
 
 app = FastAPI(
     title="Fraud Checker API",
-    description="Fraud detection API",
+    description="Fraud monitoring API",
     version="2.0.0",
+    docs_url="/docs" if docs_enabled else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if docs_enabled else None,
 )
 
 _cors_origins = [
@@ -64,8 +70,24 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup() -> None:
-    initialize_repository()
-    get_job_store()
+    validate_runtime_guards()
+    log_event(logger, "api_startup_completed", docs_enabled=docs_enabled)
+
+
+@app.middleware("http")
+async def log_request_timing(request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    log_event(
+        logger,
+        "http_request",
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+    )
+    return response
 
 for router in (
     health_router,

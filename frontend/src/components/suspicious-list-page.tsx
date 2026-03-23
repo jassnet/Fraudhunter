@@ -1,11 +1,17 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+
 import { DateQuickSelect } from "@/components/date-quick-select";
 import { LastUpdated } from "@/components/last-updated";
 import { SuspiciousRowDetails } from "@/components/suspicious-row-details";
 import { useSuspiciousList } from "@/hooks/use-suspicious-list";
-import { SuspiciousItem, SuspiciousResponse } from "@/lib/api";
+import {
+  SuspiciousItem,
+  SuspiciousQueryOptions,
+  SuspiciousResponse,
+  getErrorMessage,
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { ControlBar } from "@/components/ui/control-bar";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -24,22 +30,24 @@ import {
 } from "@/components/ui/table";
 
 type MetricKey = "total_clicks" | "total_conversions";
+type RiskFilter = "all" | "high" | "medium" | "low";
+type SortValue = "count" | "risk" | "latest";
 type SuspiciousFetcher = (
   date?: string,
   limit?: number,
   offset?: number,
-  search?: string
+  options?: SuspiciousQueryOptions
 ) => Promise<SuspiciousResponse>;
+type SuspiciousDetailFetcher = (findingKey: string) => Promise<SuspiciousItem>;
 
 interface SuspiciousListPageProps {
   title: string;
   description?: string;
   countLabel: string;
   fetcher: SuspiciousFetcher;
+  fetchDetail: SuspiciousDetailFetcher;
   metricKey: MetricKey;
 }
-
-type RiskFilter = "all" | "high" | "medium" | "low";
 
 const riskToneMap: Record<string, "high" | "medium" | "low" | "neutral"> = {
   high: "high",
@@ -47,15 +55,20 @@ const riskToneMap: Record<string, "high" | "medium" | "low" | "neutral"> = {
   low: "low",
 };
 
-const riskLabel = (item: SuspiciousItem) => item.risk_label || item.risk_level || "未分類";
+const riskLabel = (item: SuspiciousItem) => item.risk_label || item.risk_level || "未評価";
 
 export default function SuspiciousListPage({
   title,
   countLabel,
   fetcher,
+  fetchDetail,
   metricKey,
 }: SuspiciousListPageProps) {
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
+  const [sortBy, setSortBy] = useState<SortValue>("count");
+  const [detailCache, setDetailCache] = useState<Record<string, SuspiciousItem>>({});
+  const [detailErrorByKey, setDetailErrorByKey] = useState<Record<string, string | null>>({});
+  const [detailLoadingKey, setDetailLoadingKey] = useState<string | null>(null);
 
   const {
     data: rawData,
@@ -80,22 +93,69 @@ export default function SuspiciousListPage({
     goToPreviousPage,
     goToNextPage,
     goToLastPage,
-  } = useSuspiciousList(fetcher);
+  } = useSuspiciousList(fetcher, {
+    riskLevel: riskFilter === "all" ? undefined : riskFilter,
+    sortBy,
+    sortOrder: "desc",
+    includeDetails: false,
+  });
 
   const data = useMemo(
     () =>
-      riskFilter === "all"
-        ? rawData
-        : rawData.filter((item) => item.risk_level === riskFilter),
-    [rawData, riskFilter]
+      rawData.map((item) => {
+        if (!item.finding_key) {
+          return item;
+        }
+        const cached = detailCache[item.finding_key];
+        return cached ? { ...item, ...cached } : item;
+      }),
+    [detailCache, rawData]
   );
 
   const riskFilterButtons: { key: RiskFilter; label: string }[] = [
-    { key: "all", label: "全件" },
+    { key: "all", label: "すべて" },
     { key: "high", label: "高" },
     { key: "medium", label: "中" },
     { key: "low", label: "低" },
   ];
+
+  const handleRiskFilterChange = (nextRisk: RiskFilter) => {
+    goToFirstPage();
+    setRiskFilter(nextRisk);
+  };
+
+  const handleSortChange = (nextSort: SortValue) => {
+    goToFirstPage();
+    setSortBy(nextSort);
+  };
+
+  const handleToggleRow = async (item: SuspiciousItem, rowKey: string) => {
+    const isExpanded = expandedRow === rowKey;
+    toggleRow(rowKey);
+
+    if (
+      isExpanded ||
+      !item.finding_key ||
+      item.details?.length ||
+      detailCache[item.finding_key]?.details?.length
+    ) {
+      return;
+    }
+
+    setDetailLoadingKey(rowKey);
+    setDetailErrorByKey((current) => ({ ...current, [rowKey]: null }));
+    try {
+      const detailItem = await fetchDetail(item.finding_key);
+      setDetailCache((current) => ({ ...current, [item.finding_key as string]: detailItem }));
+    } catch (fetchError) {
+      setDetailErrorByKey((current) => ({
+        ...current,
+        [rowKey]: getErrorMessage(fetchError, "詳細の取得に失敗しました。"),
+      }));
+    } finally {
+      setDetailLoadingKey((current) => (current === rowKey ? null : current));
+    }
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -126,7 +186,7 @@ export default function SuspiciousListPage({
               <Input
                 name="search"
                 type="search"
-                placeholder="IP / User-Agent / 媒体名"
+                placeholder="IP / User-Agent / 媒体名 / 案件名"
                 aria-label="一覧を検索"
                 value={search}
                 onChange={(event) => handleSearchChange(event.target.value)}
@@ -141,13 +201,24 @@ export default function SuspiciousListPage({
                   type="button"
                   size="sm"
                   variant={riskFilter === key ? "default" : "outline"}
-                  onClick={() => setRiskFilter(key)}
+                  onClick={() => handleRiskFilterChange(key)}
                   aria-pressed={riskFilter === key}
                 >
                   {label}
                 </Button>
               ))}
             </div>
+
+            <select
+              className="h-10 border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors focus:border-white"
+              value={sortBy}
+              onChange={(event) => handleSortChange(event.target.value as SortValue)}
+              aria-label="並び順"
+            >
+              <option value="count">件数順</option>
+              <option value="risk">リスク順</option>
+              <option value="latest">最新順</option>
+            </select>
 
             <div className="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto">
               {resultRange}
@@ -169,7 +240,7 @@ export default function SuspiciousListPage({
               </div>
             ) : data.length === 0 ? (
               <div className="p-4">
-                <EmptyState title="該当なし" message="条件に一致する行がありません。" />
+                <EmptyState title="該当なし" message="条件に一致する検知はありません。" />
               </div>
             ) : (
               <>
@@ -178,7 +249,9 @@ export default function SuspiciousListPage({
                     <TableRow>
                       <TableHead className="w-24">リスク</TableHead>
                       <TableHead className="w-[8.5rem]">IP</TableHead>
-                      <TableHead className="hidden lg:table-cell lg:w-[30%]">User-Agent</TableHead>
+                      <TableHead className="hidden lg:table-cell lg:w-[30%]">
+                        User-Agent
+                      </TableHead>
                       <TableHead className="w-24 text-right">{countLabel}</TableHead>
                       <TableHead className="hidden xl:table-cell xl:w-20 text-right">
                         媒体数
@@ -194,14 +267,16 @@ export default function SuspiciousListPage({
                   </TableHeader>
                   <TableBody>
                     {data.map((item, index) => {
-                      const rowKey = `${item.ipaddress}-${index}`;
+                      const rowKey = item.finding_key || `${item.ipaddress}-${index}`;
                       const isExpanded = expandedRow === rowKey;
 
                       return (
                         <Fragment key={rowKey}>
                           <TableRow>
                             <TableCell>
-                              <StatusBadge tone={riskToneMap[item.risk_level || ""] || "neutral"}>
+                              <StatusBadge
+                                tone={riskToneMap[item.risk_level || ""] || "neutral"}
+                              >
                                 {riskLabel(item)}
                               </StatusBadge>
                             </TableCell>
@@ -230,14 +305,16 @@ export default function SuspiciousListPage({
                               className="hidden truncate text-xs text-muted-foreground 2xl:table-cell"
                               title={(item.reasons_formatted || item.reasons || []).join(" / ")}
                             >
-                              {(item.reasons_formatted || item.reasons || []).slice(0, 2).join(" / ")}
+                              {(item.reasons_formatted || item.reasons || [])
+                                .slice(0, 2)
+                                .join(" / ")}
                             </TableCell>
                             <TableCell className="text-right">
                               <Button
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => toggleRow(rowKey)}
+                                onClick={() => void handleToggleRow(item, rowKey)}
                                 aria-expanded={isExpanded}
                                 className="min-w-[4.75rem] whitespace-nowrap px-2"
                               >
@@ -248,7 +325,11 @@ export default function SuspiciousListPage({
                           {isExpanded ? (
                             <TableRow>
                               <TableCell colSpan={8} className="p-0">
-                                <SuspiciousRowDetails item={item} />
+                                <SuspiciousRowDetails
+                                  item={item}
+                                  isLoadingDetails={detailLoadingKey === rowKey}
+                                  detailError={detailErrorByKey[rowKey]}
+                                />
                               </TableCell>
                             </TableRow>
                           ) : null}
@@ -262,7 +343,12 @@ export default function SuspiciousListPage({
                   <Button variant="outline" size="sm" onClick={goToFirstPage} disabled={!canPrev}>
                     最初
                   </Button>
-                  <Button variant="outline" size="sm" onClick={goToPreviousPage} disabled={!canPrev}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={goToPreviousPage}
+                    disabled={!canPrev}
+                  >
                     前へ
                   </Button>
                   <span className="px-2 tabular-nums">

@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+
 import { LastUpdated } from "@/components/last-updated";
 
 describe("最終更新表示", () => {
@@ -9,7 +10,7 @@ describe("最終更新表示", () => {
     expect(screen.getByText("最終更新 -")).toBeInTheDocument();
   });
 
-  it("更新中は再読込を無効化して状態表示を出す", () => {
+  it("更新中は再読込を無効化して状態を表示する", () => {
     render(
       <LastUpdated
         lastUpdated={new Date("2026-01-21T03:30:00Z")}

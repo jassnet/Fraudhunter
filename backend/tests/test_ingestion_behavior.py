@@ -47,9 +47,6 @@ def test_click_run_for_date_clears_target_date_when_no_clicks():
         def __init__(self):
             self.cleared = None
 
-        def ensure_schema(self, store_raw=False):
-            pass
-
         def clear_date(self, target_date, *, store_raw):
             self.cleared = (target_date, store_raw)
 
@@ -81,9 +78,6 @@ def test_click_run_for_date_paginates_and_ingests():
     class DummyRepo:
         def __init__(self):
             self.ingest_args = None
-
-        def ensure_schema(self, store_raw=False):
-            pass
 
         def ingest_clicks(self, clicks, *, target_date, store_raw):
             self.ingest_args = (list(clicks), target_date, store_raw)
@@ -121,9 +115,6 @@ def test_click_run_for_time_range_filters_and_merges():
         def __init__(self):
             self.merged = None
 
-        def ensure_schema(self, store_raw=False):
-            pass
-
         def merge_clicks(self, clicks, *, store_raw):
             self.merged = (list(clicks), store_raw)
             return 1, 0
@@ -156,8 +147,8 @@ def test_conversion_run_for_date_counts_valid_entries_and_ingests():
         def __init__(self):
             self.ingested = None
 
-        def ensure_conversion_schema(self):
-            pass
+        def enrich_conversions_with_click_info(self, conversions):
+            return [conversions[0]]
 
         def ingest_conversions(self, conversions, *, target_date):
             self.ingested = (list(conversions), target_date)
@@ -167,11 +158,12 @@ def test_conversion_run_for_date_counts_valid_entries_and_ingests():
     ingestor = ConversionIngestor(DummyClient(), repo, page_size=10)
 
     # When
-    total_count, valid_entry_count = ingestor.run_for_date(date(2026, 1, 2))
+    total_count, valid_entry_count, click_enriched_count = ingestor.run_for_date(date(2026, 1, 2))
 
     # Then
     assert total_count == 2
     assert valid_entry_count == 1
+    assert click_enriched_count == 1
     assert repo.ingested is not None
     conversions, target = repo.ingested
     assert target == date(2026, 1, 2)
@@ -198,8 +190,8 @@ def test_conversion_run_for_time_range_filters_and_returns_counts():
         def __init__(self):
             self.merged = None
 
-        def ensure_conversion_schema(self):
-            pass
+        def enrich_conversions_with_click_info(self, conversions):
+            return [conversions[0]]
 
         def merge_conversions(self, conversions):
             self.merged = list(conversions)
@@ -209,9 +201,9 @@ def test_conversion_run_for_time_range_filters_and_returns_counts():
     ingestor = ConversionIngestor(DummyClient(), repo, page_size=1)
 
     # When
-    new_count, skip_count, valid_entry_count = ingestor.run_for_time_range(start, end)
+    new_count, skip_count, valid_entry_count, click_enriched_count = ingestor.run_for_time_range(start, end)
 
     # Then
-    assert (new_count, skip_count, valid_entry_count) == (2, 0, 1)
+    assert (new_count, skip_count, valid_entry_count, click_enriched_count) == (2, 0, 1, 1)
     assert repo.merged is not None
     assert [c.conversion_id for c in repo.merged] == ["inside-valid", "inside-invalid"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from ..config import (
     DEFAULT_BROWSER_ONLY,
@@ -26,6 +27,14 @@ from ..repository_pg import PostgresRepository
 logger = logging.getLogger(__name__)
 
 _settings_cache: dict | None = None
+_settings_cache_updated_at = None
+
+
+def _repo_settings_updated_at(repo: PostgresRepository):
+    getter = getattr(repo, "get_settings_updated_at", None)
+    if getter is None:
+        return None
+    return getter()
 
 
 def _load_settings_from_env() -> dict:
@@ -69,19 +78,21 @@ def _load_settings(repo: PostgresRepository) -> dict:
 
 
 def get_settings(repo: PostgresRepository) -> dict:
-    global _settings_cache
-    if not _settings_cache:
+    global _settings_cache, _settings_cache_updated_at
+    db_updated_at = _repo_settings_updated_at(repo)
+    if not _settings_cache or db_updated_at != _settings_cache_updated_at:
         _settings_cache = _load_settings(repo)
+        _settings_cache_updated_at = db_updated_at
     return _settings_cache
 
 
 def update_settings(repo: PostgresRepository, settings: dict) -> dict:
-    global _settings_cache
+    global _settings_cache, _settings_cache_updated_at
     try:
         repo.save_settings(settings)
         _settings_cache = settings
+        _settings_cache_updated_at = _repo_settings_updated_at(repo)
         logger.info("Settings saved to DB: %s", _settings_cache)
-        return {"success": True, "settings": _settings_cache, "persisted": True}
     except Exception as exc:
         logger.exception("Failed to save settings to DB")
         _settings_cache = settings
@@ -89,6 +100,33 @@ def update_settings(repo: PostgresRepository, settings: dict) -> dict:
             "success": True,
             "settings": _settings_cache,
             "persisted": False,
+            "warning": str(exc),
+        }
+
+    try:
+        from . import findings as findings_service
+        from . import reporting as reporting_service
+
+        dates = [
+            date.fromisoformat(value)
+            for value in reporting_service.get_available_dates(repo)
+            if value
+        ]
+        recomputed = findings_service.recompute_findings_for_dates(repo, dates)
+        return {
+            "success": True,
+            "settings": _settings_cache,
+            "persisted": True,
+            "findings_recomputed": True,
+            "recomputed_dates": recomputed,
+        }
+    except Exception as exc:
+        logger.exception("Settings persisted but finding recomputation failed")
+        return {
+            "success": True,
+            "settings": _settings_cache,
+            "persisted": True,
+            "findings_recomputed": False,
             "warning": str(exc),
         }
 

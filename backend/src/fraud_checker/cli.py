@@ -10,7 +10,8 @@ from .config import resolve_acs_settings, resolve_store_raw
 from .ingestion import ClickLogIngestor, ConversionIngestor
 from .repository_pg import PostgresRepository
 from .suspicious import CombinedSuspiciousDetector
-from .services import settings as settings_service
+from .services import findings as findings_service, settings as settings_service
+from .services.jobs import process_queued_jobs
 from .time_utils import now_local
 
 
@@ -22,11 +23,8 @@ def _require_database_url() -> str:
 
 
 def _build_repository(store_raw: bool) -> PostgresRepository:
-    repo = PostgresRepository(_require_database_url())
-    repo.ensure_schema(store_raw=store_raw)
-    repo.ensure_conversion_schema()
-    repo.ensure_master_schema()
-    return repo
+    del store_raw
+    return PostgresRepository(_require_database_url())
 
 
 def _build_client() -> tuple[AcsHttpClient, object]:
@@ -58,6 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sync = sub.add_parser("sync-masters", help="Sync master data from ACS")
 
+    worker = sub.add_parser("run-worker", help="Run queued durable jobs")
+    worker.add_argument("--max-jobs", type=int, default=1, help="Maximum jobs to process")
+
     return parser
 
 
@@ -87,6 +88,8 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
     conv_new = 0
     conv_skip = 0
     conv_valid = 0
+    conv_click_enriched = 0
+    dates_to_recompute: set[date] = set()
 
     if not args.conversions_only:
         click_ingestor = ClickLogIngestor(
@@ -97,6 +100,10 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
         )
         click_new, click_skip = click_ingestor.run_for_time_range(start_time, end_time)
         print(f"Clicks: {click_new} new, {click_skip} skipped (already in DB)")
+        current = start_time.date()
+        while current <= end_time.date():
+            dates_to_recompute.add(current)
+            current += timedelta(days=1)
 
     if not args.clicks_only:
         conv_ingestor = ConversionIngestor(
@@ -104,35 +111,39 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
             repository=repository,
             page_size=settings.page_size,
         )
-        conv_new, conv_skip, conv_valid = conv_ingestor.run_for_time_range(
+        conv_new, conv_skip, conv_valid, conv_click_enriched = conv_ingestor.run_for_time_range(
             start_time, end_time
         )
         print(
             f"Conversions: {conv_new} new, {conv_skip} skipped (already in DB), "
-            f"{conv_valid} with valid entry IP/UA"
+            f"{conv_valid} with valid entry IP/UA, "
+            f"{conv_click_enriched} enriched from click data"
         )
-
-    if args.detect:
-        dates_to_check = set()
         current = start_time.date()
         while current <= end_time.date():
-            dates_to_check.add(current)
+            dates_to_recompute.add(current)
             current += timedelta(days=1)
 
+    persisted = findings_service.recompute_findings_for_dates(repository, sorted(dates_to_recompute))
+
+    if args.detect:
         click_rules, conversion_rules = settings_service.build_rule_sets(repository)
 
         print("\n--- Suspicious Detection ---")
-        for target_date in sorted(dates_to_check):
+        for target_date in sorted(dates_to_recompute):
             combined = CombinedSuspiciousDetector(
                 repository=repository,
                 click_rules=click_rules,
                 conversion_rules=conversion_rules,
             )
-            click_findings, conv_findings, high_risk = combined.find_for_date(target_date)
-            if click_findings or conv_findings or high_risk:
+            _, _, high_risk = combined.find_for_date(target_date)
+            counts = persisted.get(target_date.isoformat(), {})
+            click_count = counts.get("suspicious_clicks", 0)
+            conv_count = counts.get("suspicious_conversions", 0)
+            if click_count or conv_count or high_risk:
                 print(f"\n{target_date.isoformat()}:")
-                print(f"  Suspicious clicks: {len(click_findings)}")
-                print(f"  Suspicious conversions: {len(conv_findings)}")
+                print(f"  Suspicious clicks: {click_count}")
+                print(f"  Suspicious conversions: {conv_count}")
                 print(f"  HIGH RISK (both): {len(high_risk)}")
 
     print("\n=== Refresh Complete ===")
@@ -164,6 +175,12 @@ def _cmd_sync_masters() -> int:
     return 0
 
 
+def _cmd_run_worker(args: argparse.Namespace) -> int:
+    processed = process_queued_jobs(max_jobs=args.max_jobs)
+    print(f"Processed {processed} queued job(s)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -171,6 +188,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_refresh(args)
     if args.command == "sync-masters":
         return _cmd_sync_masters()
+    if args.command == "run-worker":
+        return _cmd_run_worker(args)
 
     parser.print_help()
     return 1

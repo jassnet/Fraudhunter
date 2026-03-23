@@ -17,7 +17,7 @@ def test_run_refresh_includes_detect(monkeypatch):
             pass
 
         def run_for_time_range(self, start_time, end_time):
-            return 2, 0, 2
+            return 2, 0, 2, 1
 
     class DummyDetector:
         def __init__(self, *args, **kwargs):
@@ -32,11 +32,20 @@ def test_run_refresh_includes_detect(monkeypatch):
     monkeypatch.setattr(jobs, "ClickLogIngestor", DummyClickIngestor)
     monkeypatch.setattr(jobs, "ConversionIngestor", DummyConversionIngestor)
     monkeypatch.setattr(jobs, "CombinedSuspiciousDetector", DummyDetector)
+    monkeypatch.setattr(
+        jobs.findings_service,
+        "recompute_findings_for_dates",
+        lambda repo, dates: {
+            target_date.isoformat(): {"suspicious_clicks": 1, "suspicious_conversions": 2}
+            for target_date in dates
+        },
+    )
     monkeypatch.setattr(jobs.settings_service, "build_rule_sets", lambda repo: (None, None))
 
     result, message = jobs.run_refresh(1, clicks=True, conversions=True, detect=True)
 
     assert result["clicks"]["new"] == 1
     assert result["conversions"]["new"] == 2
+    assert result["conversions"]["click_enriched"] == 1
     assert "detect" in result
     assert isinstance(result["detect"], dict)

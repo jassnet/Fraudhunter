@@ -51,7 +51,6 @@ class ClickLogIngestor:
         Policy: any client or DB exception aborts the run so operators can rerun after fixing
         the root cause. Retries can be layered outside this class if needed.
         """
-        self.repository.ensure_schema(store_raw=self.store_raw)
         page = 1
         all_clicks: list[ClickLog] = []
         while True:
@@ -85,7 +84,6 @@ class ClickLogIngestor:
         Returns:
             tuple[int, int]: (新規追加件数, スキップ件数)
         """
-        self.repository.ensure_schema(store_raw=self.store_raw)
         page = 1
         all_clicks: list[ClickLog] = []
         
@@ -144,14 +142,13 @@ class ConversionIngestor:
         self.repository = repository
         self.page_size = page_size
 
-    def run_for_date(self, target_date: date) -> tuple[int, int]:
+    def run_for_date(self, target_date: date) -> tuple[int, int, int]:
         """
         指定日の成果ログを取得して保存する。
 
         Returns:
             tuple[int, int]: (取得した成果数, entry_ipaddress/entry_useragentが有効な成果数)
         """
-        self.repository.ensure_conversion_schema()
 
         # 1. 成果ログを全て取得
         page = 1
@@ -172,7 +169,7 @@ class ConversionIngestor:
         )
 
         if not all_conversions:
-            return 0, 0
+            return 0, 0, 0
 
         # 2. entry_ipaddress/entry_useragentが有効な成果をカウント
         valid_entry_count = sum(
@@ -184,16 +181,18 @@ class ConversionIngestor:
             valid_entry_count, len(all_conversions)
         )
 
+        click_enriched_count = len(self.repository.enrich_conversions_with_click_info(all_conversions))
+
         # 3. 保存（entry IP/UAが有効なものは集計にも追加される）
         total_count = self.repository.ingest_conversions(
             all_conversions, target_date=target_date
         )
 
-        return total_count, valid_entry_count
+        return total_count, valid_entry_count, click_enriched_count
 
     def run_for_time_range(
         self, start_time: datetime, end_time: datetime
-    ) -> tuple[int, int, int]:
+    ) -> tuple[int, int, int, int]:
         """
         指定された時間範囲の成果ログを取得し、既存データとマージする。
         
@@ -203,7 +202,6 @@ class ConversionIngestor:
         Returns:
             tuple[int, int, int]: (新規追加件数, スキップ件数, entry IP/UA有効件数)
         """
-        self.repository.ensure_conversion_schema()
         page = 1
         all_conversions: list[ConversionLog] = []
         
@@ -234,7 +232,7 @@ class ConversionIngestor:
         )
 
         if not all_conversions:
-            return 0, 0, 0
+            return 0, 0, 0, 0
 
         # entry IP/UAが有効な件数をカウント
         valid_entry_count = sum(
@@ -242,7 +240,9 @@ class ConversionIngestor:
             if c.entry_ipaddress and c.entry_useragent
         )
 
+        click_enriched_count = len(self.repository.enrich_conversions_with_click_info(all_conversions))
+
         # マージ処理（重複チェック付き）
         new_count, skip_count = self.repository.merge_conversions(all_conversions)
         
-        return new_count, skip_count, valid_entry_count
+        return new_count, skip_count, valid_entry_count, click_enriched_count

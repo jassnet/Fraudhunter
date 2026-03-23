@@ -1,7 +1,7 @@
 "use client";
 
 import SuspiciousListPage from "@/components/suspicious-list-page";
-import { fetchSuspiciousClicks } from "@/lib/api";
+import { fetchSuspiciousClickDetail, fetchSuspiciousClicks } from "@/lib/api";
 
 export default function SuspiciousClicksPage() {
   return (
@@ -9,6 +9,7 @@ export default function SuspiciousClicksPage() {
       title="不審クリック"
       countLabel="クリック数"
       fetcher={fetchSuspiciousClicks}
+      fetchDetail={fetchSuspiciousClickDetail}
       metricKey="total_clicks"
     />
   );

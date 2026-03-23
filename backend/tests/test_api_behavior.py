@@ -63,7 +63,11 @@ def test_refresh_returns_conflict_when_job_is_running(monkeypatch):
 
 def test_refresh_returns_public_payload_when_request_is_accepted(monkeypatch):
     monkeypatch.setenv("FC_ADMIN_API_KEY", "secret")
-    monkeypatch.setattr(jobs_router, "enqueue_job", lambda **kwargs: None)
+    monkeypatch.setattr(
+        jobs_router,
+        "enqueue_job",
+        lambda **kwargs: type("QueuedJob", (), {"id": "run-refresh-1"})(),
+    )
     client = TestClient(api.app)
 
     response = client.post(
@@ -76,37 +80,54 @@ def test_refresh_returns_public_payload_when_request_is_accepted(monkeypatch):
     assert response.json() == {
         "success": True,
         "message": "直近4時間の再取得を開始しました",
-        "details": {"hours": 4, "clicks": True, "conversions": False},
+        "details": {
+            "job_id": "run-refresh-1",
+            "hours": 4,
+            "clicks": True,
+            "conversions": False,
+        },
     }
 
 
 def test_suspicious_clicks_returns_business_friendly_fields(monkeypatch):
-    class DummyDetector:
-        def __init__(self, repo, rules):
-            pass
+    first = datetime(2026, 1, 1, 10, 0, 0)
 
-        def find_for_date(self, target_date):
-            first = datetime(2026, 1, 1, 10, 0, 0)
-            return [
-                SuspiciousFinding(
-                    date=target_date,
-                    ipaddress="8.8.8.8",
-                    useragent="Mozilla/5.0 Chrome/120.0",
-                    total_clicks=60,
-                    media_count=2,
-                    program_count=1,
-                    first_time=first,
-                    last_time=first + timedelta(seconds=120),
-                    reasons=[
-                        "total_clicks >= 50",
-                        "burst: 60 clicks in 120s (<= 600s)",
-                    ],
-                )
-            ]
+    class DummyRepo:
+        def list_click_findings(self, **kwargs):
+            return (
+                [
+                    {
+                        "finding_key": "f-1",
+                        "date": datetime(2026, 1, 1).date(),
+                        "ipaddress": "8.8.8.8",
+                        "useragent": "Mozilla/5.0 Chrome/120.0",
+                        "total_clicks": 60,
+                        "media_count": 2,
+                        "program_count": 1,
+                        "first_time": first,
+                        "last_time": first + timedelta(seconds=120),
+                        "reasons_json": [
+                            "total_clicks >= 50",
+                            "burst: 60 clicks in 120s (<= 600s)",
+                        ],
+                        "reasons_formatted_json": [
+                            "クリック数が閾値以上です（50件以上）",
+                            "短時間にクリックが集中しています（バースト検知）",
+                        ],
+                        "risk_level": "high",
+                        "risk_score": 80,
+                        "media_names_json": ["Media 1"],
+                        "program_names_json": ["Program 1"],
+                        "affiliate_names_json": ["Affiliate 1"],
+                    }
+                ],
+                1,
+            )
 
-    monkeypatch.setattr(suspicious_router, "get_repository", lambda: object())
-    monkeypatch.setattr(suspicious_router.settings_service, "build_rule_sets", lambda repo: ("click_rules", "conv_rules"))
-    monkeypatch.setattr(suspicious_router, "SuspiciousDetector", DummyDetector)
+        def get_suspicious_click_details_bulk(self, target_date, pairs):
+            return {("8.8.8.8", "Mozilla/5.0 Chrome/120.0"): []}
+
+    monkeypatch.setattr(suspicious_router, "get_repository", lambda: DummyRepo())
     client = TestClient(api.app)
 
     response = client.get("/api/suspicious/clicks", params={"date": "2026-01-01", "include_names": False})
@@ -131,6 +152,56 @@ def test_suspicious_conversions_rejects_invalid_date(monkeypatch):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "日付形式が不正です。YYYY-MM-DD を指定してください。"
+
+
+def test_suspicious_click_detail_returns_single_finding(monkeypatch):
+    first = datetime(2026, 1, 1, 10, 0, 0)
+
+    class DummyRepo:
+        def get_click_finding_by_key(self, finding_key):
+            assert finding_key == "f-1"
+            return {
+                "finding_key": "f-1",
+                "date": datetime(2026, 1, 1).date(),
+                "ipaddress": "8.8.8.8",
+                "useragent": "Mozilla/5.0 Chrome/120.0",
+                "total_clicks": 60,
+                "media_count": 2,
+                "program_count": 1,
+                "first_time": first,
+                "last_time": first + timedelta(seconds=120),
+                "reasons_json": ["total_clicks >= 50"],
+                "reasons_formatted_json": ["クリック数が閾値以上です（50件以上）"],
+                "risk_level": "high",
+                "risk_score": 80,
+                "media_names_json": ["Media 1"],
+                "program_names_json": ["Program 1"],
+                "affiliate_names_json": ["Affiliate 1"],
+            }
+
+        def get_suspicious_click_details_bulk(self, target_date, pairs):
+            return {
+                ("8.8.8.8", "Mozilla/5.0 Chrome/120.0"): [
+                    {
+                        "media_id": "m1",
+                        "program_id": "p1",
+                        "media_name": "Media 1",
+                        "program_name": "Program 1",
+                        "affiliate_name": "Affiliate 1",
+                        "click_count": 60,
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(suspicious_router, "get_repository", lambda: DummyRepo())
+    client = TestClient(api.app)
+
+    response = client.get("/api/suspicious/clicks/f-1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["finding_key"] == "f-1"
+    assert payload["details"][0]["media_name"] == "Media 1"
 
 
 def test_format_reasons_and_risk_scoring_reflect_business_priority():
@@ -158,6 +229,7 @@ def test_root_returns_running_message():
 
     assert response.status_code == 200
     assert response.json()["status"] == "running"
+    assert response.json()["storage"] == "postgresql"
 
 
 def test_summary_endpoint_returns_payload(monkeypatch):
@@ -273,11 +345,25 @@ def test_health_returns_warning_when_data_is_missing(monkeypatch):
         def fetch_one(self, query, params=None):
             return {"cnt": 0}
 
+        def get_click_ipua_coverage(self, target_date):
+            return None
+
+        def get_conversion_click_enrichment(self, target_date):
+            return None
+
+        def get_all_masters(self):
+            return {"media_count": 0, "promotion_count": 0, "user_count": 0, "last_synced_at": None}
+
     monkeypatch.setenv("FC_ADMIN_API_KEY", "secret")
     monkeypatch.setenv("DATABASE_URL", "postgresql://example/db")
     monkeypatch.setenv("ACS_BASE_URL", "https://acs.example.com")
     monkeypatch.setenv("ACS_TOKEN", "a:b")
     monkeypatch.setattr(health_router, "get_repository", lambda: DummyRepo())
+    monkeypatch.setattr(
+        health_router,
+        "get_job_store",
+        lambda: type("DummyStore", (), {"get_latest_successful_finished_at": lambda self, job_types: None})(),
+    )
     client = TestClient(api.app)
 
     response = client.get("/api/health", headers={"X-API-Key": "secret"})
@@ -286,6 +372,7 @@ def test_health_returns_warning_when_data_is_missing(monkeypatch):
     payload = response.json()
     assert payload["status"] == "warning"
     assert len(payload["issues"]) >= 1
+    assert payload["config"]["database_url_configured"] is True
 
 
 def test_settings_endpoints_return_service_payloads(monkeypatch):
@@ -329,7 +416,11 @@ def test_settings_endpoints_return_service_payloads(monkeypatch):
 
 def test_sync_masters_returns_job_identifier(monkeypatch):
     monkeypatch.setenv("FC_ADMIN_API_KEY", "secret")
-    monkeypatch.setattr(masters_router, "enqueue_job", lambda **kwargs: None)
+    monkeypatch.setattr(
+        masters_router,
+        "enqueue_job",
+        lambda **kwargs: type("QueuedJob", (), {"id": "run-master-1"})(),
+    )
     client = TestClient(api.app)
 
     response = client.post("/api/sync/masters", headers={"X-API-Key": "secret"})
@@ -338,7 +429,7 @@ def test_sync_masters_returns_job_identifier(monkeypatch):
     assert response.json() == {
         "success": True,
         "message": "マスタ同期を開始しました",
-        "details": {"job_id": "sync_masters"},
+        "details": {"job_id": "run-master-1"},
     }
 
 

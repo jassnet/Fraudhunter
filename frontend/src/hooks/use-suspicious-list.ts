@@ -1,8 +1,9 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   SuspiciousItem,
+  SuspiciousQueryOptions,
   SuspiciousResponse,
   getAvailableDates,
   getErrorMessage,
@@ -15,10 +16,26 @@ type SuspiciousFetcher = (
   date?: string,
   limit?: number,
   offset?: number,
-  search?: string
+  options?: SuspiciousQueryOptions
 ) => Promise<SuspiciousResponse>;
 
-export function useSuspiciousList(fetcher: SuspiciousFetcher) {
+interface UseSuspiciousListOptions {
+  riskLevel?: SuspiciousQueryOptions["riskLevel"];
+  sortBy?: SuspiciousQueryOptions["sortBy"];
+  sortOrder?: SuspiciousQueryOptions["sortOrder"];
+  includeDetails?: boolean;
+}
+
+export function useSuspiciousList(
+  fetcher: SuspiciousFetcher,
+  options: UseSuspiciousListOptions = {}
+) {
+  const {
+    riskLevel,
+    sortBy = "count",
+    sortOrder = "desc",
+    includeDetails = false,
+  } = options;
   const [data, setData] = useState<SuspiciousItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,12 +78,13 @@ export function useSuspiciousList(fetcher: SuspiciousFetcher) {
 
       try {
         const offset = (pageNumber - 1) * PAGE_SIZE;
-        const response = await fetcher(
-          targetDate || undefined,
-          PAGE_SIZE,
-          offset,
-          query || undefined
-        );
+        const response = await fetcher(targetDate || undefined, PAGE_SIZE, offset, {
+          search: query || undefined,
+          riskLevel,
+          sortBy,
+          sortOrder,
+          includeDetails,
+        });
         setData(response.data || []);
         setTotal(response.total || 0);
         if (!targetDate && response.date) {
@@ -82,7 +100,7 @@ export function useSuspiciousList(fetcher: SuspiciousFetcher) {
         }
       }
     },
-    [fetcher]
+    [fetcher, includeDetails, riskLevel, sortBy, sortOrder]
   );
 
   useEffect(() => {
