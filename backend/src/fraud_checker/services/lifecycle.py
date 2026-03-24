@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from ..job_status_pg import JobStatusStorePG
-from ..repository_pg import PostgresRepository
+from ..service_protocols import LifecycleRepository
 from ..time_utils import now_local
 
 DEFAULT_RAW_RETENTION_DAYS = 90
@@ -51,7 +51,7 @@ def resolve_retention_policy(
 
 
 def purge_old_data(
-    repo: PostgresRepository,
+    repo: LifecycleRepository,
     job_store: JobStatusStorePG,
     *,
     policy: RetentionPolicy | None = None,

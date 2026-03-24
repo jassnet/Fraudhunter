@@ -1,7 +1,13 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import SuspiciousConversionsPage from "@/app/suspicious/conversions/page";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn() }),
+  usePathname: () => "/suspicious/conversions",
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 describe("不審コンバージョン画面", () => {
   it("画面タイトルと CV 数列を表示する", async () => {

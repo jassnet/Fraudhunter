@@ -12,10 +12,10 @@ test.describe("suspicious conversions e2e", () => {
 
     await expect(page.getByRole("heading", { name: "不審コンバージョン" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "CV数" })).toBeVisible();
-    await expect(page.getByText("1-1件目 / 全1件", { exact: true })).toBeVisible();
+    await expect(page.getByText("1-1件 / 全1件", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "詳細" }).first().click();
-    await expect(page.getByText("Click→CV")).toBeVisible();
+    await expect(page.getByText("Click→CV 時間")).toBeVisible();
     await expect(page.getByRole("cell", { name: "Program Alpha", exact: true })).toBeVisible();
   });
 });

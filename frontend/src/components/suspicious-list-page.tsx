@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { DateQuickSelect } from "@/components/date-quick-select";
 import { LastUpdated } from "@/components/last-updated";
@@ -55,7 +56,30 @@ const riskToneMap: Record<string, "high" | "medium" | "low" | "neutral"> = {
   low: "low",
 };
 
-const riskLabel = (item: SuspiciousItem) => item.risk_label || item.risk_level || "未評価";
+const riskFilterButtons: { key: RiskFilter; label: string }[] = [
+  { key: "all", label: "すべて" },
+  { key: "high", label: "高" },
+  { key: "medium", label: "中" },
+  { key: "low", label: "低" },
+];
+
+const riskLabel = (item: SuspiciousItem) => item.risk_label || item.risk_level || "未判定";
+
+function parseRiskFilter(value: string | null): RiskFilter {
+  return value === "high" || value === "medium" || value === "low" ? value : "all";
+}
+
+function parseSortValue(value: string | null): SortValue {
+  return value === "risk" || value === "latest" ? value : "count";
+}
+
+function parsePageValue(value: string | null): number {
+  if (!value) {
+    return 1;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
 
 export default function SuspiciousListPage({
   title,
@@ -64,8 +88,18 @@ export default function SuspiciousListPage({
   fetchDetail,
   metricKey,
 }: SuspiciousListPageProps) {
-  const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
-  const [sortBy, setSortBy] = useState<SortValue>("count");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const initialDate = searchParams.get("date") || "";
+  const initialSearch = searchParams.get("search") || "";
+  const initialPage = parsePageValue(searchParams.get("page"));
+  const [riskFilter, setRiskFilter] = useState<RiskFilter>(() =>
+    parseRiskFilter(searchParams.get("risk"))
+  );
+  const [sortBy, setSortBy] = useState<SortValue>(() =>
+    parseSortValue(searchParams.get("sort"))
+  );
   const [detailCache, setDetailCache] = useState<Record<string, SuspiciousItem>>({});
   const [detailErrorByKey, setDetailErrorByKey] = useState<Record<string, string | null>>({});
   const [detailLoadingKey, setDetailLoadingKey] = useState<string | null>(null);
@@ -98,7 +132,45 @@ export default function SuspiciousListPage({
     sortBy,
     sortOrder: "desc",
     includeDetails: false,
+    maskSensitive: true,
+    initialDate,
+    initialSearch,
+    initialPage,
   });
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (date) {
+      params.set("date", date);
+    } else {
+      params.delete("date");
+    }
+    if (search.trim()) {
+      params.set("search", search.trim());
+    } else {
+      params.delete("search");
+    }
+    if (page > 1) {
+      params.set("page", String(page));
+    } else {
+      params.delete("page");
+    }
+    if (riskFilter !== "all") {
+      params.set("risk", riskFilter);
+    } else {
+      params.delete("risk");
+    }
+    if (sortBy !== "count") {
+      params.set("sort", sortBy);
+    } else {
+      params.delete("sort");
+    }
+
+    const nextQuery = params.toString();
+    if (nextQuery !== searchParams.toString()) {
+      router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+    }
+  }, [date, page, pathname, riskFilter, router, search, searchParams, sortBy]);
 
   const data = useMemo(
     () =>
@@ -111,13 +183,6 @@ export default function SuspiciousListPage({
       }),
     [detailCache, rawData]
   );
-
-  const riskFilterButtons: { key: RiskFilter; label: string }[] = [
-    { key: "all", label: "すべて" },
-    { key: "high", label: "高" },
-    { key: "medium", label: "中" },
-    { key: "low", label: "低" },
-  ];
 
   const handleRiskFilterChange = (nextRisk: RiskFilter) => {
     goToFirstPage();
@@ -186,7 +251,7 @@ export default function SuspiciousListPage({
               <Input
                 name="search"
                 type="search"
-                placeholder="IP / User-Agent / 媒体名 / 案件名"
+                placeholder="IP / User-Agent / 媒体 / 案件"
                 aria-label="一覧を検索"
                 value={search}
                 onChange={(event) => handleSearchChange(event.target.value)}
@@ -240,7 +305,7 @@ export default function SuspiciousListPage({
               </div>
             ) : data.length === 0 ? (
               <div className="p-4">
-                <EmptyState title="該当なし" message="条件に一致する検知はありません。" />
+                <EmptyState title="該当なし" message="条件に一致する結果はありません。" />
               </div>
             ) : (
               <>
@@ -305,9 +370,7 @@ export default function SuspiciousListPage({
                               className="hidden truncate text-xs text-muted-foreground 2xl:table-cell"
                               title={(item.reasons_formatted || item.reasons || []).join(" / ")}
                             >
-                              {(item.reasons_formatted || item.reasons || [])
-                                .slice(0, 2)
-                                .join(" / ")}
+                              {(item.reasons_formatted || item.reasons || []).slice(0, 2).join(" / ")}
                             </TableCell>
                             <TableCell className="text-right">
                               <Button
@@ -341,7 +404,7 @@ export default function SuspiciousListPage({
 
                 <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
                   <Button variant="outline" size="sm" onClick={goToFirstPage} disabled={!canPrev}>
-                    最初
+                    先頭
                   </Button>
                   <Button
                     variant="outline"

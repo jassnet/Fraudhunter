@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 
-import { SuspiciousItem } from "@/lib/api";
+import type { SuspiciousItem } from "@/lib/api";
 
 const formatSeconds = (value?: number | null) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return "-";
@@ -34,9 +34,7 @@ const renderTags = (items?: string[]) => {
 
 const Stat = ({ label, value }: { label: string; value: ReactNode }) => (
   <div className="border border-border px-3 py-3">
-    <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-      {label}
-    </div>
+    <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{label}</div>
     <div className="mt-2 text-xs text-foreground">{value}</div>
   </div>
 );
@@ -64,15 +62,15 @@ export function SuspiciousRowDetails({
           value={<span className="font-mono text-[11px] break-all">{item.ipaddress || "-"}</span>}
         />
         <Stat
-          label="USER-AGENT"
+          label="User-Agent"
           value={<span className="text-[11px] break-all">{item.useragent || "-"}</span>}
         />
         <Stat
-          label="初回検知"
+          label="最初の発生"
           value={<span className="font-mono text-[11px]">{item.first_time || "-"}</span>}
         />
         <Stat
-          label="最終検知"
+          label="最後の発生"
           value={<span className="font-mono text-[11px]">{item.last_time || "-"}</span>}
         />
         <Stat
@@ -85,15 +83,15 @@ export function SuspiciousRowDetails({
           }
         />
         <Stat
-          label="Click→CV"
-          value={`最短 ${formatSeconds(item.min_click_to_conv_seconds)} / 最長 ${formatSeconds(item.max_click_to_conv_seconds)}`}
+          label="Click→CV 時間"
+          value={`最短 ${formatSeconds(item.min_click_to_conv_seconds)} / 最長 ${formatSeconds(
+            item.max_click_to_conv_seconds
+          )}`}
         />
       </div>
 
       <div className="space-y-2">
-        <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-          検知理由
-        </div>
+        <div className="text-[11px] tracking-[0.12em] text-muted-foreground">検知理由</div>
         {reasons.length ? (
           <div className="flex flex-wrap gap-2">
             {reasons.map((reason, idx) => (
@@ -112,54 +110,38 @@ export function SuspiciousRowDetails({
 
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="space-y-2">
-          <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-            媒体
-          </div>
+          <div className="text-[11px] tracking-[0.12em] text-muted-foreground">媒体</div>
           {renderTags(item.media_names)}
         </div>
         <div className="space-y-2">
-          <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-            案件
-          </div>
+          <div className="text-[11px] tracking-[0.12em] text-muted-foreground">案件</div>
           {renderTags(item.program_names)}
         </div>
         <div className="space-y-2">
-          <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-            アフィリエイター
-          </div>
+          <div className="text-[11px] tracking-[0.12em] text-muted-foreground">提携先</div>
           {renderTags(item.affiliate_names)}
         </div>
       </div>
 
       {isLoadingDetails ? (
-        <div className="text-xs text-muted-foreground">詳細を読み込み中です</div>
+        <div className="text-xs text-muted-foreground">詳細を読み込み中です...</div>
       ) : null}
       {detailError ? <div className="text-xs text-destructive">{detailError}</div> : null}
 
       {!isLoadingDetails && !detailError && details.length > 0 ? (
         <div className="space-y-2">
-          <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-            詳細内訳
-          </div>
+          <div className="text-[11px] tracking-[0.12em] text-muted-foreground">詳細内訳</div>
           <div className="overflow-x-auto border border-border">
             <table className="w-full text-xs">
               <thead className="border-b border-border text-muted-foreground">
                 <tr>
-                  <th className="px-3 py-2 text-left font-semibold uppercase tracking-[0.12em]">
-                    媒体
-                  </th>
-                  <th className="px-3 py-2 text-left font-semibold uppercase tracking-[0.12em]">
-                    案件
-                  </th>
-                  <th className="px-3 py-2 text-left font-semibold uppercase tracking-[0.12em]">
-                    アフィリエイター
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold uppercase tracking-[0.12em]">
+                  <th className="px-3 py-2 text-left font-semibold tracking-[0.12em]">媒体</th>
+                  <th className="px-3 py-2 text-left font-semibold tracking-[0.12em]">案件</th>
+                  <th className="px-3 py-2 text-left font-semibold tracking-[0.12em]">提携先</th>
+                  <th className="px-3 py-2 text-right font-semibold tracking-[0.12em]">
                     Click
                   </th>
-                  <th className="px-3 py-2 text-right font-semibold uppercase tracking-[0.12em]">
-                    CV
-                  </th>
+                  <th className="px-3 py-2 text-right font-semibold tracking-[0.12em]">CV</th>
                 </tr>
               </thead>
               <tbody>

@@ -22,7 +22,7 @@ describe("日付クイック選択", () => {
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
-  it("今日ボタンで利用可能なら当日を選ぶ", async () => {
+  it("今日ボタンで利用可能な当日を選ぶ", async () => {
     const today = formatDate(new Date());
     const onChange = vi.fn();
     const user = userEvent.setup();
@@ -32,7 +32,7 @@ describe("日付クイック選択", () => {
     expect(onChange).toHaveBeenCalledWith(today);
   });
 
-  it("昨日が利用不可なら最新日へ寄せる", async () => {
+  it("昨日が利用不可なら最新日に寄せる", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
@@ -47,7 +47,7 @@ describe("日付クイック選択", () => {
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
-  it("セレクト操作で日付を変更できる", async () => {
+  it("セレクト変更で対象日を直接選べる", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(

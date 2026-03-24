@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+
 import {
   SuspiciousItem,
   SuspiciousQueryOptions,
@@ -24,6 +25,10 @@ interface UseSuspiciousListOptions {
   sortBy?: SuspiciousQueryOptions["sortBy"];
   sortOrder?: SuspiciousQueryOptions["sortOrder"];
   includeDetails?: boolean;
+  maskSensitive?: boolean;
+  initialDate?: string;
+  initialSearch?: string;
+  initialPage?: number;
 }
 
 export function useSuspiciousList(
@@ -35,16 +40,20 @@ export function useSuspiciousList(
     sortBy = "count",
     sortOrder = "desc",
     includeDetails = false,
+    maskSensitive = true,
+    initialDate = "",
+    initialSearch = "",
+    initialPage = 1,
   } = options;
   const [data, setData] = useState<SuspiciousItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(initialDate);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [datesLoaded, setDatesLoaded] = useState(false);
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
+  const [page, setPage] = useState(Math.max(1, initialPage));
   const [total, setTotal] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -84,6 +93,7 @@ export function useSuspiciousList(
           sortBy,
           sortOrder,
           includeDetails,
+          maskSensitive,
         });
         setData(response.data || []);
         setTotal(response.total || 0);
@@ -100,7 +110,7 @@ export function useSuspiciousList(
         }
       }
     },
-    [fetcher, includeDetails, riskLevel, sortBy, sortOrder]
+    [fetcher, includeDetails, maskSensitive, riskLevel, sortBy, sortOrder]
   );
 
   useEffect(() => {
@@ -123,14 +133,14 @@ export function useSuspiciousList(
       return "読み込み中...";
     }
     if (total === 0) {
-      return "検索結果はありません";
+      return "結果はありません";
     }
     if (data.length === 0) {
       return `0件 / 全${total.toLocaleString()}件`;
     }
     const start = (page - 1) * PAGE_SIZE + 1;
     const end = Math.min(start + data.length - 1, total);
-    return `${start}-${end}件目 / 全${total.toLocaleString()}件`;
+    return `${start}-${end}件 / 全${total.toLocaleString()}件`;
   }, [data.length, loading, page, total]);
 
   const handleRefresh = useCallback(async () => {

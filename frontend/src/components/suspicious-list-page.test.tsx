@@ -1,9 +1,21 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 
 import SuspiciousListPage from "@/components/suspicious-list-page";
 import { SuspiciousItem, SuspiciousQueryOptions, SuspiciousResponse } from "@/lib/api";
+
+const navigation = vi.hoisted(() => ({
+  replace: vi.fn(),
+  pathname: "/suspicious/clicks",
+  searchParams: new URLSearchParams(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: navigation.replace }),
+  usePathname: () => navigation.pathname,
+  useSearchParams: () => navigation.searchParams,
+}));
 
 function buildRows(count = 120): SuspiciousItem[] {
   return Array.from({ length: count }, (_, i) => {
@@ -22,7 +34,7 @@ function buildRows(count = 120): SuspiciousItem[] {
       first_time: `2026-01-21T00:00:${String(index % 60).padStart(2, "0")}Z`,
       last_time: `2026-01-21T01:00:${String(index % 60).padStart(2, "0")}Z`,
       reasons: ["total_clicks >= 50"],
-      reasons_formatted: ["クリック数が閾値以上です（50件以上）"],
+      reasons_formatted: ["クリック数が閾値を超えています"],
       risk_level: riskLevel,
       risk_score: riskLevel === "high" ? 90 : riskLevel === "medium" ? 60 : 20,
       risk_label:
@@ -79,7 +91,7 @@ function createDetailFetcher() {
     first_time: "2026-01-21T00:00:01Z",
     last_time: "2026-01-21T01:00:01Z",
     reasons: ["total_clicks >= 50"],
-    reasons_formatted: ["クリック数が閾値以上です（50件以上）"],
+    reasons_formatted: ["クリック数が閾値を超えています"],
     risk_level: "high",
     risk_score: 90,
     risk_label: "高リスク",
@@ -116,35 +128,45 @@ function renderPage(
 }
 
 describe("不審一覧画面", () => {
+  beforeEach(() => {
+    navigation.replace.mockReset();
+    navigation.pathname = "/suspicious/clicks";
+    navigation.searchParams = new URLSearchParams();
+  });
+
   it("初期表示で件数と一覧を表示する", async () => {
     const fetcher = createFetcher();
     renderPage(fetcher);
 
     await screen.findByRole("heading", { name: "不審クリック" });
-    await screen.findByText("1-50件目 / 全120件");
+    await screen.findByText("1-50件 / 全120件");
 
     expect(screen.getByText("10.0.0.1")).toBeInTheDocument();
     expect(screen.getAllByText("高リスク").length).toBeGreaterThan(0);
   });
 
-  it("検索条件を server-side query として渡す", async () => {
+  it("検索語を server-side query として渡す", async () => {
     const fetcher = createFetcher();
     const user = userEvent.setup();
     renderPage(fetcher);
 
-    await screen.findByText("1-50件目 / 全120件");
+    await screen.findByText("1-50件 / 全120件");
     const input = screen.getByRole("searchbox", { name: "一覧を検索" });
 
     await user.type(input, "10.0.0.120");
 
     await waitFor(() => {
-      expect(screen.getByText("1-1件目 / 全1件")).toBeInTheDocument();
+      expect(screen.getByText("1-1件 / 全1件")).toBeInTheDocument();
     });
     expect(fetcher).toHaveBeenLastCalledWith(
       "2026-01-21",
       50,
       0,
-      expect.objectContaining({ search: "10.0.0.120", includeDetails: false })
+      expect.objectContaining({
+        search: "10.0.0.120",
+        includeDetails: false,
+        maskSensitive: true,
+      })
     );
   });
 
@@ -154,7 +176,7 @@ describe("不審一覧画面", () => {
     const user = userEvent.setup();
     renderPage(fetcher, detailFetcher);
 
-    await screen.findByText("1-50件目 / 全120件");
+    await screen.findByText("1-50件 / 全120件");
     await user.click(screen.getAllByRole("button", { name: "詳細" })[0]);
 
     await screen.findByText("詳細内訳");
@@ -166,7 +188,7 @@ describe("不審一覧画面", () => {
     });
   });
 
-  it("リスク絞り込みを server-side に渡す", async () => {
+  it("リスク絞り込みを server-side に委譲する", async () => {
     const fetcher = createFetcher();
     const user = userEvent.setup();
     renderPage(fetcher);
@@ -180,6 +202,41 @@ describe("不審一覧画面", () => {
         50,
         0,
         expect.objectContaining({ riskLevel: "high", includeDetails: false })
+      );
+    });
+  });
+
+  it("query string の初期値を復元して URL を更新する", async () => {
+    navigation.searchParams = new URLSearchParams(
+      "date=2026-01-21&search=10.0.0&page=2&risk=high&sort=risk"
+    );
+    const fetcher = createFetcher();
+    const user = userEvent.setup();
+    renderPage(fetcher);
+
+    await waitFor(() => {
+      expect(fetcher).toHaveBeenCalledWith(
+        "2026-01-21",
+        50,
+        50,
+        expect.objectContaining({
+          search: "10.0.0",
+          riskLevel: "high",
+          sortBy: "risk",
+        })
+      );
+    });
+
+    expect(screen.getByRole("searchbox", { name: "一覧を検索" })).toHaveValue("10.0.0");
+    expect(screen.getByRole("combobox", { name: "並び順" })).toHaveValue("risk");
+
+    navigation.replace.mockClear();
+    await user.click(screen.getByRole("button", { name: "低" }));
+
+    await waitFor(() => {
+      expect(navigation.replace).toHaveBeenLastCalledWith(
+        "/suspicious/clicks?date=2026-01-21&search=10.0.0&risk=low&sort=risk",
+        { scroll: false }
       );
     });
   });

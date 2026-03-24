@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from ..repository_pg import PostgresRepository
 from ..job_status_pg import JobStatusStorePG
+from ..service_protocols import ReportingRepository
 from ..time_utils import today_local
 
 
@@ -15,7 +15,7 @@ def _iso(value: object) -> str | None:
 
 
 def _build_findings_freshness(
-    repo: PostgresRepository,
+    repo: ReportingRepository,
     target_date: date | None,
     *,
     has_click_data: bool,
@@ -59,7 +59,7 @@ def _build_findings_freshness(
     }
 
 
-def get_latest_date(repo: PostgresRepository, table: str) -> Optional[str]:
+def get_latest_date(repo: ReportingRepository, table: str) -> Optional[str]:
     allowed_tables = {"click_ipua_daily", "conversion_ipua_daily"}
     if table not in allowed_tables:
         raise ValueError(f"Unsupported table: {table}")
@@ -72,7 +72,7 @@ def get_latest_date(repo: PostgresRepository, table: str) -> Optional[str]:
     return value
 
 
-def resolve_summary_date(repo: PostgresRepository, target_date: Optional[str]) -> str:
+def resolve_summary_date(repo: ReportingRepository, target_date: Optional[str]) -> str:
     if target_date:
         return target_date
 
@@ -88,7 +88,7 @@ def resolve_summary_date(repo: PostgresRepository, target_date: Optional[str]) -
     return (today_local() - timedelta(days=1)).isoformat()
 
 
-def get_summary(repo: PostgresRepository, target_date: Optional[str]) -> dict:
+def get_summary(repo: ReportingRepository, target_date: Optional[str]) -> dict:
     resolved_date = resolve_summary_date(repo, target_date)
 
     click_row = repo.fetch_one(
@@ -191,7 +191,7 @@ def get_summary(repo: PostgresRepository, target_date: Optional[str]) -> dict:
     }
 
 
-def get_daily_stats(repo: PostgresRepository, limit: int) -> list[dict]:
+def get_daily_stats(repo: ReportingRepository, limit: int) -> list[dict]:
     click_rows = repo.fetch_all(
         """
         SELECT date, SUM(click_count) as clicks
@@ -254,7 +254,7 @@ def get_daily_stats(repo: PostgresRepository, limit: int) -> list[dict]:
     return sorted(merged.values(), key=lambda item: item["date"])
 
 
-def get_available_dates(repo: PostgresRepository) -> list[str]:
+def get_available_dates(repo: ReportingRepository) -> list[str]:
     click_dates = repo.fetch_all(
         "SELECT DISTINCT date FROM click_ipua_daily ORDER BY date DESC"
     )

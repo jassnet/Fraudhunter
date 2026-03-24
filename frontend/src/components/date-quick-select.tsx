@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -77,7 +78,7 @@ export function DateQuickSelect({
       >
         {options.length === 0 ? (
           <option value="" disabled>
-            利用可能な日付はありません
+            利用可能な日付がありません
           </option>
         ) : (
           options.map((option) => (

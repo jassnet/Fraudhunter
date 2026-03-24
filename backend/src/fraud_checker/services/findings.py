@@ -8,7 +8,7 @@ from datetime import date
 
 from ..api_presenters import calculate_risk_level, format_reasons
 from ..logging_utils import log_event, log_timed
-from ..repository_pg import PostgresRepository
+from ..service_protocols import FindingsRepository
 from ..suspicious import ConversionSuspiciousDetector, SuspiciousDetector
 from ..time_utils import now_local
 from . import settings as settings_service
@@ -41,7 +41,7 @@ def _unique(values: list[str]) -> list[str]:
 
 
 def recompute_findings_for_dates(
-    repo: PostgresRepository,
+    repo: FindingsRepository,
     target_dates: list[date],
     *,
     computed_by_job_id: str | None = None,

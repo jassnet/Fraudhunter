@@ -22,8 +22,8 @@ from ..config import (
     _env_bool,
     _env_int,
 )
+from ..service_protocols import SettingsRepository
 from ..suspicious import ConversionSuspiciousRuleSet, SuspiciousRuleSet
-from ..repository_pg import PostgresRepository
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ _settings_cache: dict | None = None
 _settings_cache_updated_at = None
 
 
-def _repo_settings_updated_at(repo: PostgresRepository):
+def _repo_settings_updated_at(repo: SettingsRepository):
     getter = getattr(repo, "get_settings_updated_at", None)
     if getter is None:
         return None
@@ -67,7 +67,7 @@ def _load_settings_from_env() -> dict:
     }
 
 
-def _load_settings(repo: PostgresRepository) -> dict:
+def _load_settings(repo: SettingsRepository) -> dict:
     try:
         db_settings = repo.load_settings()
         if db_settings:
@@ -78,7 +78,7 @@ def _load_settings(repo: PostgresRepository) -> dict:
     return _load_settings_from_env()
 
 
-def get_settings(repo: PostgresRepository) -> dict:
+def get_settings(repo: SettingsRepository) -> dict:
     global _settings_cache, _settings_cache_updated_at
     db_updated_at = _repo_settings_updated_at(repo)
     if not _settings_cache or db_updated_at != _settings_cache_updated_at:
@@ -87,7 +87,7 @@ def get_settings(repo: PostgresRepository) -> dict:
     return _settings_cache
 
 
-def update_settings(repo: PostgresRepository, settings: dict) -> dict:
+def update_settings(repo: SettingsRepository, settings: dict) -> dict:
     global _settings_cache, _settings_cache_updated_at
     try:
         repo.save_settings(settings)
@@ -139,7 +139,7 @@ def update_settings(repo: PostgresRepository, settings: dict) -> dict:
 
 
 def build_rule_sets(
-    repo: PostgresRepository,
+    repo: SettingsRepository,
 ) -> tuple[SuspiciousRuleSet, ConversionSuspiciousRuleSet]:
     settings = get_settings(repo)
     click_rules = SuspiciousRuleSet(
