@@ -8,6 +8,57 @@ from ..job_status_pg import JobStatusStorePG
 from ..time_utils import today_local
 
 
+def _iso(value: object) -> str | None:
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+def _build_findings_freshness(
+    repo: PostgresRepository,
+    target_date: date | None,
+    *,
+    has_click_data: bool,
+    has_conversion_data: bool,
+) -> dict:
+    if target_date is None:
+        return {"findings_last_computed_at": None, "stale": False, "stale_reasons": []}
+
+    settings_updated_at = repo.get_settings_updated_at()
+    click_watermark = repo.get_click_data_watermark(target_date)
+    conversion_watermark = repo.get_conversion_data_watermark(target_date)
+    click_lineage = repo.get_click_findings_lineage(target_date) or {}
+    conversion_lineage = repo.get_conversion_findings_lineage(target_date) or {}
+
+    click_last = click_lineage.get("findings_last_computed_at")
+    conversion_last = conversion_lineage.get("findings_last_computed_at")
+    last_computed = max([value for value in (click_last, conversion_last) if value is not None], default=None)
+
+    stale_reasons: list[str] = []
+    if has_click_data:
+        if click_last is None:
+            stale_reasons.append("click_findings_missing")
+        if click_lineage.get("source_click_watermark") != click_watermark:
+            stale_reasons.append("click_source_advanced")
+        if settings_updated_at and click_lineage.get("settings_updated_at_snapshot") != settings_updated_at:
+            stale_reasons.append("settings_changed_after_click_findings")
+    if has_conversion_data:
+        if conversion_last is None:
+            stale_reasons.append("conversion_findings_missing")
+        if conversion_lineage.get("source_conversion_watermark") != conversion_watermark:
+            stale_reasons.append("conversion_source_advanced")
+        if settings_updated_at and conversion_lineage.get("settings_updated_at_snapshot") != settings_updated_at:
+            stale_reasons.append("settings_changed_after_conversion_findings")
+
+    return {
+        "findings_last_computed_at": _iso(last_computed),
+        "stale": bool(stale_reasons),
+        "stale_reasons": stale_reasons,
+        "click_findings_last_computed_at": _iso(click_last),
+        "conversion_findings_last_computed_at": _iso(conversion_last),
+    }
+
+
 def get_latest_date(repo: PostgresRepository, table: str) -> Optional[str]:
     allowed_tables = {"click_ipua_daily", "conversion_ipua_daily"}
     if table not in allowed_tables:
@@ -86,11 +137,18 @@ def get_summary(repo: PostgresRepository, target_date: Optional[str]) -> dict:
         susp_conv_count = repo.count_current_conversion_findings(target_date_obj)
         click_coverage = repo.get_click_ipua_coverage(target_date_obj)
         conversion_enrichment = repo.get_conversion_click_enrichment(target_date_obj)
+        findings_freshness = _build_findings_freshness(
+            repo,
+            target_date_obj,
+            has_click_data=bool((click_row or {}).get("total_clicks")),
+            has_conversion_data=bool((conv_row or {}).get("total_conversions")),
+        )
     else:
         susp_click_count = 0
         susp_conv_count = 0
         click_coverage = None
         conversion_enrichment = None
+        findings_freshness = {"findings_last_computed_at": None, "stale": False, "stale_reasons": []}
 
     last_successful_ingest = JobStatusStorePG(repo.database_url).get_latest_successful_finished_at(
         ["ingest_clicks", "ingest_conversions", "refresh"]
@@ -125,6 +183,7 @@ def get_summary(repo: PostgresRepository, target_date: Optional[str]) -> dict:
             ),
             "click_ip_ua_coverage": click_coverage,
             "conversion_click_enrichment": conversion_enrichment,
+            "findings": findings_freshness,
             "master_sync": {
                 "last_synced_at": last_master_sync,
             },

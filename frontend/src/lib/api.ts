@@ -116,6 +116,13 @@ export interface SummaryResponse {
       enriched: number;
       success_rate: number;
     } | null;
+    findings?: {
+      findings_last_computed_at?: string | null;
+      stale?: boolean;
+      stale_reasons?: string[];
+      click_findings_last_computed_at?: string | null;
+      conversion_findings_last_computed_at?: string | null;
+    } | null;
     master_sync?: {
       last_synced_at?: string | null;
     } | null;
@@ -158,6 +165,9 @@ export interface SuspiciousItem {
   date: string;
   ipaddress: string;
   useragent: string;
+  ipaddress_masked?: string;
+  useragent_masked?: string;
+  sensitive_values_masked?: boolean;
   total_clicks?: number;
   total_conversions?: number;
   media_count: number;
@@ -191,6 +201,7 @@ export interface SuspiciousQueryOptions {
   sortBy?: SuspiciousSortBy;
   sortOrder?: SuspiciousSortOrder;
   includeDetails?: boolean;
+  maskSensitive?: boolean;
 }
 
 function appendSuspiciousParams(
@@ -206,6 +217,9 @@ function appendSuspiciousParams(
   if (options.sortOrder) params.append("sort_order", options.sortOrder);
   if (typeof options.includeDetails === "boolean") {
     params.append("include_details", String(options.includeDetails));
+  }
+  if (typeof options.maskSensitive === "boolean") {
+    params.append("mask_sensitive", String(options.maskSensitive));
   }
 }
 

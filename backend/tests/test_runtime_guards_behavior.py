@@ -28,3 +28,24 @@ def test_should_enable_docs_defaults_to_disabled_in_production(monkeypatch):
     monkeypatch.delenv("FC_ENABLE_API_DOCS", raising=False)
 
     assert runtime_guards.should_enable_docs() is False
+
+
+def test_validate_runtime_guards_requires_explicit_read_access_mode_in_production(monkeypatch):
+    monkeypatch.setenv("FC_ENV", "production")
+    monkeypatch.delenv("FC_ALLOW_INSECURE_ADMIN", raising=False)
+    monkeypatch.delenv("ACS_ALLOW_INSECURE", raising=False)
+    monkeypatch.delenv("FC_REQUIRE_READ_AUTH", raising=False)
+    monkeypatch.delenv("FC_EXTERNAL_READ_PROTECTION", raising=False)
+    monkeypatch.delenv("FC_ALLOW_PUBLIC_READ", raising=False)
+
+    with pytest.raises(RuntimeError, match="read-access posture"):
+        runtime_guards.validate_runtime_guards()
+
+
+def test_read_access_mode_accepts_exactly_one_configuration(monkeypatch):
+    monkeypatch.setenv("FC_ENV", "production")
+    monkeypatch.setenv("FC_REQUIRE_READ_AUTH", "true")
+    monkeypatch.delenv("FC_EXTERNAL_READ_PROTECTION", raising=False)
+    monkeypatch.delenv("FC_ALLOW_PUBLIC_READ", raising=False)
+
+    assert runtime_guards.read_access_mode() == "read_auth"

@@ -10,6 +10,50 @@ from .base import RepositoryBase
 
 
 class ReportingReadRepository(RepositoryBase):
+    def _max_timestamp_for_date(self, table_name: str, target_date: date) -> object | None:
+        row = self.fetch_one(
+            f"""
+            SELECT MAX(updated_at) AS watermark
+            FROM {table_name}
+            WHERE date = :target_date
+            """,
+            {"target_date": target_date},
+        )
+        return row["watermark"] if row else None
+
+    def get_click_data_watermark(self, target_date: date):
+        if not self._table_exists("click_ipua_daily"):
+            return None
+        return self._max_timestamp_for_date("click_ipua_daily", target_date)
+
+    def get_conversion_data_watermark(self, target_date: date):
+        if not self._table_exists("conversion_ipua_daily"):
+            return None
+        return self._max_timestamp_for_date("conversion_ipua_daily", target_date)
+
+    def _get_findings_lineage(self, table_name: str, target_date: date) -> dict | None:
+        if not self._table_exists(table_name):
+            return None
+        return self.fetch_one(
+            f"""
+            SELECT
+                MAX(computed_at) AS findings_last_computed_at,
+                MAX(settings_updated_at_snapshot) AS settings_updated_at_snapshot,
+                MAX(source_click_watermark) AS source_click_watermark,
+                MAX(source_conversion_watermark) AS source_conversion_watermark
+            FROM {table_name}
+            WHERE date = :target_date
+              AND is_current = TRUE
+            """,
+            {"target_date": target_date},
+        )
+
+    def get_click_findings_lineage(self, target_date: date) -> dict | None:
+        return self._get_findings_lineage("suspicious_click_findings", target_date)
+
+    def get_conversion_findings_lineage(self, target_date: date) -> dict | None:
+        return self._get_findings_lineage("suspicious_conversion_findings", target_date)
+
     def fetch_aggregates(self, target_date: date) -> list[AggregatedRow]:
         with self._connect() as conn:
             result = conn.execute(

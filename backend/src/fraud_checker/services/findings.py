@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import uuid
 from datetime import date
 
 from ..api_presenters import calculate_risk_level, format_reasons
@@ -39,7 +40,13 @@ def _unique(values: list[str]) -> list[str]:
     return result
 
 
-def recompute_findings_for_dates(repo: PostgresRepository, target_dates: list[date]) -> dict[str, dict[str, int]]:
+def recompute_findings_for_dates(
+    repo: PostgresRepository,
+    target_dates: list[date],
+    *,
+    computed_by_job_id: str | None = None,
+    generation_id: str | None = None,
+) -> dict[str, dict[str, int]]:
     if not target_dates:
         return {}
 
@@ -47,6 +54,8 @@ def recompute_findings_for_dates(repo: PostgresRepository, target_dates: list[da
     click_rules, conversion_rules = settings_service.build_rule_sets(repo)
     rule_version = _rule_version(settings)
     computed_at = now_local()
+    generation_id = generation_id or f"recompute-{uuid.uuid4().hex[:12]}"
+    settings_updated_at_snapshot = repo.get_settings_updated_at()
     results: dict[str, dict[str, int]] = {}
 
     click_detector = SuspiciousDetector(repo, click_rules)
@@ -54,6 +63,8 @@ def recompute_findings_for_dates(repo: PostgresRepository, target_dates: list[da
 
     for target_date in sorted(set(target_dates)):
         with log_timed(logger, "recompute_findings", target_date=target_date):
+            source_click_watermark = repo.get_click_data_watermark(target_date)
+            source_conversion_watermark = repo.get_conversion_data_watermark(target_date)
             click_findings = click_detector.find_for_date(target_date)
             click_details = repo.get_suspicious_click_details_bulk(
                 target_date,
@@ -102,6 +113,11 @@ def recompute_findings_for_dates(repo: PostgresRepository, target_dates: list[da
                         "last_time": finding.last_time,
                         "rule_version": rule_version,
                         "computed_at": computed_at,
+                        "computed_by_job_id": computed_by_job_id,
+                        "settings_updated_at_snapshot": settings_updated_at_snapshot,
+                        "source_click_watermark": source_click_watermark,
+                        "source_conversion_watermark": source_conversion_watermark,
+                        "generation_id": generation_id,
                         "is_current": True,
                         "search_text": _search_text(
                             finding.ipaddress,
@@ -167,6 +183,11 @@ def recompute_findings_for_dates(repo: PostgresRepository, target_dates: list[da
                         "last_time": finding.last_conversion_time,
                         "rule_version": rule_version,
                         "computed_at": computed_at,
+                        "computed_by_job_id": computed_by_job_id,
+                        "settings_updated_at_snapshot": settings_updated_at_snapshot,
+                        "source_click_watermark": source_click_watermark,
+                        "source_conversion_watermark": source_conversion_watermark,
+                        "generation_id": generation_id,
                         "is_current": True,
                         "search_text": _search_text(
                             finding.ipaddress,
@@ -191,6 +212,8 @@ def recompute_findings_for_dates(repo: PostgresRepository, target_dates: list[da
                 suspicious_clicks=len(click_rows),
                 suspicious_conversions=len(conversion_rows),
                 rule_version=rule_version,
+                computed_by_job_id=computed_by_job_id,
+                generation_id=generation_id,
             )
 
     return results

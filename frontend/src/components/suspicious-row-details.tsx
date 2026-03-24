@@ -60,6 +60,14 @@ export function SuspiciousRowDetails({
     <div className="space-y-4 border-t border-border bg-background px-4 py-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Stat
+          label="IP"
+          value={<span className="font-mono text-[11px] break-all">{item.ipaddress || "-"}</span>}
+        />
+        <Stat
+          label="USER-AGENT"
+          value={<span className="text-[11px] break-all">{item.useragent || "-"}</span>}
+        />
+        <Stat
           label="初回検知"
           value={<span className="font-mono text-[11px]">{item.first_time || "-"}</span>}
         />

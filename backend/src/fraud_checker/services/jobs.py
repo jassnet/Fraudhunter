@@ -155,22 +155,23 @@ def _execute_job_run(
 def _dispatch_job(run: JobRun) -> tuple[dict[str, Any], str]:
     params = run.params or {}
     if run.job_type == JOB_TYPE_CLICK_INGEST:
-        return run_click_ingestion(date.fromisoformat(params["date"]))
+        return run_click_ingestion(date.fromisoformat(params["date"]), job_run_id=run.id)
     if run.job_type == JOB_TYPE_CONVERSION_INGEST:
-        return run_conversion_ingestion(date.fromisoformat(params["date"]))
+        return run_conversion_ingestion(date.fromisoformat(params["date"]), job_run_id=run.id)
     if run.job_type == JOB_TYPE_REFRESH:
         return run_refresh(
             hours=int(params["hours"]),
             clicks=bool(params.get("clicks", True)),
             conversions=bool(params.get("conversions", True)),
             detect=bool(params.get("detect", False)),
+            job_run_id=run.id,
         )
     if run.job_type == JOB_TYPE_MASTER_SYNC:
         return run_master_sync()
     raise ValueError(f"Unsupported job_type: {run.job_type}")
 
 
-def run_click_ingestion(target_date: date) -> tuple[dict[str, Any], str]:
+def run_click_ingestion(target_date: date, *, job_run_id: str | None = None) -> tuple[dict[str, Any], str]:
     repo = get_repository()
     client = get_acs_client()
     settings = resolve_acs_settings()
@@ -182,7 +183,12 @@ def run_click_ingestion(target_date: date) -> tuple[dict[str, Any], str]:
     )
     with log_timed(logger, "click_ingestion", target_date=target_date):
         count = ingestor.run_for_date(target_date)
-        finding_counts = findings_service.recompute_findings_for_dates(repo, [target_date])
+        finding_counts = findings_service.recompute_findings_for_dates(
+            repo,
+            [target_date],
+            computed_by_job_id=job_run_id,
+            generation_id=job_run_id,
+        )
     return {
         "success": True,
         "count": count,
@@ -190,7 +196,11 @@ def run_click_ingestion(target_date: date) -> tuple[dict[str, Any], str]:
     }, f"Ingested {count} clicks for {target_date}"
 
 
-def run_conversion_ingestion(target_date: date) -> tuple[dict[str, Any], str]:
+def run_conversion_ingestion(
+    target_date: date,
+    *,
+    job_run_id: str | None = None,
+) -> tuple[dict[str, Any], str]:
     repo = get_repository()
     client = get_acs_client()
     settings = resolve_acs_settings()
@@ -201,7 +211,12 @@ def run_conversion_ingestion(target_date: date) -> tuple[dict[str, Any], str]:
     )
     with log_timed(logger, "conversion_ingestion", target_date=target_date):
         total, enriched, click_enriched = ingestor.run_for_date(target_date)
-        finding_counts = findings_service.recompute_findings_for_dates(repo, [target_date])
+        finding_counts = findings_service.recompute_findings_for_dates(
+            repo,
+            [target_date],
+            computed_by_job_id=job_run_id,
+            generation_id=job_run_id,
+        )
     message = f"Ingested {total} conversions for {target_date}"
     return {
         "success": True,
@@ -212,7 +227,14 @@ def run_conversion_ingestion(target_date: date) -> tuple[dict[str, Any], str]:
     }, message
 
 
-def run_refresh(hours: int, clicks: bool, conversions: bool, detect: bool) -> tuple[dict[str, Any], str]:
+def run_refresh(
+    hours: int,
+    clicks: bool,
+    conversions: bool,
+    detect: bool,
+    *,
+    job_run_id: str | None = None,
+) -> tuple[dict[str, Any], str]:
     end_time = now_local()
     start_time = end_time - timedelta(hours=hours)
 
@@ -269,6 +291,8 @@ def run_refresh(hours: int, clicks: bool, conversions: bool, detect: bool) -> tu
             persisted_results = findings_service.recompute_findings_for_dates(
                 repo,
                 sorted(dates_to_recompute),
+                computed_by_job_id=job_run_id,
+                generation_id=job_run_id,
             )
             if detect:
                 click_rules, conv_rules = settings_service.build_rule_sets(repo)

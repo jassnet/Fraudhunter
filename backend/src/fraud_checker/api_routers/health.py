@@ -7,14 +7,15 @@ from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..api_dependencies import require_admin
+from ..services import reporting
 from ..services.jobs import (
     JOB_TYPE_CLICK_INGEST,
     JOB_TYPE_CONVERSION_INGEST,
     JOB_TYPE_REFRESH,
-    JOB_TYPE_MASTER_SYNC,
     get_job_store,
     get_repository,
 )
+from ..runtime_guards import read_access_mode
 from ..time_utils import now_local
 
 logger = logging.getLogger(__name__)
@@ -49,10 +50,16 @@ def _serialize_health_metrics(repo) -> dict:
         [JOB_TYPE_CLICK_INGEST, JOB_TYPE_CONVERSION_INGEST, JOB_TYPE_REFRESH]
     )
     last_refresh = last_ingest.isoformat() if last_ingest else None
+    findings = (
+        reporting.get_summary(repo, latest_date_obj.isoformat())["quality"]["findings"]
+        if latest_date_obj
+        else {"findings_last_computed_at": None, "stale": False, "stale_reasons": []}
+    )
 
     return {
         "latest_data_date": latest_date_obj.isoformat() if latest_date_obj else None,
         "last_successful_ingest_at": last_refresh,
+        "findings": findings,
         "click_ip_ua_coverage": coverage,
         "conversion_click_enrichment": conversion_enrichment,
         "master_sync": {
@@ -152,6 +159,7 @@ def health_check():
             "database_url_configured": bool(database_url),
             "acs_base_url_configured": bool(acs_base_url),
             "acs_auth_configured": bool(acs_token or (acs_access_key and acs_secret_key)),
+            "read_access_mode": read_access_mode(),
         },
         "metrics": metrics,
     }

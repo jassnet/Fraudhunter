@@ -3,8 +3,9 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from ..api_dependencies import require_read_access
 from ..api_models import SuspiciousResponse
 from ..api_parsers import parse_iso_date
 from ..api_presenters import (
@@ -15,7 +16,7 @@ from ..services import reporting
 from ..services.jobs import get_repository
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/suspicious", tags=["suspicious"])
+router = APIRouter(prefix="/api/suspicious", tags=["suspicious"], dependencies=[Depends(require_read_access)])
 
 
 def _resolve_target_date(repo, table: str, target_date: Optional[str]) -> Optional[str]:
@@ -48,6 +49,7 @@ def get_suspicious_clicks(
     search: Optional[str] = Query(None, description="IP/UA/媒体名/案件名で検索"),
     include_names: bool = Query(True, description="媒体/案件名を含める"),
     include_details: bool = Query(True, description="詳細行を含める"),
+    mask_sensitive: bool = Query(True, description="IP/UA をマスク表示する"),
     risk_level: Optional[str] = Query(None, pattern="^(high|medium|low)$"),
     sort_by: str = Query("count", pattern="^(count|risk|latest)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
@@ -84,6 +86,7 @@ def get_suspicious_clicks(
                     if include_details and include_names
                     else None
                 ),
+                mask_sensitive=mask_sensitive,
             )
             for row in rows
         ]
@@ -109,6 +112,7 @@ def get_suspicious_conversions(
     search: Optional[str] = Query(None, description="IP/UA/媒体名/案件名で検索"),
     include_names: bool = Query(True, description="媒体/案件名を含める"),
     include_details: bool = Query(True, description="詳細行を含める"),
+    mask_sensitive: bool = Query(True, description="IP/UA をマスク表示する"),
     risk_level: Optional[str] = Query(None, pattern="^(high|medium|low)$"),
     sort_by: str = Query("count", pattern="^(count|risk|latest)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
@@ -145,6 +149,7 @@ def get_suspicious_conversions(
                     if include_details and include_names
                     else None
                 ),
+                mask_sensitive=mask_sensitive,
             )
             for row in rows
         ]
@@ -177,7 +182,7 @@ def get_suspicious_click_detail(
         details = None
         if include_names and include_details:
             details = _load_click_details(repo, row)
-        return present_click_finding_record(row, details)
+        return present_click_finding_record(row, details, mask_sensitive=False)
     except HTTPException:
         raise
     except Exception:
@@ -200,7 +205,7 @@ def get_suspicious_conversion_detail(
         details = None
         if include_names and include_details:
             details = _load_conversion_details(repo, row)
-        return present_conversion_finding_record(row, details)
+        return present_conversion_finding_record(row, details, mask_sensitive=False)
     except HTTPException:
         raise
     except Exception:

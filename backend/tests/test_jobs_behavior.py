@@ -148,7 +148,7 @@ def test_run_refresh_collects_detect_results_per_date(monkeypatch):
     monkeypatch.setattr(
         jobs.findings_service,
         "recompute_findings_for_dates",
-        lambda repo, dates: {
+        lambda repo, dates, **kwargs: {
             target_date.isoformat(): {"suspicious_clicks": 1, "suspicious_conversions": 1}
             for target_date in dates
         },
@@ -273,7 +273,7 @@ def test_run_click_ingestion_returns_summary_message(monkeypatch):
     monkeypatch.setattr(
         jobs.findings_service,
         "recompute_findings_for_dates",
-        lambda repo, dates: {dates[0].isoformat(): {"suspicious_clicks": 1}},
+        lambda repo, dates, **kwargs: {dates[0].isoformat(): {"suspicious_clicks": 1}},
     )
 
     result, message = jobs.run_click_ingestion(datetime(2026, 1, 3).date())
@@ -302,7 +302,7 @@ def test_run_conversion_ingestion_returns_summary_message(monkeypatch):
     monkeypatch.setattr(
         jobs.findings_service,
         "recompute_findings_for_dates",
-        lambda repo, dates: {dates[0].isoformat(): {"suspicious_conversions": 1}},
+        lambda repo, dates, **kwargs: {dates[0].isoformat(): {"suspicious_conversions": 1}},
     )
 
     result, message = jobs.run_conversion_ingestion(datetime(2026, 1, 3).date())

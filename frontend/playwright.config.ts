@@ -27,7 +27,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `python -m uvicorn fraud_checker.api:app --host 127.0.0.1 --port ${BACKEND_PORT} --app-dir ./src`,
+      command: `python -m fraud_checker.migrations && python -m uvicorn fraud_checker.api:app --host 127.0.0.1 --port ${BACKEND_PORT} --app-dir ./src`,
       cwd: "../backend",
       url: `${BACKEND_URL}/`,
       reuseExistingServer: !process.env.CI,
@@ -38,6 +38,7 @@ export default defineConfig({
         FC_ENV: "test",
         FC_E2E_TEST_KEY: E2E_TEST_KEY,
         FC_ALLOW_INSECURE_ADMIN: "true",
+        PYTHONPATH: "./src",
       },
     },
     {

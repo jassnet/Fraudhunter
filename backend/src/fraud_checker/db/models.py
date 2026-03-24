@@ -178,6 +178,7 @@ class SuspiciousClickFindingRecord(Base):
     __table_args__ = (
         Index("idx_scf_date_current", "date", "is_current"),
         Index("idx_scf_date_current_risk", "date", "is_current", "risk_level"),
+        Index("idx_scf_date_current_computed", "date", "is_current", "computed_at"),
     )
 
     finding_key: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -202,6 +203,11 @@ class SuspiciousClickFindingRecord(Base):
     last_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     rule_version: Mapped[str] = mapped_column(Text, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    computed_by_job_id: Mapped[str | None] = mapped_column(Text)
+    settings_updated_at_snapshot: Mapped[datetime | None] = mapped_column(DateTime)
+    source_click_watermark: Mapped[datetime | None] = mapped_column(DateTime)
+    source_conversion_watermark: Mapped[datetime | None] = mapped_column(DateTime)
+    generation_id: Mapped[str | None] = mapped_column(Text)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     search_text: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -211,6 +217,7 @@ class SuspiciousConversionFindingRecord(Base):
     __table_args__ = (
         Index("idx_scof_date_current", "date", "is_current"),
         Index("idx_scof_date_current_risk", "date", "is_current", "risk_level"),
+        Index("idx_scof_date_current_computed", "date", "is_current", "computed_at"),
     )
 
     finding_key: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -237,5 +244,10 @@ class SuspiciousConversionFindingRecord(Base):
     last_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     rule_version: Mapped[str] = mapped_column(Text, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    computed_by_job_id: Mapped[str | None] = mapped_column(Text)
+    settings_updated_at_snapshot: Mapped[datetime | None] = mapped_column(DateTime)
+    source_click_watermark: Mapped[datetime | None] = mapped_column(DateTime)
+    source_conversion_watermark: Mapped[datetime | None] = mapped_column(DateTime)
+    generation_id: Mapped[str | None] = mapped_column(Text)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     search_text: Mapped[str] = mapped_column(Text, nullable=False)

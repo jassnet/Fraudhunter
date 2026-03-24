@@ -228,7 +228,11 @@ def seed_baseline(repo: PostgresRepository) -> dict:
         conn.execute(sa.insert(_table("conversion_raw")), conversion_raw_rows)
 
     settings_service._settings_cache = None
-    recomputed = findings_service.recompute_findings_for_dates(repo, [PREVIOUS_DATE, TARGET_DATE])
+    recomputed = findings_service.recompute_findings_for_dates(
+        repo,
+        [PREVIOUS_DATE, TARGET_DATE],
+        generation_id="e2e-seed-baseline",
+    )
 
     return {
         "target_date": TARGET_DATE.isoformat(),

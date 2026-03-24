@@ -98,6 +98,31 @@ def normalize_job_status_message(status: str, message: str | None) -> str | None
     return None
 
 
+def mask_ipaddress(value: str | None) -> str:
+    if not value:
+        return "-"
+    if ":" in value:
+        segments = value.split(":")
+        if len(segments) <= 2:
+            return value
+        return ":".join(segments[:2] + ["*"] * max(1, len(segments) - 2))
+    parts = value.split(".")
+    if len(parts) == 4:
+        return ".".join(parts[:2] + ["x", "x"])
+    if len(value) <= 4:
+        return "*" * len(value)
+    return f"{value[:3]}***"
+
+
+def mask_useragent(value: str | None) -> str:
+    if not value:
+        return "-"
+    compact = " ".join(value.split())
+    if len(compact) <= 24:
+        return compact[:12] + "..." if len(compact) > 12 else compact
+    return f"{compact[:18]}...{compact[-6:]}"
+
+
 def build_job_status_response(status) -> JobStatusResponse:
     message = normalize_job_status_message(status.status, status.message)
     return JobStatusResponse(
@@ -190,12 +215,24 @@ def present_conversion_finding(finding, include_names: bool, details: list[dict]
     return item
 
 
-def present_click_finding_record(row: dict, details: list[dict] | None = None) -> dict:
+def present_click_finding_record(
+    row: dict,
+    details: list[dict] | None = None,
+    *,
+    mask_sensitive: bool = False,
+) -> dict:
+    ipaddress = row["ipaddress"]
+    useragent = row["useragent"]
+    masked_ip = mask_ipaddress(ipaddress)
+    masked_ua = mask_useragent(useragent)
     item = {
         "finding_key": row["finding_key"],
         "date": row["date"].isoformat() if hasattr(row["date"], "isoformat") else row["date"],
-        "ipaddress": row["ipaddress"],
-        "useragent": row["useragent"],
+        "ipaddress": masked_ip if mask_sensitive else ipaddress,
+        "useragent": masked_ua if mask_sensitive else useragent,
+        "ipaddress_masked": masked_ip,
+        "useragent_masked": masked_ua,
+        "sensitive_values_masked": mask_sensitive,
         "total_clicks": row["total_clicks"],
         "media_count": row["media_count"],
         "program_count": row["program_count"],
@@ -215,12 +252,24 @@ def present_click_finding_record(row: dict, details: list[dict] | None = None) -
     return item
 
 
-def present_conversion_finding_record(row: dict, details: list[dict] | None = None) -> dict:
+def present_conversion_finding_record(
+    row: dict,
+    details: list[dict] | None = None,
+    *,
+    mask_sensitive: bool = False,
+) -> dict:
+    ipaddress = row["ipaddress"]
+    useragent = row["useragent"]
+    masked_ip = mask_ipaddress(ipaddress)
+    masked_ua = mask_useragent(useragent)
     item = {
         "finding_key": row["finding_key"],
         "date": row["date"].isoformat() if hasattr(row["date"], "isoformat") else row["date"],
-        "ipaddress": row["ipaddress"],
-        "useragent": row["useragent"],
+        "ipaddress": masked_ip if mask_sensitive else ipaddress,
+        "useragent": masked_ua if mask_sensitive else useragent,
+        "ipaddress_masked": masked_ip,
+        "useragent_masked": masked_ua,
+        "sensitive_values_masked": mask_sensitive,
         "total_conversions": row["total_conversions"],
         "media_count": row["media_count"],
         "program_count": row["program_count"],

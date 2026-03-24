@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import date
 
 from ..config import (
@@ -112,13 +113,19 @@ def update_settings(repo: PostgresRepository, settings: dict) -> dict:
             for value in reporting_service.get_available_dates(repo)
             if value
         ]
-        recomputed = findings_service.recompute_findings_for_dates(repo, dates)
+        recompute_generation_id = f"settings-{uuid.uuid4().hex[:12]}"
+        recomputed = findings_service.recompute_findings_for_dates(
+            repo,
+            dates,
+            generation_id=recompute_generation_id,
+        )
         return {
             "success": True,
             "settings": _settings_cache,
             "persisted": True,
             "findings_recomputed": True,
             "recomputed_dates": recomputed,
+            "generation_id": recompute_generation_id,
         }
     except Exception as exc:
         logger.exception("Settings persisted but finding recomputation failed")

@@ -35,7 +35,7 @@ def test_run_refresh_includes_detect(monkeypatch):
     monkeypatch.setattr(
         jobs.findings_service,
         "recompute_findings_for_dates",
-        lambda repo, dates: {
+        lambda repo, dates, **kwargs: {
             target_date.isoformat(): {"suspicious_clicks": 1, "suspicious_conversions": 2}
             for target_date in dates
         },

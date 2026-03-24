@@ -136,6 +136,8 @@ def test_suspicious_clicks_returns_business_friendly_fields(monkeypatch):
     payload = response.json()
     assert payload["total"] == 1
     row = payload["data"][0]
+    assert row["ipaddress"] == "8.8.x.x"
+    assert row["sensitive_values_masked"] is True
     assert row["risk_level"] == "high"
     assert row["risk_label"] == "高リスク"
     assert row["reasons_formatted"] == [
@@ -201,6 +203,8 @@ def test_suspicious_click_detail_returns_single_finding(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["finding_key"] == "f-1"
+    assert payload["ipaddress"] == "8.8.8.8"
+    assert payload["sensitive_values_masked"] is False
     assert payload["details"][0]["media_name"] == "Media 1"
 
 
@@ -245,6 +249,28 @@ def test_summary_endpoint_returns_payload(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["date"] == "2026-01-03"
+
+
+def test_summary_endpoint_requires_read_api_key_when_enabled(monkeypatch):
+    monkeypatch.setenv("FC_REQUIRE_READ_AUTH", "true")
+    monkeypatch.setenv("FC_READ_API_KEY", "read-secret")
+    monkeypatch.setattr(reporting_router, "get_repository", lambda: object())
+    monkeypatch.setattr(
+        reporting_router.reporting,
+        "get_summary",
+        lambda repo, target_date: {"date": "2026-01-03", "stats": {"clicks": {"total": 12}}},
+    )
+    client = TestClient(api.app)
+
+    unauthorized = client.get("/api/summary", params={"target_date": "2026-01-03"})
+    authorized = client.get(
+        "/api/summary",
+        params={"target_date": "2026-01-03"},
+        headers={"X-Read-API-Key": "read-secret"},
+    )
+
+    assert unauthorized.status_code == 401
+    assert authorized.status_code == 200
 
 
 def test_daily_stats_endpoint_returns_data(monkeypatch):
@@ -358,11 +384,25 @@ def test_health_returns_warning_when_data_is_missing(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://example/db")
     monkeypatch.setenv("ACS_BASE_URL", "https://acs.example.com")
     monkeypatch.setenv("ACS_TOKEN", "a:b")
+    monkeypatch.setenv("FC_ALLOW_PUBLIC_READ", "true")
     monkeypatch.setattr(health_router, "get_repository", lambda: DummyRepo())
     monkeypatch.setattr(
         health_router,
         "get_job_store",
         lambda: type("DummyStore", (), {"get_latest_successful_finished_at": lambda self, job_types: None})(),
+    )
+    monkeypatch.setattr(
+        health_router.reporting,
+        "get_summary",
+        lambda repo, target_date: {
+            "quality": {
+                "findings": {
+                    "findings_last_computed_at": None,
+                    "stale": False,
+                    "stale_reasons": [],
+                }
+            }
+        },
     )
     client = TestClient(api.app)
 
@@ -373,6 +413,7 @@ def test_health_returns_warning_when_data_is_missing(monkeypatch):
     assert payload["status"] == "warning"
     assert len(payload["issues"]) >= 1
     assert payload["config"]["database_url_configured"] is True
+    assert payload["config"]["read_access_mode"] == "public"
 
 
 def test_settings_endpoints_return_service_payloads(monkeypatch):

@@ -50,6 +50,7 @@ describe("API helper", () => {
         expect(url.searchParams.get("sort_by")).toBe("risk");
         expect(url.searchParams.get("sort_order")).toBe("asc");
         expect(url.searchParams.get("include_details")).toBe("false");
+        expect(url.searchParams.get("mask_sensitive")).toBe("true");
         return HttpResponse.json({
           date: "2026-01-21",
           data: [],
@@ -66,6 +67,7 @@ describe("API helper", () => {
       sortBy: "risk",
       sortOrder: "asc",
       includeDetails: false,
+      maskSensitive: true,
     });
 
     expect(result.total).toBe(0);

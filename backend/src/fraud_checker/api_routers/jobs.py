@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from ..api_dependencies import require_admin
+from ..api_dependencies import require_admin, require_read_access
 from ..api_models import IngestRequest, IngestResponse, JobStatusResponse, RefreshRequest
 from ..api_parsers import parse_iso_date
 from ..api_presenters import build_job_status_response
@@ -84,7 +84,7 @@ def refresh_data(request: RefreshRequest, background_tasks: BackgroundTasks):
     )
 
 
-@router.get("/job/status", response_model=JobStatusResponse)
+@router.get("/job/status", response_model=JobStatusResponse, dependencies=[Depends(require_read_access)])
 def get_job_status():
     status = get_job_store().get()
     return build_job_status_response(status)
