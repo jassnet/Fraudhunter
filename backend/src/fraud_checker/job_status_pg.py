@@ -414,6 +414,27 @@ class JobStatusStorePG:
             ).scalar_one()
         return value
 
+    def purge_finished_runs_before(self, cutoff: datetime, *, execute: bool) -> int:
+        params = {"cutoff": cutoff}
+        where_sql = (
+            "status IN ('succeeded', 'failed', 'cancelled') "
+            "AND finished_at IS NOT NULL "
+            "AND finished_at < :cutoff"
+        )
+        if execute:
+            with self.engine.begin() as conn:
+                result = conn.execute(
+                    sa.text(f"DELETE FROM job_runs WHERE {where_sql}"),
+                    params,
+                )
+            return int(result.rowcount or 0)
+        with self.engine.begin() as conn:
+            count = conn.execute(
+                sa.text(f"SELECT COUNT(*) FROM job_runs WHERE {where_sql}"),
+                params,
+            ).scalar_one()
+        return int(count)
+
     def get_queue_metrics(self) -> dict[str, Any]:
         now = now_local()
         with self.engine.begin() as conn:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import uuid
 from datetime import date, datetime
 from typing import Iterable
+import uuid
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -383,3 +383,35 @@ class IngestionRepository(RepositoryBase):
                     self._upsert_conversion_aggregate(conn, conv)
                 new_count += 1
         return new_count, skip_count
+
+    def purge_raw_before(self, cutoff: datetime, *, execute: bool) -> dict[str, int]:
+        targets = {
+            "click_raw": ("click_time < :cutoff", {"cutoff": cutoff}),
+            "conversion_raw": ("conversion_time < :cutoff", {"cutoff": cutoff}),
+        }
+        return self._purge_targets(targets, execute=execute)
+
+    def purge_aggregates_before(self, cutoff: date, *, execute: bool) -> dict[str, int]:
+        targets = {
+            "click_ipua_daily": ("date < :cutoff", {"cutoff": cutoff}),
+            "conversion_ipua_daily": ("date < :cutoff", {"cutoff": cutoff}),
+        }
+        return self._purge_targets(targets, execute=execute)
+
+    def _purge_targets(
+        self,
+        targets: dict[str, tuple[str, dict[str, object]]],
+        *,
+        execute: bool,
+    ) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for table_name, (where_sql, params) in targets.items():
+            if not self._table_exists(table_name):
+                counts[table_name] = 0
+                continue
+            counts[table_name] = (
+                self.delete_rows(table_name, where_sql, params)
+                if execute
+                else self.count_rows(table_name, where_sql, params)
+            )
+        return counts

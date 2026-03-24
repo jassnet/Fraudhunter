@@ -342,6 +342,25 @@ class SuspiciousReadRepository(RepositoryBase):
         )
         return int(row["cnt"] if row else 0)
 
+    def purge_findings_before(self, cutoff: date, *, execute: bool) -> dict[str, int]:
+        targets = (
+            "suspicious_click_findings",
+            "suspicious_conversion_findings",
+        )
+        counts: dict[str, int] = {}
+        for table_name in targets:
+            if not self._table_exists(table_name):
+                counts[table_name] = 0
+                continue
+            where_sql = "date < :cutoff"
+            params = {"cutoff": cutoff}
+            counts[table_name] = (
+                self.delete_rows(table_name, where_sql, params)
+                if execute
+                else self.count_rows(table_name, where_sql, params)
+            )
+        return counts
+
     def _deserialize_finding_row(self, row: dict) -> dict:
         parsed = dict(row)
         for key in (

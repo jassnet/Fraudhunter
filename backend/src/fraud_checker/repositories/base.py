@@ -71,3 +71,20 @@ class RepositoryBase:
         with self._connect() as conn:
             row = conn.execute(sa.text(sql), bind_params).mappings().first()
             return dict(row) if row else None
+
+    def count_rows(self, table_name: str, where_sql: str = "", params: dict | None = None) -> int:
+        where_clause = f" WHERE {where_sql}" if where_sql else ""
+        row = self.fetch_one(
+            f"SELECT COUNT(*) AS cnt FROM {table_name}{where_clause}",
+            params or {},
+        )
+        return int(row["cnt"] if row else 0)
+
+    def delete_rows(self, table_name: str, where_sql: str = "", params: dict | None = None) -> int:
+        where_clause = f" WHERE {where_sql}" if where_sql else ""
+        with self._connect() as conn:
+            result = conn.execute(
+                sa.text(f"DELETE FROM {table_name}{where_clause}"),
+                params or {},
+            )
+        return int(result.rowcount or 0)

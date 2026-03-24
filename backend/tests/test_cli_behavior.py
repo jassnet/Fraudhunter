@@ -57,6 +57,7 @@ def test_build_parser_accepts_refresh_sync_masters_and_worker():
     refresh_args = parser.parse_args(["refresh", "--hours", "3", "--detect"])
     sync_args = parser.parse_args(["sync-masters"])
     worker_args = parser.parse_args(["run-worker", "--max-jobs", "2"])
+    purge_args = parser.parse_args(["purge-data", "--execute", "--raw-days", "45"])
 
     # Then
     assert refresh_args.command == "refresh"
@@ -65,6 +66,9 @@ def test_build_parser_accepts_refresh_sync_masters_and_worker():
     assert sync_args.command == "sync-masters"
     assert worker_args.command == "run-worker"
     assert worker_args.max_jobs == 2
+    assert purge_args.command == "purge-data"
+    assert purge_args.execute is True
+    assert purge_args.raw_days == 45
 
 
 def test_cmd_refresh_rejects_conflicting_flags():
@@ -343,3 +347,49 @@ def test_cmd_run_worker_delegates_to_job_processor(monkeypatch, capsys):
 
     assert code == 0
     assert "Processed 2 queued job(s)" in output
+
+
+def test_cmd_purge_data_runs_lifecycle_service(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_build_repository", lambda store_raw: object())
+    monkeypatch.setattr(cli, "_require_database_url", lambda: "postgresql://example/db")
+    monkeypatch.setattr(cli, "JobStatusStorePG", lambda database_url: object())
+    monkeypatch.setattr(
+        cli.lifecycle,
+        "resolve_retention_policy",
+        lambda **kwargs: type("Policy", (), kwargs)(),
+    )
+    monkeypatch.setattr(
+        cli.lifecycle,
+        "purge_old_data",
+        lambda repo, job_store, policy, execute: {
+            "reference_time": "2026-03-24T00:00:00",
+            "cutoffs": {
+                "raw_before": "2025-12-24T00:00:00",
+                "aggregates_before": "2025-03-24",
+                "findings_before": "2025-03-24",
+                "job_runs_before": "2026-02-23T00:00:00",
+            },
+            "counts": {
+                "raw": {"click_raw": 10},
+                "aggregates": {"click_ipua_daily": 20},
+                "findings": {"suspicious_click_findings": 5},
+                "job_runs": {"job_runs": 3},
+            },
+        },
+    )
+
+    code = cli._cmd_purge_data(
+        argparse.Namespace(
+            execute=False,
+            raw_days=90,
+            aggregate_days=365,
+            findings_days=365,
+            job_run_days=30,
+        )
+    )
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "=== Data Lifecycle Purge (DRY-RUN) ===" in output
+    assert "Raw rows: {'click_raw': 10}" in output
+    assert "Job runs: {'job_runs': 3}" in output

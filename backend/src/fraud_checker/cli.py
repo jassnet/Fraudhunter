@@ -8,9 +8,10 @@ from datetime import timedelta
 from .acs_client import AcsHttpClient
 from .config import resolve_acs_settings, resolve_store_raw
 from .ingestion import ClickLogIngestor, ConversionIngestor
+from .job_status_pg import JobStatusStorePG
 from .repository_pg import PostgresRepository
 from .suspicious import CombinedSuspiciousDetector
-from .services import findings as findings_service, settings as settings_service
+from .services import findings as findings_service, lifecycle, settings as settings_service
 from .services.jobs import process_queued_jobs
 from .time_utils import now_local
 
@@ -58,6 +59,28 @@ def build_parser() -> argparse.ArgumentParser:
 
     worker = sub.add_parser("run-worker", help="Run queued durable jobs")
     worker.add_argument("--max-jobs", type=int, default=1, help="Maximum jobs to process")
+
+    purge = sub.add_parser("purge-data", help="Purge old monitoring data by retention policy")
+    purge.add_argument("--execute", action="store_true", help="Delete matching rows instead of dry-run")
+    purge.add_argument("--raw-days", type=int, default=None, help="Retention days for raw tables")
+    purge.add_argument(
+        "--aggregate-days",
+        type=int,
+        default=None,
+        help="Retention days for aggregate tables",
+    )
+    purge.add_argument(
+        "--findings-days",
+        type=int,
+        default=None,
+        help="Retention days for persisted findings",
+    )
+    purge.add_argument(
+        "--job-run-days",
+        type=int,
+        default=None,
+        help="Retention days for finished job runs",
+    )
 
     return parser
 
@@ -181,6 +204,36 @@ def _cmd_run_worker(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_purge_data(args: argparse.Namespace) -> int:
+    repository = _build_repository(store_raw=False)
+    job_store = JobStatusStorePG(_require_database_url())
+    policy = lifecycle.resolve_retention_policy(
+        raw_days=args.raw_days,
+        aggregate_days=args.aggregate_days,
+        findings_days=args.findings_days,
+        job_run_days=args.job_run_days,
+    )
+    result = lifecycle.purge_old_data(
+        repository,
+        job_store,
+        policy=policy,
+        execute=args.execute,
+    )
+
+    mode = "EXECUTE" if args.execute else "DRY-RUN"
+    print(f"=== Data Lifecycle Purge ({mode}) ===")
+    print(f"Reference time: {result['reference_time']}")
+    print(f"Raw cutoff: {result['cutoffs']['raw_before']}")
+    print(f"Aggregate cutoff: {result['cutoffs']['aggregates_before']}")
+    print(f"Findings cutoff: {result['cutoffs']['findings_before']}")
+    print(f"Job runs cutoff: {result['cutoffs']['job_runs_before']}")
+    print(f"Raw rows: {result['counts']['raw']}")
+    print(f"Aggregate rows: {result['counts']['aggregates']}")
+    print(f"Findings rows: {result['counts']['findings']}")
+    print(f"Job runs: {result['counts']['job_runs']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -190,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_sync_masters()
     if args.command == "run-worker":
         return _cmd_run_worker(args)
+    if args.command == "purge-data":
+        return _cmd_purge_data(args)
 
     parser.print_help()
     return 1
