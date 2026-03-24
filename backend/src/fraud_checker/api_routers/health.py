@@ -12,6 +12,7 @@ from ..services.jobs import (
     JOB_TYPE_CLICK_INGEST,
     JOB_TYPE_CONVERSION_INGEST,
     JOB_TYPE_REFRESH,
+    _should_use_in_process_background_kick,
     get_job_store,
     get_repository,
 )
@@ -46,10 +47,14 @@ def _serialize_health_metrics(repo) -> dict:
     else:
         master_sync_age_hours = None
 
-    last_ingest = get_job_store().get_latest_successful_finished_at(
+    job_store = get_job_store()
+    last_ingest = job_store.get_latest_successful_finished_at(
         [JOB_TYPE_CLICK_INGEST, JOB_TYPE_CONVERSION_INGEST, JOB_TYPE_REFRESH]
     )
     last_refresh = last_ingest.isoformat() if last_ingest else None
+    queue_metrics = job_store.get_queue_metrics()
+    if isinstance(queue_metrics.get("oldest_queued_at"), datetime):
+        queue_metrics["oldest_queued_at"] = queue_metrics["oldest_queued_at"].isoformat()
     findings = (
         reporting.get_summary(repo, latest_date_obj.isoformat())["quality"]["findings"]
         if latest_date_obj
@@ -66,6 +71,7 @@ def _serialize_health_metrics(repo) -> dict:
             "last_synced_at": last_master_sync,
             "age_hours": master_sync_age_hours,
         },
+        "jobs": queue_metrics,
     }
 
 
@@ -160,6 +166,7 @@ def health_check():
             "acs_base_url_configured": bool(acs_base_url),
             "acs_auth_configured": bool(acs_token or (acs_access_key and acs_secret_key)),
             "read_access_mode": read_access_mode(),
+            "in_process_job_kick_enabled": _should_use_in_process_background_kick(),
         },
         "metrics": metrics,
     }

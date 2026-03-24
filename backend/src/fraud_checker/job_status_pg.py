@@ -14,6 +14,11 @@ import fraud_checker.db.models  # noqa: F401
 from .time_utils import now_local
 
 JOB_RUN_STATUSES = {"queued", "running", "succeeded", "failed", "cancelled"}
+JOB_RUN_ACTIVE_STATUSES = {"queued", "running"}
+DEFAULT_MAX_ATTEMPTS = 3
+DEFAULT_PRIORITY = 100
+DEFAULT_RETRY_BASE_SECONDS = 30
+MAX_RETRY_BACKOFF_SECONDS = 900
 
 
 @dataclass
@@ -24,6 +29,7 @@ class JobStatus:
     started_at: str | datetime | None
     completed_at: str | datetime | None
     result: dict[str, Any] | None
+    queue: dict[str, Any] | None = None
 
 
 @dataclass
@@ -35,6 +41,11 @@ class JobRun:
     result: dict[str, Any] | None
     error_message: str | None
     message: str | None
+    attempt_count: int
+    max_attempts: int
+    next_retry_at: datetime | None
+    dedupe_key: str | None
+    priority: int
     queued_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
@@ -70,6 +81,11 @@ class JobStatusStorePG:
             result=self._loads(row.get("result_json")),
             error_message=row.get("error_message"),
             message=row.get("message"),
+            attempt_count=int(row.get("attempt_count") or 0),
+            max_attempts=int(row.get("max_attempts") or 1),
+            next_retry_at=row.get("next_retry_at"),
+            dedupe_key=row.get("dedupe_key"),
+            priority=int(row.get("priority") or DEFAULT_PRIORITY),
             queued_at=row["queued_at"],
             started_at=row.get("started_at"),
             finished_at=row.get("finished_at"),
@@ -84,12 +100,48 @@ class JobStatusStorePG:
                 sa.text(
                     """
                     SELECT id, job_type, status, params_json, result_json, error_message, message,
+                           attempt_count, max_attempts, next_retry_at, dedupe_key, priority,
                            queued_at, started_at, finished_at, heartbeat_at, locked_until, worker_id
                     FROM job_runs
                     ORDER BY COALESCE(finished_at, started_at, queued_at) DESC, queued_at DESC
                     LIMIT 1
                     """
                 )
+            ).mappings().first()
+        return self._to_run(row) if row else None
+
+    def get_by_id(self, run_id: str) -> JobRun | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.text(
+                    """
+                    SELECT id, job_type, status, params_json, result_json, error_message, message,
+                           attempt_count, max_attempts, next_retry_at, dedupe_key, priority,
+                           queued_at, started_at, finished_at, heartbeat_at, locked_until, worker_id
+                    FROM job_runs
+                    WHERE id = :run_id
+                    """
+                ),
+                {"run_id": run_id},
+            ).mappings().first()
+        return self._to_run(row) if row else None
+
+    def find_active_duplicate(self, dedupe_key: str) -> JobRun | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.text(
+                    """
+                    SELECT id, job_type, status, params_json, result_json, error_message, message,
+                           attempt_count, max_attempts, next_retry_at, dedupe_key, priority,
+                           queued_at, started_at, finished_at, heartbeat_at, locked_until, worker_id
+                    FROM job_runs
+                    WHERE dedupe_key = :dedupe_key
+                      AND status IN ('queued', 'running')
+                    ORDER BY queued_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"dedupe_key": dedupe_key},
             ).mappings().first()
         return self._to_run(row) if row else None
 
@@ -101,7 +153,7 @@ class JobStatusStorePG:
                     """
                     SELECT COUNT(*)
                     FROM job_runs
-                    WHERE status = 'queued'
+                    WHERE (status = 'queued' AND (next_retry_at IS NULL OR next_retry_at <= :now))
                        OR (status = 'running' AND (locked_until IS NULL OR locked_until >= :now))
                     """
                 ),
@@ -109,7 +161,16 @@ class JobStatusStorePG:
             ).scalar_one()
         return bool(count)
 
-    def enqueue(self, *, job_type: str, params: dict[str, Any] | None, message: str | None) -> JobRun:
+    def enqueue(
+        self,
+        *,
+        job_type: str,
+        params: dict[str, Any] | None,
+        message: str | None,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        dedupe_key: str | None = None,
+        priority: int = DEFAULT_PRIORITY,
+    ) -> JobRun:
         queued_at = now_local()
         run_id = uuid.uuid4().hex
         with self.engine.begin() as conn:
@@ -117,9 +178,11 @@ class JobStatusStorePG:
                 sa.text(
                     """
                     INSERT INTO job_runs (
-                        id, job_type, status, params_json, message, queued_at
+                        id, job_type, status, params_json, message,
+                        attempt_count, max_attempts, next_retry_at, dedupe_key, priority, queued_at
                     ) VALUES (
-                        :id, :job_type, 'queued', :params_json, :message, :queued_at
+                        :id, :job_type, 'queued', :params_json, :message,
+                        0, :max_attempts, NULL, :dedupe_key, :priority, :queued_at
                     )
                     """
                 ),
@@ -128,6 +191,9 @@ class JobStatusStorePG:
                     "job_type": job_type,
                     "params_json": self._dumps(params),
                     "message": message,
+                    "max_attempts": max(1, int(max_attempts)),
+                    "dedupe_key": dedupe_key,
+                    "priority": priority,
                     "queued_at": queued_at,
                 },
             )
@@ -139,6 +205,11 @@ class JobStatusStorePG:
             result=None,
             error_message=None,
             message=message,
+            attempt_count=0,
+            max_attempts=max(1, int(max_attempts)),
+            next_retry_at=None,
+            dedupe_key=dedupe_key,
+            priority=priority,
             queued_at=queued_at,
             started_at=None,
             finished_at=None,
@@ -157,7 +228,8 @@ class JobStatusStorePG:
                     SET status = 'queued',
                         message = COALESCE(message, job_type) || ' (lease recovered)',
                         worker_id = NULL,
-                        locked_until = NULL
+                        locked_until = NULL,
+                        next_retry_at = COALESCE(next_retry_at, :now)
                     WHERE status = 'running'
                       AND locked_until IS NOT NULL
                       AND locked_until < :now
@@ -179,7 +251,8 @@ class JobStatusStorePG:
                         SELECT id
                         FROM job_runs
                         WHERE status = 'queued'
-                        ORDER BY queued_at ASC
+                          AND (next_retry_at IS NULL OR next_retry_at <= :now)
+                        ORDER BY priority ASC, queued_at ASC
                         LIMIT 1
                         FOR UPDATE SKIP LOCKED
                     )
@@ -191,6 +264,7 @@ class JobStatusStorePG:
                         worker_id = :worker_id
                     WHERE id IN (SELECT id FROM candidate)
                     RETURNING id, job_type, status, params_json, result_json, error_message, message,
+                              attempt_count, max_attempts, next_retry_at, dedupe_key, priority,
                               queued_at, started_at, finished_at, heartbeat_at, locked_until, worker_id
                     """
                 ),
@@ -234,7 +308,8 @@ class JobStatusStorePG:
                         error_message = NULL,
                         finished_at = :finished_at,
                         heartbeat_at = :finished_at,
-                        locked_until = NULL
+                        locked_until = NULL,
+                        next_retry_at = NULL
                     WHERE id = :run_id
                     """
                 ),
@@ -253,31 +328,53 @@ class JobStatusStorePG:
         result: dict[str, Any] | None = None,
         *,
         error_message: str | None = None,
-    ) -> None:
+        retryable: bool = True,
+        backoff_seconds: int | None = None,
+    ) -> str:
         finished_at = now_local()
+        attempt_state = self._get_attempt_state(run_id)
+        next_attempt = attempt_state["attempt_count"] + 1
+        max_attempts = max(1, attempt_state["max_attempts"])
+        should_retry = retryable and next_attempt < max_attempts
+        next_retry_at = (
+            finished_at + timedelta(seconds=backoff_seconds or self._retry_backoff_seconds(next_attempt))
+            if should_retry
+            else None
+        )
+        next_status = "queued" if should_retry else "failed"
+        terminal_finished_at = None if should_retry else finished_at
+
         with self.engine.begin() as conn:
             conn.execute(
                 sa.text(
                     """
                     UPDATE job_runs
-                    SET status = 'failed',
+                    SET status = :status,
                         message = :message,
                         result_json = :result_json,
                         error_message = :error_message,
+                        attempt_count = :attempt_count,
                         finished_at = :finished_at,
-                        heartbeat_at = :finished_at,
-                        locked_until = NULL
+                        heartbeat_at = :heartbeat_at,
+                        locked_until = NULL,
+                        worker_id = NULL,
+                        next_retry_at = :next_retry_at
                     WHERE id = :run_id
                     """
                 ),
                 {
                     "run_id": run_id,
+                    "status": next_status,
                     "message": message,
                     "result_json": self._dumps(result),
                     "error_message": error_message,
-                    "finished_at": finished_at,
+                    "attempt_count": next_attempt,
+                    "finished_at": terminal_finished_at,
+                    "heartbeat_at": finished_at,
+                    "next_retry_at": next_retry_at,
                 },
             )
+        return next_status
 
     def cancel(self, run_id: str, message: str) -> None:
         finished_at = now_local()
@@ -290,7 +387,8 @@ class JobStatusStorePG:
                         message = :message,
                         finished_at = :finished_at,
                         heartbeat_at = :finished_at,
-                        locked_until = NULL
+                        locked_until = NULL,
+                        next_retry_at = NULL
                     WHERE id = :run_id
                     """
                 ),
@@ -316,11 +414,49 @@ class JobStatusStorePG:
             ).scalar_one()
         return value
 
+    def get_queue_metrics(self) -> dict[str, Any]:
+        now = now_local()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.text(
+                    """
+                    SELECT
+                        COUNT(*) FILTER (WHERE status = 'queued') AS queued_jobs_count,
+                        COUNT(*) FILTER (
+                            WHERE status = 'queued'
+                              AND next_retry_at IS NOT NULL
+                              AND next_retry_at > :now
+                        ) AS retry_scheduled_jobs_count,
+                        COUNT(*) FILTER (
+                            WHERE status = 'running'
+                              AND (locked_until IS NULL OR locked_until >= :now)
+                        ) AS running_jobs_count,
+                        COUNT(*) FILTER (WHERE status = 'failed') AS failed_jobs_count,
+                        MIN(queued_at) FILTER (WHERE status = 'queued') AS oldest_queued_at
+                    FROM job_runs
+                    """
+                ),
+                {"now": now},
+            ).mappings().one()
+        oldest_queued_at = row["oldest_queued_at"]
+        oldest_queued_age_seconds = None
+        if oldest_queued_at is not None:
+            oldest_queued_age_seconds = int((now - oldest_queued_at).total_seconds())
+        return {
+            "queued_jobs_count": int(row["queued_jobs_count"] or 0),
+            "retry_scheduled_jobs_count": int(row["retry_scheduled_jobs_count"] or 0),
+            "running_jobs_count": int(row["running_jobs_count"] or 0),
+            "failed_jobs_count": int(row["failed_jobs_count"] or 0),
+            "oldest_queued_at": oldest_queued_at,
+            "oldest_queued_age_seconds": oldest_queued_age_seconds,
+        }
+
     def get_latest_run(self) -> JobRun | None:
         return self._fetch_latest_run()
 
     def get(self) -> JobStatus:
         run = self._fetch_latest_run()
+        queue = self._serialize_queue_metrics(self.get_queue_metrics())
         if not run:
             return JobStatus(
                 status="idle",
@@ -329,11 +465,12 @@ class JobStatusStorePG:
                 started_at=None,
                 completed_at=None,
                 result=None,
+                queue=queue,
             )
 
         if run.status == "queued":
             status = "running"
-            message = run.message or "ジョブを待機列に登録しました"
+            message = run.message or "ジョブを実行待ちに登録しました"
         elif run.status == "succeeded":
             status = "completed"
             message = run.message
@@ -348,4 +485,34 @@ class JobStatusStorePG:
             started_at=run.started_at,
             completed_at=run.finished_at,
             result=run.result,
+            queue=queue,
         )
+
+    def _get_attempt_state(self, run_id: str) -> dict[str, int]:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                sa.text(
+                    """
+                    SELECT attempt_count, max_attempts
+                    FROM job_runs
+                    WHERE id = :run_id
+                    """
+                ),
+                {"run_id": run_id},
+            ).mappings().first()
+        if row is None:
+            raise RuntimeError(f"Unknown job run: {run_id}")
+        return {
+            "attempt_count": int(row.get("attempt_count") or 0),
+            "max_attempts": int(row.get("max_attempts") or 1),
+        }
+
+    def _retry_backoff_seconds(self, next_attempt: int) -> int:
+        seconds = DEFAULT_RETRY_BASE_SECONDS * (2 ** max(0, next_attempt - 1))
+        return min(MAX_RETRY_BACKOFF_SECONDS, seconds)
+
+    def _serialize_queue_metrics(self, metrics: dict[str, Any]) -> dict[str, Any]:
+        serialized = dict(metrics)
+        if isinstance(serialized.get("oldest_queued_at"), datetime):
+            serialized["oldest_queued_at"] = serialized["oldest_queued_at"].isoformat()
+        return serialized

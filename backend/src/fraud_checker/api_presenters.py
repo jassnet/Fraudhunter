@@ -132,6 +132,7 @@ def build_job_status_response(status) -> JobStatusResponse:
         started_at=format_datetime_value(status.started_at),
         completed_at=format_datetime_value(status.completed_at),
         result=status.result,
+        queue=status.queue,
     )
 
 

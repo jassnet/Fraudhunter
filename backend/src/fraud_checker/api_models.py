@@ -60,6 +60,7 @@ class JobStatusResponse(BaseModel):
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     result: Optional[dict] = None
+    queue: Optional[dict] = None
 
 
 class SettingsModel(BaseModel):

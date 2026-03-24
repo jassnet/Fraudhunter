@@ -173,6 +173,9 @@ def test_enqueue_job_raises_conflict_when_active_job_exists(monkeypatch):
         def has_active_job(self):
             return True
 
+        def find_active_duplicate(self, dedupe_key):
+            return None
+
     monkeypatch.setattr(jobs, "get_job_store", lambda: DummyStore())
 
     with pytest.raises(jobs.JobConflictError):
@@ -188,12 +191,25 @@ def test_enqueue_job_persists_and_schedules_background_runner(monkeypatch):
         def has_active_job(self):
             return False
 
-        def enqueue(self, *, job_type, params, message):
-            return type("QueuedJob", (), {"id": "run-1", "job_type": job_type})()
+        def find_active_duplicate(self, dedupe_key):
+            return None
+
+        def enqueue(self, *, job_type, params, message, max_attempts, dedupe_key, priority):
+            return type(
+                "QueuedJob",
+                (),
+                {
+                    "id": "run-1",
+                    "job_type": job_type,
+                    "max_attempts": 4,
+                    "priority": 10,
+                },
+            )()
 
     store = DummyStore()
     background_tasks = _DummyBackgroundTasks()
     monkeypatch.setattr(jobs, "get_job_store", lambda: store)
+    monkeypatch.setattr(jobs, "_should_use_in_process_background_kick", lambda: True)
 
     run = jobs.enqueue_job(
         job_type=jobs.JOB_TYPE_REFRESH,
@@ -204,6 +220,68 @@ def test_enqueue_job_persists_and_schedules_background_runner(monkeypatch):
 
     assert run.id == "run-1"
     assert background_tasks.tasks[0][0] == jobs.process_queued_jobs
+
+
+def test_enqueue_job_returns_existing_run_when_dedupe_matches(monkeypatch):
+    class DummyStore:
+        def has_active_job(self):
+            raise AssertionError("has_active_job should not run for duplicates")
+
+        def find_active_duplicate(self, dedupe_key):
+            return type(
+                "QueuedJob",
+                (),
+                {
+                    "id": "run-existing",
+                    "job_type": jobs.JOB_TYPE_REFRESH,
+                    "max_attempts": 4,
+                    "priority": 10,
+                },
+            )()
+
+    monkeypatch.setattr(jobs, "get_job_store", lambda: DummyStore())
+
+    run = jobs.enqueue_job(
+        job_type=jobs.JOB_TYPE_REFRESH,
+        params={"hours": 1},
+        start_message="start",
+    )
+
+    assert run.id == "run-existing"
+
+
+def test_enqueue_job_skips_in_process_kick_in_production(monkeypatch):
+    class DummyStore:
+        def has_active_job(self):
+            return False
+
+        def find_active_duplicate(self, dedupe_key):
+            return None
+
+        def enqueue(self, *, job_type, params, message, max_attempts, dedupe_key, priority):
+            return type(
+                "QueuedJob",
+                (),
+                {
+                    "id": "run-1",
+                    "job_type": job_type,
+                    "max_attempts": max_attempts,
+                    "priority": priority,
+                },
+            )()
+
+    background_tasks = _DummyBackgroundTasks()
+    monkeypatch.setattr(jobs, "get_job_store", lambda: DummyStore())
+    monkeypatch.setattr(jobs, "_should_use_in_process_background_kick", lambda: False)
+
+    jobs.enqueue_job(
+        job_type=jobs.JOB_TYPE_REFRESH,
+        params={"hours": 1},
+        start_message="start",
+        background_tasks=background_tasks,
+    )
+
+    assert background_tasks.tasks == []
 
 
 def test_process_queued_jobs_acquires_and_executes(monkeypatch):
@@ -225,6 +303,11 @@ def test_process_queued_jobs_acquires_and_executes(monkeypatch):
                 result=None,
                 error_message=None,
                 message="queued",
+                attempt_count=0,
+                max_attempts=2,
+                next_retry_at=None,
+                dedupe_key="master-sync",
+                priority=50,
                 queued_at=datetime(2026, 1, 1, 0, 0, 0),
                 started_at=datetime(2026, 1, 1, 0, 0, 1),
                 finished_at=None,
@@ -251,6 +334,108 @@ def test_process_queued_jobs_acquires_and_executes(monkeypatch):
 
     assert processed == 1
     assert executed == [("complete", "run-1", "done", {"success": True})]
+
+
+def test_execute_job_run_requeues_retryable_failure(monkeypatch):
+    calls = []
+
+    class DummyStore:
+        def fail(self, *args, **kwargs):
+            calls.append(kwargs)
+            return "queued"
+
+        def heartbeat(self, **kwargs):
+            return True
+
+    run = jobs.JobRun(
+        id="run-1",
+        job_type=jobs.JOB_TYPE_REFRESH,
+        status="running",
+        params={"hours": 1},
+        result=None,
+        error_message=None,
+        message="queued",
+        attempt_count=0,
+        max_attempts=4,
+        next_retry_at=None,
+        dedupe_key="refresh-key",
+        priority=10,
+        queued_at=datetime(2026, 1, 1, 0, 0, 0),
+        started_at=datetime(2026, 1, 1, 0, 0, 1),
+        finished_at=None,
+        heartbeat_at=None,
+        locked_until=None,
+        worker_id="worker-1",
+    )
+
+    monkeypatch.setattr(jobs, "_dispatch_job", lambda run: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    jobs._execute_job_run(
+        store=DummyStore(),
+        run=run,
+        worker_id="worker-1",
+        lease_seconds=60,
+    )
+
+    assert calls[0]["retryable"] is True
+
+
+def test_execute_job_run_marks_value_error_non_retryable(monkeypatch):
+    calls = []
+
+    class DummyStore:
+        def fail(self, *args, **kwargs):
+            calls.append(kwargs)
+            return "failed"
+
+        def heartbeat(self, **kwargs):
+            return True
+
+    run = jobs.JobRun(
+        id="run-1",
+        job_type=jobs.JOB_TYPE_REFRESH,
+        status="running",
+        params={"hours": 1},
+        result=None,
+        error_message=None,
+        message="queued",
+        attempt_count=0,
+        max_attempts=4,
+        next_retry_at=None,
+        dedupe_key="refresh-key",
+        priority=10,
+        queued_at=datetime(2026, 1, 1, 0, 0, 0),
+        started_at=datetime(2026, 1, 1, 0, 0, 1),
+        finished_at=None,
+        heartbeat_at=None,
+        locked_until=None,
+        worker_id="worker-1",
+    )
+
+    monkeypatch.setattr(jobs, "_dispatch_job", lambda run: (_ for _ in ()).throw(ValueError("bad input")))
+
+    jobs._execute_job_run(
+        store=DummyStore(),
+        run=run,
+        worker_id="worker-1",
+        lease_seconds=60,
+    )
+
+    assert calls[0]["retryable"] is False
+
+
+def test_should_use_in_process_background_kick_defaults_off_in_production(monkeypatch):
+    monkeypatch.setenv("FC_ENV", "production")
+    monkeypatch.delenv("FC_ENABLE_IN_PROCESS_JOB_KICK", raising=False)
+
+    assert jobs._should_use_in_process_background_kick() is False
+
+
+def test_should_use_in_process_background_kick_can_be_enabled_in_production(monkeypatch):
+    monkeypatch.setenv("FC_ENV", "production")
+    monkeypatch.setenv("FC_ENABLE_IN_PROCESS_JOB_KICK", "true")
+
+    assert jobs._should_use_in_process_background_kick() is True
 
 
 def test_run_click_ingestion_returns_summary_message(monkeypatch):

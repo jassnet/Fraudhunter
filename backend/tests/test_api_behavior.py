@@ -335,6 +335,7 @@ def test_job_status_endpoint_returns_running_payload(monkeypatch):
         "started_at": "2026-01-01T00:00:00",
         "completed_at": None,
         "result": None,
+        "queue": None,
     }
 
 
@@ -363,6 +364,7 @@ def test_job_status_endpoint_returns_failed_payload(monkeypatch):
         "started_at": "2026-01-01T00:00:00",
         "completed_at": "2026-01-01T00:05:00",
         "result": {"success": False, "error": "boom"},
+        "queue": None,
     }
 
 
@@ -389,7 +391,21 @@ def test_health_returns_warning_when_data_is_missing(monkeypatch):
     monkeypatch.setattr(
         health_router,
         "get_job_store",
-        lambda: type("DummyStore", (), {"get_latest_successful_finished_at": lambda self, job_types: None})(),
+        lambda: type(
+            "DummyStore",
+            (),
+            {
+                "get_latest_successful_finished_at": lambda self, job_types: None,
+                "get_queue_metrics": lambda self: {
+                    "queued_jobs_count": 0,
+                    "retry_scheduled_jobs_count": 0,
+                    "running_jobs_count": 0,
+                    "failed_jobs_count": 0,
+                    "oldest_queued_at": None,
+                    "oldest_queued_age_seconds": None,
+                },
+            },
+        )(),
     )
     monkeypatch.setattr(
         health_router.reporting,

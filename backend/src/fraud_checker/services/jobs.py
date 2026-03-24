@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
@@ -14,6 +15,7 @@ from ..ingestion import ClickLogIngestor, ConversionIngestor
 from ..job_status_pg import JobRun, JobStatusStorePG
 from ..logging_utils import log_event, log_timed
 from ..repository_pg import PostgresRepository
+from ..runtime_guards import current_env
 from ..suspicious import CombinedSuspiciousDetector
 from ..time_utils import now_local
 from . import findings as findings_service
@@ -26,10 +28,26 @@ JOB_TYPE_CONVERSION_INGEST = "ingest_conversions"
 JOB_TYPE_REFRESH = "refresh"
 JOB_TYPE_MASTER_SYNC = "master_sync"
 DEFAULT_JOB_LEASE_SECONDS = 300
+JOB_MAX_ATTEMPTS = {
+    JOB_TYPE_CLICK_INGEST: 3,
+    JOB_TYPE_CONVERSION_INGEST: 3,
+    JOB_TYPE_REFRESH: 4,
+    JOB_TYPE_MASTER_SYNC: 2,
+}
+JOB_PRIORITIES = {
+    JOB_TYPE_CLICK_INGEST: 20,
+    JOB_TYPE_CONVERSION_INGEST: 20,
+    JOB_TYPE_REFRESH: 10,
+    JOB_TYPE_MASTER_SYNC: 50,
+}
 
 
 class JobConflictError(RuntimeError):
     """Raised when another background job is already queued or running."""
+
+
+def _env_truthy(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _require_database_url() -> str:
@@ -70,6 +88,30 @@ def _worker_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
 
+def _default_max_attempts(job_type: str) -> int:
+    return JOB_MAX_ATTEMPTS.get(job_type, 3)
+
+
+def _default_priority(job_type: str) -> int:
+    return JOB_PRIORITIES.get(job_type, 100)
+
+
+def _dedupe_key(job_type: str, params: dict[str, Any] | None) -> str:
+    canonical_params = json.dumps(params or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return f"{job_type}:{canonical_params}"
+
+
+def _should_use_in_process_background_kick() -> bool:
+    override = os.getenv("FC_ENABLE_IN_PROCESS_JOB_KICK")
+    if override is not None:
+        return _env_truthy("FC_ENABLE_IN_PROCESS_JOB_KICK")
+    return current_env() not in {"prod", "production"}
+
+
+def _is_retryable_job_error(exc: Exception) -> bool:
+    return not isinstance(exc, ValueError)
+
+
 @contextmanager
 def _heartbeat(store: JobStatusStorePG, run_id: str, worker_id: str, lease_seconds: int):
     stop_event = threading.Event()
@@ -96,13 +138,41 @@ def enqueue_job(
     background_tasks=None,
 ) -> JobRun:
     store = get_job_store()
+    dedupe_key = _dedupe_key(job_type, params)
+    duplicate = store.find_active_duplicate(dedupe_key)
+    if duplicate is not None:
+        log_event(
+            logger,
+            "job_enqueue_deduplicated",
+            run_id=duplicate.id,
+            job_type=job_type,
+            dedupe_key=dedupe_key,
+        )
+        return duplicate
+
     if store.has_active_job():
         raise JobConflictError("Another job is already running")
 
-    job = store.enqueue(job_type=job_type, params=params, message=start_message)
-    log_event(logger, "job_enqueued", run_id=job.id, job_type=job_type, params=params)
+    job = store.enqueue(
+        job_type=job_type,
+        params=params,
+        message=start_message,
+        max_attempts=_default_max_attempts(job_type),
+        dedupe_key=dedupe_key,
+        priority=_default_priority(job_type),
+    )
+    log_event(
+        logger,
+        "job_enqueued",
+        run_id=job.id,
+        job_type=job_type,
+        params=params,
+        dedupe_key=dedupe_key,
+        max_attempts=job.max_attempts,
+        priority=job.priority,
+    )
 
-    if background_tasks is not None:
+    if background_tasks is not None and _should_use_in_process_background_kick():
         background_tasks.add_task(process_queued_jobs, 1)
 
     return job
@@ -143,11 +213,20 @@ def _execute_job_run(
             store.complete(run.id, done_message, result)
     except Exception as exc:
         message = f"{run.job_type} failed: {exc}"
-        store.fail(
+        next_status = store.fail(
             run.id,
             message,
             {"success": False, "error": str(exc)},
             error_message=str(exc),
+            retryable=_is_retryable_job_error(exc),
+        )
+        log_event(
+            logger,
+            "job_failed",
+            run_id=run.id,
+            job_type=run.job_type,
+            next_status=next_status,
+            retryable=next_status == "queued",
         )
         logger.exception("Job execution failed", extra={"run_id": run.id, "job_type": run.job_type})
 
