@@ -28,6 +28,17 @@ def test_health_requires_admin_token(monkeypatch):
     assert response.json()["detail"] == "Unauthorized"
 
 
+def test_public_health_is_available_without_auth(monkeypatch):
+    monkeypatch.setenv("FC_ALLOW_PUBLIC_READ", "true")
+    client = TestClient(api.app)
+
+    response = client.get("/api/health/public")
+
+    assert response.status_code == 200
+    assert response.json()["service"] == "fraud-checker-api"
+    assert response.json()["storage"] == "postgresql"
+
+
 def test_ingest_clicks_returns_japanese_message_for_invalid_date(monkeypatch):
     monkeypatch.setenv("FC_ADMIN_API_KEY", "secret")
     client = TestClient(api.app)
@@ -158,6 +169,7 @@ def test_suspicious_conversions_rejects_invalid_date(monkeypatch):
 
 def test_suspicious_click_detail_returns_single_finding(monkeypatch):
     first = datetime(2026, 1, 1, 10, 0, 0)
+    captured = {}
 
     class DummyRepo:
         def get_click_finding_by_key(self, finding_key):
@@ -195,7 +207,12 @@ def test_suspicious_click_detail_returns_single_finding(monkeypatch):
                 ]
             }
 
+    def fake_log_event(logger, event, **fields):
+        captured["event"] = event
+        captured["fields"] = fields
+
     monkeypatch.setattr(suspicious_router, "get_repository", lambda: DummyRepo())
+    monkeypatch.setattr(suspicious_router, "log_event", fake_log_event)
     client = TestClient(api.app)
 
     response = client.get("/api/suspicious/clicks/f-1")
@@ -206,6 +223,10 @@ def test_suspicious_click_detail_returns_single_finding(monkeypatch):
     assert payload["ipaddress"] == "8.8.8.8"
     assert payload["sensitive_values_masked"] is False
     assert payload["details"][0]["media_name"] == "Media 1"
+    assert captured["event"] == "sensitive_detail_access"
+    assert captured["fields"]["finding_key"] == "f-1"
+    assert captured["fields"]["finding_type"] == "click"
+    assert captured["fields"]["access_level"] == "analyst"
 
 
 def test_format_reasons_and_risk_scoring_reflect_business_priority():
@@ -271,6 +292,27 @@ def test_summary_endpoint_requires_read_api_key_when_enabled(monkeypatch):
 
     assert unauthorized.status_code == 401
     assert authorized.status_code == 200
+
+
+def test_read_auth_matrix_distinguishes_analyst_and_admin_only_endpoints(monkeypatch):
+    monkeypatch.setenv("FC_REQUIRE_READ_AUTH", "true")
+    monkeypatch.setenv("FC_READ_API_KEY", "read-secret")
+    monkeypatch.setenv("FC_ADMIN_API_KEY", "admin-secret")
+    monkeypatch.setattr(reporting_router, "get_repository", lambda: object())
+    monkeypatch.setattr(reporting_router.reporting, "get_summary", lambda repo, target_date: {"date": "2026-01-03", "stats": {}})
+    monkeypatch.setattr(settings_router, "get_repository", lambda: object())
+    monkeypatch.setattr(settings_router.settings_service, "get_settings", lambda repo: {"click_threshold": 44})
+    client = TestClient(api.app)
+
+    summary_without_auth = client.get("/api/summary")
+    summary_with_read = client.get("/api/summary", headers={"X-Read-API-Key": "read-secret"})
+    settings_with_read = client.get("/api/settings", headers={"X-Read-API-Key": "read-secret"})
+    settings_with_admin = client.get("/api/settings", headers={"X-API-Key": "admin-secret"})
+
+    assert summary_without_auth.status_code == 401
+    assert summary_with_read.status_code == 200
+    assert settings_with_read.status_code == 401
+    assert settings_with_admin.status_code == 200
 
 
 def test_daily_stats_endpoint_returns_data(monkeypatch):
@@ -363,9 +405,32 @@ def test_job_status_endpoint_returns_failed_payload(monkeypatch):
         "message": "ジョブが失敗しました",
         "started_at": "2026-01-01T00:00:00",
         "completed_at": "2026-01-01T00:05:00",
-        "result": {"success": False, "error": "boom"},
+        "result": None,
         "queue": None,
     }
+
+
+def test_job_status_admin_endpoint_returns_result_payload(monkeypatch):
+    monkeypatch.setenv("FC_ADMIN_API_KEY", "secret")
+
+    class DummyStore:
+        def get(self):
+            return JobStatus(
+                status="failed",
+                job_id="refresh_3h",
+                message=None,
+                started_at="2026-01-01T00:00:00",
+                completed_at="2026-01-01T00:05:00",
+                result={"success": False, "error": "boom"},
+            )
+
+    monkeypatch.setattr(jobs_router, "get_job_store", lambda: DummyStore())
+    client = TestClient(api.app)
+
+    response = client.get("/api/job/status/admin", headers={"X-API-Key": "secret"})
+
+    assert response.status_code == 200
+    assert response.json()["result"] == {"success": False, "error": "boom"}
 
 
 def test_health_returns_warning_when_data_is_missing(monkeypatch):
@@ -502,6 +567,23 @@ def test_masters_status_returns_repository_stats(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["user_count"] == 30
+
+
+def test_masters_status_requires_analyst_auth_when_enabled(monkeypatch):
+    monkeypatch.setenv("FC_REQUIRE_READ_AUTH", "true")
+    monkeypatch.setenv("FC_READ_API_KEY", "read-secret")
+    monkeypatch.setattr(
+        masters_router,
+        "get_repository",
+        lambda: type("DummyRepo", (), {"get_all_masters": lambda self: {"user_count": 30}})(),
+    )
+    client = TestClient(api.app)
+
+    unauthorized = client.get("/api/masters/status")
+    authorized = client.get("/api/masters/status", headers={"X-Read-API-Key": "read-secret"})
+
+    assert unauthorized.status_code == 401
+    assert authorized.status_code == 200
 
 
 def test_test_data_endpoints_return_not_found_outside_test_env(monkeypatch):

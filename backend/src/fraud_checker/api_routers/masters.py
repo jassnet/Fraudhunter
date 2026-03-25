@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from ..api_dependencies import require_admin, require_read_access
+from ..api_dependencies import require_admin, require_analyst_access
 from ..api_models import IngestResponse
 from ..services.jobs import (
     JobConflictError,
@@ -29,7 +29,7 @@ def sync_masters(background_tasks: BackgroundTasks):
     )
 
 
-@router.get("/masters/status", dependencies=[Depends(require_read_access)])
+@router.get("/masters/status", dependencies=[Depends(require_analyst_access)])
 def get_masters_status():
     try:
         repo = get_repository()

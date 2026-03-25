@@ -80,6 +80,16 @@ def root():
     return {"message": "Fraud Checker API", "status": "running", "storage": "postgresql"}
 
 
+@router.get("/api/health/public")
+def public_health_check():
+    return {
+        "status": "ok",
+        "service": "fraud-checker-api",
+        "storage": "postgresql",
+        "read_access_mode": read_access_mode(),
+    }
+
+
 @router.get("/api/health", dependencies=[Depends(require_admin)])
 def health_check():
     issues: list[dict] = []

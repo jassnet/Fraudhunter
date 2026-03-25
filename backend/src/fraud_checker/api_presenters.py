@@ -136,6 +136,19 @@ def build_job_status_response(status) -> JobStatusResponse:
     )
 
 
+def build_job_status_summary_response(status) -> JobStatusResponse:
+    message = normalize_job_status_message(status.status, status.message)
+    return JobStatusResponse(
+        status=status.status,
+        job_id=status.job_id if status.status != "idle" else None,
+        message=message,
+        started_at=format_datetime_value(status.started_at),
+        completed_at=format_datetime_value(status.completed_at),
+        result=None,
+        queue=status.queue,
+    )
+
+
 def filter_findings_by_search(findings, details_cache, search: Optional[str], include_names: bool):
     if not search:
         return findings

@@ -5,18 +5,19 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..api_dependencies import require_read_access
+from ..api_dependencies import AccessContext, get_analyst_access_context, require_analyst_access
 from ..api_models import SuspiciousResponse
 from ..api_parsers import parse_iso_date
 from ..api_presenters import (
     present_click_finding_record,
     present_conversion_finding_record,
 )
+from ..logging_utils import log_event
 from ..services import reporting
 from ..services.jobs import get_repository
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/suspicious", tags=["suspicious"], dependencies=[Depends(require_read_access)])
+router = APIRouter(prefix="/api/suspicious", tags=["suspicious"], dependencies=[Depends(require_analyst_access)])
 
 
 def _resolve_target_date(repo, table: str, target_date: Optional[str]) -> Optional[str]:
@@ -172,6 +173,7 @@ def get_suspicious_click_detail(
     finding_key: str,
     include_names: bool = Query(True, description="媒体/案件名を含める"),
     include_details: bool = Query(True, description="詳細行を含める"),
+    access_context: AccessContext = Depends(get_analyst_access_context),
 ):
     try:
         repo = get_repository()
@@ -182,6 +184,16 @@ def get_suspicious_click_detail(
         details = None
         if include_names and include_details:
             details = _load_click_details(repo, row)
+        log_event(
+            logger,
+            "sensitive_detail_access",
+            finding_key=finding_key,
+            finding_type="click",
+            access_level=access_context.level,
+            token_source=access_context.token_source,
+            include_names=include_names,
+            include_details=include_details,
+        )
         return present_click_finding_record(row, details, mask_sensitive=False)
     except HTTPException:
         raise
@@ -195,6 +207,7 @@ def get_suspicious_conversion_detail(
     finding_key: str,
     include_names: bool = Query(True, description="媒体/案件名を含める"),
     include_details: bool = Query(True, description="詳細行を含める"),
+    access_context: AccessContext = Depends(get_analyst_access_context),
 ):
     try:
         repo = get_repository()
@@ -205,6 +218,16 @@ def get_suspicious_conversion_detail(
         details = None
         if include_names and include_details:
             details = _load_conversion_details(repo, row)
+        log_event(
+            logger,
+            "sensitive_detail_access",
+            finding_key=finding_key,
+            finding_type="conversion",
+            access_level=access_context.level,
+            token_source=access_context.token_source,
+            include_names=include_names,
+            include_details=include_details,
+        )
         return present_conversion_finding_record(row, details, mask_sensitive=False)
     except HTTPException:
         raise
