@@ -56,6 +56,8 @@ def test_build_parser_accepts_refresh_sync_masters_and_worker():
     # When
     refresh_args = parser.parse_args(["refresh", "--hours", "3", "--detect"])
     sync_args = parser.parse_args(["sync-masters"])
+    enqueue_refresh_args = parser.parse_args(["enqueue-refresh", "--hours", "2", "--detect"])
+    enqueue_sync_args = parser.parse_args(["enqueue-sync-masters"])
     worker_args = parser.parse_args(["run-worker", "--max-jobs", "2"])
     purge_args = parser.parse_args(["purge-data", "--execute", "--raw-days", "45"])
 
@@ -64,6 +66,10 @@ def test_build_parser_accepts_refresh_sync_masters_and_worker():
     assert refresh_args.hours == 3
     assert refresh_args.detect is True
     assert sync_args.command == "sync-masters"
+    assert enqueue_refresh_args.command == "enqueue-refresh"
+    assert enqueue_refresh_args.hours == 2
+    assert enqueue_refresh_args.detect is True
+    assert enqueue_sync_args.command == "enqueue-sync-masters"
     assert worker_args.command == "run-worker"
     assert worker_args.max_jobs == 2
     assert purge_args.command == "purge-data"
@@ -327,6 +333,45 @@ def test_cmd_sync_masters_updates_all_master_types(monkeypatch, capsys):
     assert "Media masters: 1 records updated" in output
     assert "Promotion masters: 2 records updated" in output
     assert "User masters: 3 records updated" in output
+
+
+def test_cmd_enqueue_refresh_registers_durable_job(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli,
+        "enqueue_refresh_job",
+        lambda **kwargs: type("QueuedJob", (), {"id": "job-refresh-1"})(),
+    )
+
+    code = cli._cmd_enqueue_refresh(
+        argparse.Namespace(
+            hours=2,
+            clicks_only=False,
+            conversions_only=True,
+            detect=True,
+        )
+    )
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "=== Refresh Enqueued ===" in output
+    assert "Job ID: job-refresh-1" in output
+    assert "Clicks: False" in output
+    assert "Conversions: True" in output
+
+
+def test_cmd_enqueue_sync_masters_registers_durable_job(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli,
+        "enqueue_master_sync_job",
+        lambda: type("QueuedJob", (), {"id": "job-master-1"})(),
+    )
+
+    code = cli._cmd_enqueue_sync_masters()
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "=== Master Sync Enqueued ===" in output
+    assert "Job ID: job-master-1" in output
 
 
 def test_main_prints_help_and_returns_1_for_unknown_command(capsys):

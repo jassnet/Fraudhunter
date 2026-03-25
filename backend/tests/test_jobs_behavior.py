@@ -168,22 +168,32 @@ def test_run_refresh_collects_detect_results_per_date(monkeypatch):
     assert result["detect"]["2026-01-02"]["high_risk"] == 1
 
 
-def test_enqueue_job_raises_conflict_when_active_job_exists(monkeypatch):
+def test_enqueue_job_allows_queueing_when_another_job_is_active(monkeypatch):
     class DummyStore:
-        def has_active_job(self):
-            return True
-
         def find_active_duplicate(self, dedupe_key):
             return None
 
+        def enqueue(self, *, job_type, params, message, max_attempts, dedupe_key, priority):
+            return type(
+                "QueuedJob",
+                (),
+                {
+                    "id": "run-queued",
+                    "job_type": job_type,
+                    "max_attempts": max_attempts,
+                    "priority": priority,
+                },
+            )()
+
     monkeypatch.setattr(jobs, "get_job_store", lambda: DummyStore())
 
-    with pytest.raises(jobs.JobConflictError):
-        jobs.enqueue_job(
-            job_type=jobs.JOB_TYPE_REFRESH,
-            params={"hours": 1},
-            start_message="start",
-        )
+    run = jobs.enqueue_job(
+        job_type=jobs.JOB_TYPE_REFRESH,
+        params={"hours": 1},
+        start_message="start",
+    )
+
+    assert run.id == "run-queued"
 
 
 def test_enqueue_job_persists_and_schedules_background_runner(monkeypatch):
@@ -282,6 +292,45 @@ def test_enqueue_job_skips_in_process_kick_in_production(monkeypatch):
     )
 
     assert background_tasks.tasks == []
+
+
+def test_enqueue_refresh_job_builds_stable_payload(monkeypatch):
+    captured = {}
+
+    def fake_enqueue_job(**kwargs):
+        captured.update(kwargs)
+        return type("QueuedJob", (), {"id": "run-refresh"})()
+
+    monkeypatch.setattr(jobs, "enqueue_job", fake_enqueue_job)
+
+    run = jobs.enqueue_refresh_job(hours=2, clicks=True, conversions=False, detect=True)
+
+    assert run.id == "run-refresh"
+    assert captured["job_type"] == jobs.JOB_TYPE_REFRESH
+    assert captured["params"] == {
+        "hours": 2,
+        "clicks": True,
+        "conversions": False,
+        "detect": True,
+    }
+    assert captured["start_message"] == "直近2時間の再取得ジョブを登録しました"
+
+
+def test_enqueue_master_sync_job_builds_expected_message(monkeypatch):
+    captured = {}
+
+    def fake_enqueue_job(**kwargs):
+        captured.update(kwargs)
+        return type("QueuedJob", (), {"id": "run-master"})()
+
+    monkeypatch.setattr(jobs, "enqueue_job", fake_enqueue_job)
+
+    run = jobs.enqueue_master_sync_job()
+
+    assert run.id == "run-master"
+    assert captured["job_type"] == jobs.JOB_TYPE_MASTER_SYNC
+    assert captured["params"] is None
+    assert captured["start_message"] == "マスタ同期ジョブを登録しました"
 
 
 def test_process_queued_jobs_acquires_and_executes(monkeypatch):

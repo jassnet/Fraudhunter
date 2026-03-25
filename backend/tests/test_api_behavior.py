@@ -42,30 +42,11 @@ def test_ingest_clicks_returns_japanese_message_for_invalid_date(monkeypatch):
     assert response.json()["detail"] == "日付形式が不正です。YYYY-MM-DD を指定してください。"
 
 
-def test_refresh_returns_conflict_when_job_is_running(monkeypatch):
-    monkeypatch.setenv("FC_ADMIN_API_KEY", "secret")
-
-    def raise_conflict(*args, **kwargs):
-        raise api.JobConflictError("busy")
-
-    monkeypatch.setattr(jobs_router, "enqueue_job", raise_conflict)
-    client = TestClient(api.app)
-
-    response = client.post(
-        "/api/refresh",
-        headers={"X-API-Key": "secret"},
-        json={"hours": 1, "clicks": True, "conversions": True, "detect": False},
-    )
-
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Another job is already running"
-
-
 def test_refresh_returns_public_payload_when_request_is_accepted(monkeypatch):
     monkeypatch.setenv("FC_ADMIN_API_KEY", "secret")
     monkeypatch.setattr(
         jobs_router,
-        "enqueue_job",
+        "enqueue_refresh_job",
         lambda **kwargs: type("QueuedJob", (), {"id": "run-refresh-1"})(),
     )
     client = TestClient(api.app)
@@ -79,7 +60,7 @@ def test_refresh_returns_public_payload_when_request_is_accepted(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {
         "success": True,
-        "message": "直近4時間の再取得を開始しました",
+        "message": "直近4時間の再取得ジョブを登録しました",
         "details": {
             "job_id": "run-refresh-1",
             "hours": 4,
@@ -87,6 +68,25 @@ def test_refresh_returns_public_payload_when_request_is_accepted(monkeypatch):
             "conversions": False,
         },
     }
+
+
+def test_refresh_returns_existing_job_id_when_enqueue_dedupes(monkeypatch):
+    monkeypatch.setenv("FC_ADMIN_API_KEY", "secret")
+    monkeypatch.setattr(
+        jobs_router,
+        "enqueue_refresh_job",
+        lambda **kwargs: type("QueuedJob", (), {"id": "run-refresh-existing"})(),
+    )
+    client = TestClient(api.app)
+
+    response = client.post(
+        "/api/refresh",
+        headers={"X-API-Key": "secret"},
+        json={"hours": 1, "clicks": True, "conversions": True, "detect": False},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["details"]["job_id"] == "run-refresh-existing"
 
 
 def test_suspicious_clicks_returns_business_friendly_fields(monkeypatch):
@@ -475,7 +475,7 @@ def test_sync_masters_returns_job_identifier(monkeypatch):
     monkeypatch.setenv("FC_ADMIN_API_KEY", "secret")
     monkeypatch.setattr(
         masters_router,
-        "enqueue_job",
+        "enqueue_master_sync_job",
         lambda **kwargs: type("QueuedJob", (), {"id": "run-master-1"})(),
     )
     client = TestClient(api.app)
@@ -485,7 +485,7 @@ def test_sync_masters_returns_job_identifier(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {
         "success": True,
-        "message": "マスタ同期を開始しました",
+        "message": "マスタ同期ジョブを登録しました",
         "details": {"job_id": "run-master-1"},
     }
 

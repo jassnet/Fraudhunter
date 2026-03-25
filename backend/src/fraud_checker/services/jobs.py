@@ -150,9 +150,6 @@ def enqueue_job(
         )
         return duplicate
 
-    if store.has_active_job():
-        raise JobConflictError("Another job is already running")
-
     job = store.enqueue(
         job_type=job_type,
         params=params,
@@ -176,6 +173,62 @@ def enqueue_job(
         background_tasks.add_task(process_queued_jobs, 1)
 
     return job
+
+
+def enqueue_click_ingestion_job(
+    target_date: date,
+    *,
+    background_tasks=None,
+) -> JobRun:
+    return enqueue_job(
+        background_tasks=background_tasks,
+        job_type=JOB_TYPE_CLICK_INGEST,
+        params={"date": target_date.isoformat()},
+        start_message=f"クリック取り込みジョブを登録しました（{target_date.isoformat()}）",
+    )
+
+
+def enqueue_conversion_ingestion_job(
+    target_date: date,
+    *,
+    background_tasks=None,
+) -> JobRun:
+    return enqueue_job(
+        background_tasks=background_tasks,
+        job_type=JOB_TYPE_CONVERSION_INGEST,
+        params={"date": target_date.isoformat()},
+        start_message=f"成果取り込みジョブを登録しました（{target_date.isoformat()}）",
+    )
+
+
+def enqueue_refresh_job(
+    *,
+    hours: int,
+    clicks: bool,
+    conversions: bool,
+    detect: bool,
+    background_tasks=None,
+) -> JobRun:
+    return enqueue_job(
+        background_tasks=background_tasks,
+        job_type=JOB_TYPE_REFRESH,
+        params={
+            "hours": hours,
+            "clicks": clicks,
+            "conversions": conversions,
+            "detect": detect,
+        },
+        start_message=f"直近{hours}時間の再取得ジョブを登録しました",
+    )
+
+
+def enqueue_master_sync_job(*, background_tasks=None) -> JobRun:
+    return enqueue_job(
+        background_tasks=background_tasks,
+        job_type=JOB_TYPE_MASTER_SYNC,
+        params=None,
+        start_message="マスタ同期ジョブを登録しました",
+    )
 
 
 def process_queued_jobs(max_jobs: int = 1) -> int:

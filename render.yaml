@@ -27,6 +27,8 @@ services:
         sync: false
       - key: ACS_ALLOW_INSECURE
         value: "false"
+      - key: FC_ENABLE_IN_PROCESS_JOB_KICK
+        value: "false"
       - key: FRAUD_TIMEZONE
         value: "Asia/Tokyo"
 
@@ -48,7 +50,7 @@ services:
     rootDir: backend
     schedule: "0 * * * *"
     buildCommand: pip install .
-    startCommand: python -m fraud_checker.cli refresh --hours 1 --detect
+    startCommand: python -m fraud_checker.cli enqueue-refresh --hours 1 --detect
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.6
@@ -75,7 +77,34 @@ services:
     rootDir: backend
     schedule: "30 3 * * *"
     buildCommand: pip install .
-    startCommand: python -m fraud_checker.cli sync-masters
+    startCommand: python -m fraud_checker.cli enqueue-sync-masters
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fraudchecker-db
+          property: connectionString
+      - key: ACS_BASE_URL
+        sync: false
+      - key: ACS_ACCESS_KEY
+        sync: false
+      - key: ACS_SECRET_KEY
+        sync: false
+      - key: ACS_TOKEN
+        sync: false
+      - key: ACS_ALLOW_INSECURE
+        value: "false"
+      - key: FRAUD_TIMEZONE
+        value: "Asia/Tokyo"
+
+  - type: cron
+    name: fraudchecker-queue-runner-minute
+    env: python
+    rootDir: backend
+    schedule: "* * * * *"
+    buildCommand: pip install .
+    startCommand: python -m fraud_checker.cli run-worker --max-jobs 5
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.6

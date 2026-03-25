@@ -12,7 +12,11 @@ from .job_status_pg import JobStatusStorePG
 from .repository_pg import PostgresRepository
 from .suspicious import CombinedSuspiciousDetector
 from .services import findings as findings_service, lifecycle, settings as settings_service
-from .services.jobs import process_queued_jobs
+from .services.jobs import (
+    enqueue_master_sync_job,
+    enqueue_refresh_job,
+    process_queued_jobs,
+)
 from .time_utils import now_local
 
 
@@ -43,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Fraud checker maintenance tasks")
     sub = parser.add_subparsers(dest="command")
 
-    refresh = sub.add_parser("refresh", help="Fetch ACS logs for the last N hours")
+    refresh = sub.add_parser("refresh", help="Fetch ACS logs for the last N hours (break-glass inline run)")
     refresh.add_argument("--hours", type=int, default=1, help="Lookback window in hours")
     refresh.add_argument("--clicks-only", action="store_true", help="Only ingest clicks")
     refresh.add_argument("--conversions-only", action="store_true", help="Only ingest conversions")
@@ -55,7 +59,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Persist raw click logs (overrides FRAUD_STORE_RAW)",
     )
 
-    sync = sub.add_parser("sync-masters", help="Sync master data from ACS")
+    sync = sub.add_parser("sync-masters", help="Sync master data from ACS (break-glass inline run)")
+
+    enqueue_refresh = sub.add_parser(
+        "enqueue-refresh",
+        help="Enqueue ACS log refresh as a durable job",
+    )
+    enqueue_refresh.add_argument("--hours", type=int, default=1, help="Lookback window in hours")
+    enqueue_refresh.add_argument("--clicks-only", action="store_true", help="Only ingest clicks")
+    enqueue_refresh.add_argument(
+        "--conversions-only",
+        action="store_true",
+        help="Only ingest conversions",
+    )
+    enqueue_refresh.add_argument("--detect", action="store_true", help="Run suspicious detection after ingest")
+
+    sub.add_parser(
+        "enqueue-sync-masters",
+        help="Enqueue master sync as a durable job",
+    )
 
     worker = sub.add_parser("run-worker", help="Run queued durable jobs")
     worker.add_argument("--max-jobs", type=int, default=1, help="Maximum jobs to process")
@@ -198,6 +220,34 @@ def _cmd_sync_masters() -> int:
     return 0
 
 
+def _cmd_enqueue_refresh(args: argparse.Namespace) -> int:
+    if args.clicks_only and args.conversions_only:
+        raise SystemExit("Use only one of --clicks-only or --conversions-only.")
+
+    clicks = not args.conversions_only
+    conversions = not args.clicks_only
+    job = enqueue_refresh_job(
+        hours=args.hours,
+        clicks=clicks,
+        conversions=conversions,
+        detect=args.detect,
+    )
+    print("=== Refresh Enqueued ===")
+    print(f"Job ID: {job.id}")
+    print(f"Hours: {args.hours}")
+    print(f"Clicks: {clicks}")
+    print(f"Conversions: {conversions}")
+    print(f"Detect: {args.detect}")
+    return 0
+
+
+def _cmd_enqueue_sync_masters() -> int:
+    job = enqueue_master_sync_job()
+    print("=== Master Sync Enqueued ===")
+    print(f"Job ID: {job.id}")
+    return 0
+
+
 def _cmd_run_worker(args: argparse.Namespace) -> int:
     processed = process_queued_jobs(max_jobs=args.max_jobs)
     print(f"Processed {processed} queued job(s)")
@@ -241,6 +291,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_refresh(args)
     if args.command == "sync-masters":
         return _cmd_sync_masters()
+    if args.command == "enqueue-refresh":
+        return _cmd_enqueue_refresh(args)
+    if args.command == "enqueue-sync-masters":
+        return _cmd_enqueue_sync_masters()
     if args.command == "run-worker":
         return _cmd_run_worker(args)
     if args.command == "purge-data":
