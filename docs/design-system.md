@@ -16,6 +16,7 @@
 - `text/strong`: dark `#fafafa`, light `#1f2937`
 - `text/base`: dark `#e5e5e5`, light `#334155`
 - `text/muted`: dark `#a3a3a3`, light `#64748b`
+- Prefer contrast steps that separate `strong`, `base`, `secondary`, and `faint` at a glance.
 - `danger`: `#ff453a`
 - `warning`: `#ffb020`
 - `success`: `#22c55e`
@@ -28,6 +29,8 @@
 - Table header: `11px / 600 / 0.12em uppercase`
 - Body text: `13-14px / 400`
 - Numeric UI uses tabular figures.
+- Japanese UI should avoid relying on aggressive uppercase styling for hierarchy.
+- Short metadata can use `12-13px`; dense operational text should not drop below `12px`.
 
 ### Layout
 - Header height: `48px`
@@ -45,6 +48,7 @@
 - Table overflow is horizontal only when required.
 - KPI uses a strip, not independent cards.
 - Active navigation is shown with line, text weight, and contrast.
+- Raise contrast with text, borders, and surface separation before adding stronger fills.
 
 ## Component Contracts
 ### `AppShell`
@@ -60,6 +64,7 @@
 - Displays operational KPIs in one strip.
 - Neutral metrics stay monochrome.
 - Risk metrics may use warning or danger color.
+- Both the numeric value and the supporting line must remain readable; do not let metadata fade into the background.
 
 ### `SectionFrame`
 - Generic bordered container for dense content.
@@ -72,6 +77,7 @@
 ### `StatusBadge`
 - Flat rectangular badge.
 - Tones: `high`, `medium`, `low`, `neutral`.
+- Japanese labels should keep tracking restrained so short labels stay legible.
 
 ### `EmptyState`
 - Short title plus optional one-line guidance.
@@ -81,12 +87,24 @@
 - Border-separated rows.
 - Uppercase compact headers.
 - Row expansion stays visually attached to the row, not separate card UI.
+- In Japanese UI, prefer restrained tracking over all-caps styling so labels remain legible.
+
+### `OverviewChart`
+- Graph body should be visually stronger than surrounding metadata.
+- Legends and date labels should read as `secondary`, not `faint`.
 
 ## Copy Rules
 - Prefer noun labels: `対象日`, `クリック数`, `CV数`, `再読込`, `詳細`.
 - Avoid helper sentences unless the state would otherwise be ambiguous.
 - Empty and error states may contain one short line of guidance.
 - All Japanese strings must remain UTF-8 in app code and tests.
+
+## Visibility Rules
+- Use four text layers: `strong`, `base`, `secondary`, `faint`.
+- `faint` is reserved for compact metadata and should not be used for long body text.
+- Dense tables should prefer `12-13px` body text over `11px` when content is operationally important.
+- Border contrast in dark mode should remain visible without becoming dominant.
+- When improving readability, prefer increasing contrast and hierarchy before expanding layout density.
 
 ## Usage Rules
 - Reuse system components before adding page-local wrappers.

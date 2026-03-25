@@ -20,7 +20,7 @@ export function PageHeader({ title, meta, actions, className }: PageHeaderProps)
         <h1 className="truncate text-[1.75rem] font-bold tracking-[-0.04em] text-foreground">
           {title}
         </h1>
-        {meta ? <span className="truncate text-xs text-muted-foreground">{meta}</span> : null}
+        {meta ? <span className="truncate text-[13px] text-foreground/74">{meta}</span> : null}
       </div>
       {actions ? <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div> : null}
     </header>

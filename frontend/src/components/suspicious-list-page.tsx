@@ -56,12 +56,42 @@ const riskToneMap: Record<string, "high" | "medium" | "low" | "neutral"> = {
   low: "low",
 };
 
-const riskFilterButtons: { key: RiskFilter; label: string }[] = [
+const riskFilterButtons: {
+  key: RiskFilter;
+  label: string;
+  activeClass?: string;
+  inactiveClass?: string;
+}[] = [
   { key: "all", label: "すべて" },
-  { key: "high", label: "高" },
-  { key: "medium", label: "中" },
-  { key: "low", label: "低" },
+  {
+    key: "high",
+    label: "高",
+    activeClass: "border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90",
+    inactiveClass: "border-destructive/60 text-destructive hover:bg-destructive/10",
+  },
+  {
+    key: "medium",
+    label: "中",
+    activeClass: "border-[hsl(var(--warning))] bg-[hsl(var(--warning))] text-[hsl(var(--warning-foreground))] hover:bg-[hsl(var(--warning))]/90",
+    inactiveClass: "border-[hsl(var(--warning))]/60 text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning))]/10",
+  },
+  {
+    key: "low",
+    label: "低",
+    activeClass: "border-[hsl(var(--success))] bg-[hsl(var(--success))] text-[hsl(var(--success-foreground))] hover:bg-[hsl(var(--success))]/90",
+    inactiveClass: "border-[hsl(var(--success))]/60 text-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/10",
+  },
 ];
+
+const riskRowBg: Record<string, string> = {
+  high: "bg-destructive/[0.07]",
+};
+
+const riskCellBorder: Record<string, string> = {
+  high: "border-l-[3px] border-l-destructive",
+  medium: "border-l-[3px] border-l-[hsl(var(--warning))]",
+  low: "border-l-[3px] border-l-[hsl(var(--success))]",
+};
 
 const riskLabel = (item: SuspiciousItem) => item.risk_label || item.risk_level || "未判定";
 
@@ -260,7 +290,7 @@ export default function SuspiciousListPage({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {riskFilterButtons.map(({ key, label }) => (
+              {riskFilterButtons.map(({ key, label, activeClass, inactiveClass }) => (
                 <Button
                   key={key}
                   type="button"
@@ -268,6 +298,7 @@ export default function SuspiciousListPage({
                   variant={riskFilter === key ? "default" : "outline"}
                   onClick={() => handleRiskFilterChange(key)}
                   aria-pressed={riskFilter === key}
+                  className={riskFilter === key ? (activeClass ?? "") : (inactiveClass ?? "")}
                 >
                   {label}
                 </Button>
@@ -275,7 +306,7 @@ export default function SuspiciousListPage({
             </div>
 
             <select
-              className="h-10 border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors focus:border-white"
+              className="h-10 border border-input bg-card px-3 text-[13px] text-foreground outline-none transition-colors focus:border-white"
               value={sortBy}
               onChange={(event) => handleSortChange(event.target.value as SortValue)}
               aria-label="並び順"
@@ -285,7 +316,7 @@ export default function SuspiciousListPage({
               <option value="latest">最新順</option>
             </select>
 
-            <div className="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto">
+            <div className="w-full text-[13px] text-foreground/78 sm:ml-auto sm:w-auto">
               {resultRange}
             </div>
           </ControlBar>
@@ -337,8 +368,8 @@ export default function SuspiciousListPage({
 
                       return (
                         <Fragment key={rowKey}>
-                          <TableRow>
-                            <TableCell>
+                          <TableRow className={riskRowBg[item.risk_level || ""] ?? ""}>
+                            <TableCell className={riskCellBorder[item.risk_level || ""] ?? "border-l-[3px] border-l-transparent"}>
                               <StatusBadge
                                 tone={riskToneMap[item.risk_level || ""] || "neutral"}
                               >
@@ -346,13 +377,13 @@ export default function SuspiciousListPage({
                               </StatusBadge>
                             </TableCell>
                             <TableCell
-                              className="truncate font-mono text-[11px] text-foreground"
+                              className="truncate font-mono text-[12px] text-foreground"
                               title={item.ipaddress}
                             >
                               {item.ipaddress}
                             </TableCell>
                             <TableCell
-                              className="hidden truncate text-xs text-muted-foreground lg:table-cell"
+                              className="hidden truncate text-[13px] text-foreground/82 lg:table-cell"
                               title={item.useragent}
                             >
                               {item.useragent}
@@ -360,14 +391,14 @@ export default function SuspiciousListPage({
                             <TableCell className="text-right font-semibold tabular-nums text-foreground">
                               {item[metricKey] ?? 0}
                             </TableCell>
-                            <TableCell className="hidden text-right tabular-nums text-muted-foreground xl:table-cell">
+                            <TableCell className="hidden text-right tabular-nums text-foreground/76 xl:table-cell">
                               {item.media_count}
                             </TableCell>
-                            <TableCell className="hidden text-right tabular-nums text-muted-foreground xl:table-cell">
+                            <TableCell className="hidden text-right tabular-nums text-foreground/76 xl:table-cell">
                               {item.program_count}
                             </TableCell>
                             <TableCell
-                              className="hidden truncate text-xs text-muted-foreground 2xl:table-cell"
+                              className="hidden truncate text-[13px] text-foreground/82 2xl:table-cell"
                               title={(item.reasons_formatted || item.reasons || []).join(" / ")}
                             >
                               {(item.reasons_formatted || item.reasons || []).slice(0, 2).join(" / ")}
@@ -402,7 +433,7 @@ export default function SuspiciousListPage({
                   </TableBody>
                 </Table>
 
-                <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-2 border-t border-border bg-white/[0.03] px-4 py-3 text-[13px] text-foreground/82">
                   <Button variant="outline" size="sm" onClick={goToFirstPage} disabled={!canPrev}>
                     先頭
                   </Button>

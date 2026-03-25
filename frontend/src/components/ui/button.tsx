@@ -24,15 +24,15 @@ const baseClasses =
 const variantClasses: Record<ButtonVariant, string> = {
   default: "border-white bg-white text-black hover:bg-neutral-200",
   destructive: "border-destructive bg-destructive text-destructive-foreground hover:bg-[#ff5f55]",
-  outline: "border-input bg-transparent text-foreground hover:bg-accent",
-  secondary: "border-transparent bg-secondary text-secondary-foreground hover:bg-accent",
-  ghost: "border-transparent bg-transparent text-foreground hover:bg-accent",
+  outline: "border-input bg-transparent text-foreground hover:bg-white/[0.10]",
+  secondary: "border-transparent bg-secondary text-secondary-foreground hover:bg-white/[0.14]",
+  ghost: "border-transparent bg-transparent text-foreground hover:bg-white/[0.10]",
   link: "border-transparent bg-transparent px-0 text-foreground underline-offset-4 hover:underline",
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
   default: "h-10 px-4",
-  sm: "h-8 px-3 text-xs",
+  sm: "h-8 px-3 text-[13px]",
   lg: "h-11 px-6",
   icon: "h-10 w-10",
 };

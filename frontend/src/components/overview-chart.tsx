@@ -35,14 +35,14 @@ export function OverviewChart({
   return (
     <div className={cn("space-y-5", className)}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">クリック / CV</div>
-        <div className="flex items-center gap-4 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+        <div className="text-[13px] font-medium tracking-[0.04em] text-foreground/78">クリック / CV</div>
+        <div className="flex items-center gap-4 text-[12px] tracking-[0.04em] text-foreground/76">
           <span className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 bg-foreground" />
+            <span className="h-2.5 w-2.5 bg-foreground shadow-[0_0_0_1px_rgba(255,255,255,0.1)]" />
             Click
           </span>
           <span className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 bg-[hsl(var(--info))]" />
+            <span className="h-2.5 w-2.5 bg-[hsl(var(--info))] shadow-[0_0_0_1px_rgba(59,130,246,0.28)]" />
             CV
           </span>
         </div>
@@ -57,7 +57,7 @@ export function OverviewChart({
               <div className="flex flex-1 items-end gap-1 border-l border-border pl-2">
                 <div className="flex w-full items-end gap-1">
                   <div
-                    className="w-1/2 bg-foreground"
+                    className="w-1/2 bg-foreground/95"
                     style={{ height: `${Math.max(4, Math.round((clicks / max) * 100))}%` }}
                   />
                   <div
@@ -66,9 +66,9 @@ export function OverviewChart({
                   />
                 </div>
               </div>
-              <div className="space-y-1 text-[11px] text-muted-foreground">
+              <div className="space-y-1 text-[12px] text-foreground/82">
                 <div>{formatDate(row.date)}</div>
-                <div className="tabular-nums text-[10px] uppercase tracking-[0.08em]">
+                <div className="tabular-nums text-xs tracking-[0.03em] text-foreground/74">
                   {clicks}/{conversions}
                 </div>
               </div>

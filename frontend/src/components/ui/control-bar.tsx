@@ -11,7 +11,7 @@ export function ControlBar({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-3 border border-border bg-card px-4 py-3",
+        "flex flex-wrap items-center gap-3 border border-border bg-card px-4 py-3.5 text-sm text-foreground/90",
         className
       )}
     >

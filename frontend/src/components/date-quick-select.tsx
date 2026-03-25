@@ -71,7 +71,7 @@ export function DateQuickSelect({
       ) : null}
 
       <select
-        className="h-10 border border-input bg-card px-3 text-sm text-foreground outline-none transition-colors focus:border-white"
+        className="h-10 border border-input bg-card px-3 text-[13px] text-foreground outline-none transition-colors focus:border-white"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label="対象日"

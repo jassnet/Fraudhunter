@@ -4,17 +4,17 @@
 :root[data-theme="dark"] {
   --background: 0 0% 4%;
   --foreground: 0 0% 98%;
-  --card: 0 0% 7%;
+  --card: 0 0% 9%;
   --card-foreground: 0 0% 98%;
-  --popover: 0 0% 7%;
+  --popover: 0 0% 8%;
   --popover-foreground: 0 0% 98%;
   --primary: 0 0% 98%;
   --primary-foreground: 0 0% 6%;
-  --secondary: 0 0% 10%;
-  --secondary-foreground: 0 0% 92%;
-  --muted: 0 0% 11%;
-  --muted-foreground: 0 0% 64%;
-  --accent: 0 0% 14%;
+  --secondary: 0 0% 12%;
+  --secondary-foreground: 0 0% 94%;
+  --muted: 0 0% 13%;
+  --muted-foreground: 0 0% 78%;
+  --accent: 0 0% 17%;
   --accent-foreground: 0 0% 96%;
   --destructive: 6 96% 61%;
   --destructive-foreground: 0 0% 98%;
@@ -24,8 +24,8 @@
   --success-foreground: 0 0% 7%;
   --info: 217 91% 60%;
   --info-foreground: 0 0% 98%;
-  --border: 0 0% 16%;
-  --input: 0 0% 16%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
   --ring: 0 0% 76%;
   --radius: 2px;
   --page-gradient:
@@ -44,11 +44,11 @@
   --popover-foreground: 220 21% 14%;
   --primary: 220 18% 14%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 220 20% 94%;
+  --secondary: 220 20% 93%;
   --secondary-foreground: 220 20% 18%;
-  --muted: 220 18% 92%;
-  --muted-foreground: 220 10% 44%;
-  --accent: 220 18% 90%;
+  --muted: 220 18% 90%;
+  --muted-foreground: 220 12% 38%;
+  --accent: 220 18% 88%;
   --accent-foreground: 220 18% 16%;
   --destructive: 6 86% 54%;
   --destructive-foreground: 0 0% 100%;
@@ -58,8 +58,8 @@
   --success-foreground: 0 0% 100%;
   --info: 217 82% 54%;
   --info-foreground: 0 0% 100%;
-  --border: 220 17% 83%;
-  --input: 220 17% 83%;
+  --border: 220 17% 78%;
+  --input: 220 17% 78%;
   --ring: 220 12% 45%;
   --page-gradient:
     radial-gradient(circle at top, rgba(15, 23, 42, 0.08), transparent 34%),
@@ -94,6 +94,22 @@ body {
   font-feature-settings: "tnum" 1, "cv05" 1;
 }
 
+.text-strong {
+  color: hsl(var(--foreground));
+}
+
+.text-base {
+  color: hsl(var(--foreground) / 0.9);
+}
+
+.text-secondary {
+  color: hsl(var(--foreground) / 0.74);
+}
+
+.text-faint {
+  color: hsl(var(--foreground) / 0.58);
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -115,13 +131,13 @@ h1 {
 h2 {
   font-size: 1rem;
   font-weight: 600;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
 }
 
 h3 {
   font-size: 0.875rem;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 ::selection {

@@ -6,7 +6,7 @@ type MetricTone = "neutral" | "warning" | "danger" | "success";
 
 const toneMap: Record<MetricTone, { label: string; value: string; border: string }> = {
   neutral: {
-    label: "text-muted-foreground",
+    label: "text-foreground/82",
     value: "text-foreground",
     border: "before:bg-border",
   },
@@ -75,14 +75,14 @@ export function MetricBlock({
       )}
     >
       <div className="space-y-2">
-        <div className={cn("text-[11px] font-semibold uppercase tracking-[0.16em]", toneClasses.label)}>
+        <div className={cn("text-[12px] font-semibold tracking-[0.04em]", toneClasses.label)}>
           {label}
         </div>
-        <div className={cn("text-[2.5rem] font-bold tracking-[-0.05em] tabular-nums", toneClasses.value, valueClassName)}>
+        <div className={cn("text-[2.65rem] font-bold tracking-[-0.05em] tabular-nums", toneClasses.value, valueClassName)}>
           {value}
         </div>
       </div>
-      {meta ? <div className="text-xs leading-5 text-muted-foreground">{meta}</div> : null}
+      {meta ? <div className="text-[13px] leading-5 text-foreground/80">{meta}</div> : null}
     </div>
   );
 
@@ -91,7 +91,7 @@ export function MetricBlock({
       <Link
         href={href}
         aria-label={ariaLabel ?? label}
-        className="transition-colors hover:bg-white/[0.02] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white"
+        className="transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white"
       >
         {content}
       </Link>

@@ -3,6 +3,13 @@
 import type { ReactNode } from "react";
 
 import type { SuspiciousItem } from "@/lib/api";
+import { StatusBadge } from "@/components/ui/status-badge";
+
+const riskToneMap: Record<string, "high" | "medium" | "low" | "neutral"> = {
+  high: "high",
+  medium: "medium",
+  low: "low",
+};
 
 const formatSeconds = (value?: number | null) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return "-";
@@ -34,8 +41,8 @@ const renderTags = (items?: string[]) => {
 
 const Stat = ({ label, value }: { label: string; value: ReactNode }) => (
   <div className="border border-border px-3 py-3">
-    <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{label}</div>
-    <div className="mt-2 text-xs text-foreground">{value}</div>
+    <div className="text-xs tracking-[0.06em] text-foreground/78">{label}</div>
+    <div className="mt-2 text-[13px] leading-5 text-foreground">{value}</div>
   </div>
 );
 
@@ -76,10 +83,14 @@ export function SuspiciousRowDetails({
         <Stat
           label="リスク"
           value={
-            <>
-              {item.risk_label || item.risk_level || "-"}
-              {typeof item.risk_score === "number" ? ` / ${item.risk_score}` : ""}
-            </>
+            <div className="flex items-center gap-2">
+              <StatusBadge tone={riskToneMap[item.risk_level || ""] || "neutral"}>
+                {item.risk_label || item.risk_level || "-"}
+              </StatusBadge>
+              {typeof item.risk_score === "number" && (
+                <span className="tabular-nums text-[12px] text-foreground/70">{item.risk_score}</span>
+              )}
+            </div>
           }
         />
         <Stat
@@ -91,13 +102,13 @@ export function SuspiciousRowDetails({
       </div>
 
       <div className="space-y-2">
-        <div className="text-[11px] tracking-[0.12em] text-muted-foreground">検知理由</div>
+        <div className="text-[11px] tracking-[0.06em] text-foreground/74">検知理由</div>
         {reasons.length ? (
           <div className="flex flex-wrap gap-2">
             {reasons.map((reason, idx) => (
               <span
                 key={`${reason}-${idx}`}
-                className="border border-border px-2 py-1 text-xs text-foreground"
+                className="border border-border bg-white/[0.02] px-2 py-1 text-[13px] leading-5 text-foreground/88"
               >
                 {reason}
               </span>
@@ -110,15 +121,15 @@ export function SuspiciousRowDetails({
 
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="space-y-2">
-          <div className="text-[11px] tracking-[0.12em] text-muted-foreground">媒体</div>
+          <div className="text-xs tracking-[0.06em] text-foreground/78">媒体</div>
           {renderTags(item.media_names)}
         </div>
         <div className="space-y-2">
-          <div className="text-[11px] tracking-[0.12em] text-muted-foreground">案件</div>
+          <div className="text-xs tracking-[0.06em] text-foreground/78">案件</div>
           {renderTags(item.program_names)}
         </div>
         <div className="space-y-2">
-          <div className="text-[11px] tracking-[0.12em] text-muted-foreground">提携先</div>
+          <div className="text-xs tracking-[0.06em] text-foreground/78">提携先</div>
           {renderTags(item.affiliate_names)}
         </div>
       </div>
@@ -130,7 +141,7 @@ export function SuspiciousRowDetails({
 
       {!isLoadingDetails && !detailError && details.length > 0 ? (
         <div className="space-y-2">
-          <div className="text-[11px] tracking-[0.12em] text-muted-foreground">詳細内訳</div>
+          <div className="text-xs tracking-[0.06em] text-foreground/78">詳細内訳</div>
           <div className="overflow-x-auto border border-border">
             <table className="w-full text-xs">
               <thead className="border-b border-border text-muted-foreground">

@@ -24,13 +24,13 @@ export function LastUpdated({
   const timeLabel = useMemo(() => (lastUpdated ? formatTime(lastUpdated) : "-"), [lastUpdated]);
 
   return (
-    <div className={cn("flex items-center gap-2 text-xs text-muted-foreground", className)}>
+    <div className={cn("flex items-center gap-2 text-[13px] text-foreground/85", className)}>
       <span>最終更新 {timeLabel}</span>
       <Button size="sm" variant="outline" onClick={onRefresh} disabled={isRefreshing}>
         再読込
       </Button>
       {isRefreshing ? (
-        <span aria-live="polite" className="text-[11px] uppercase tracking-[0.14em]">
+        <span aria-live="polite" className="text-xs tracking-[0.08em] text-foreground/80">
           更新中
         </span>
       ) : null}
