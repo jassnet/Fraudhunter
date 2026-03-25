@@ -32,6 +32,29 @@ class ReportingReadRepository(RepositoryBase):
         return self._max_timestamp_for_date("conversion_ipua_daily", target_date)
 
     def _get_findings_lineage(self, table_name: str, target_date: date) -> dict | None:
+        if self._table_exists("findings_generations"):
+            finding_type = "click" if table_name == "suspicious_click_findings" else "conversion"
+            return self.fetch_one(
+                """
+                SELECT
+                    created_at AS findings_last_computed_at,
+                    settings_version_id,
+                    settings_fingerprint,
+                    detector_code_version,
+                    source_click_watermark,
+                    source_conversion_watermark,
+                    row_count,
+                    generation_id,
+                    computed_by_job_id
+                FROM findings_generations
+                WHERE finding_type = :finding_type
+                  AND target_date = :target_date
+                  AND is_current = TRUE
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                {"finding_type": finding_type, "target_date": target_date},
+            )
         if not self._table_exists(table_name):
             return None
         return self.fetch_one(

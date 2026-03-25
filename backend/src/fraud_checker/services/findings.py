@@ -5,6 +5,7 @@ import json
 import logging
 import uuid
 from datetime import date
+from pathlib import Path
 
 from ..api_presenters import calculate_risk_level, format_reasons
 from ..logging_utils import log_event, log_timed
@@ -23,6 +24,11 @@ def _hash_text(value: str) -> str:
 def _rule_version(settings: dict) -> str:
     canonical = json.dumps(settings, sort_keys=True, ensure_ascii=False)
     return _hash_text(canonical)[:16]
+
+
+def _detector_code_version() -> str:
+    suspicious_path = Path(__file__).resolve().parent.parent / "suspicious.py"
+    return _hash_text(suspicious_path.read_text(encoding="utf-8", errors="ignore"))[:16]
 
 
 def _search_text(*parts: str) -> str:
@@ -53,6 +59,9 @@ def recompute_findings_for_dates(
     settings = settings_service.get_settings(repo)
     click_rules, conversion_rules = settings_service.build_rule_sets(repo)
     rule_version = _rule_version(settings)
+    settings_fingerprint = settings_service.settings_fingerprint(settings)
+    settings_version_id = repo.ensure_settings_version(settings, settings_fingerprint)
+    detector_code_version = _detector_code_version()
     computed_at = now_local()
     generation_id = generation_id or f"recompute-{uuid.uuid4().hex[:12]}"
     settings_updated_at_snapshot = repo.get_settings_updated_at()
@@ -129,7 +138,23 @@ def recompute_findings_for_dates(
                         ),
                     }
                 )
-            repo.replace_click_findings(target_date, click_rows)
+            repo.replace_click_findings(
+                target_date,
+                click_rows,
+                generation_metadata={
+                    "generation_id": generation_id,
+                    "finding_type": "click",
+                    "target_date": target_date,
+                    "computed_by_job_id": computed_by_job_id,
+                    "settings_version_id": settings_version_id,
+                    "settings_fingerprint": settings_fingerprint,
+                    "detector_code_version": detector_code_version,
+                    "source_click_watermark": source_click_watermark,
+                    "source_conversion_watermark": source_conversion_watermark,
+                    "row_count": len(click_rows),
+                    "created_at": computed_at,
+                },
+            )
 
             conversion_findings = conversion_detector.find_for_date(target_date)
             conversion_details = repo.get_suspicious_conversion_details_bulk(
@@ -199,7 +224,23 @@ def recompute_findings_for_dates(
                         ),
                     }
                 )
-            repo.replace_conversion_findings(target_date, conversion_rows)
+            repo.replace_conversion_findings(
+                target_date,
+                conversion_rows,
+                generation_metadata={
+                    "generation_id": generation_id,
+                    "finding_type": "conversion",
+                    "target_date": target_date,
+                    "computed_by_job_id": computed_by_job_id,
+                    "settings_version_id": settings_version_id,
+                    "settings_fingerprint": settings_fingerprint,
+                    "detector_code_version": detector_code_version,
+                    "source_click_watermark": source_click_watermark,
+                    "source_conversion_watermark": source_conversion_watermark,
+                    "row_count": len(conversion_rows),
+                    "created_at": computed_at,
+                },
+            )
 
             results[target_date.isoformat()] = {
                 "suspicious_clicks": len(click_rows),
@@ -212,6 +253,8 @@ def recompute_findings_for_dates(
                 suspicious_clicks=len(click_rows),
                 suspicious_conversions=len(conversion_rows),
                 rule_version=rule_version,
+                settings_version_id=settings_version_id,
+                detector_code_version=detector_code_version,
                 computed_by_job_id=computed_by_job_id,
                 generation_id=generation_id,
             )

@@ -101,6 +101,9 @@ def test_get_summary_returns_business_facing_totals(monkeypatch):
         def get_settings_updated_at(self):
             return datetime(2026, 1, 3, 7, 30, 0)
 
+        def get_latest_settings_version_id(self):
+            return "settings-ver-1"
+
         def get_click_data_watermark(self, target_date):
             return datetime(2026, 1, 3, 9, 0, 0)
 
@@ -110,7 +113,7 @@ def test_get_summary_returns_business_facing_totals(monkeypatch):
         def get_click_findings_lineage(self, target_date):
             return {
                 "findings_last_computed_at": datetime(2026, 1, 3, 9, 10, 0),
-                "settings_updated_at_snapshot": datetime(2026, 1, 3, 7, 30, 0),
+                "settings_version_id": "settings-ver-1",
                 "source_click_watermark": datetime(2026, 1, 3, 9, 0, 0),
                 "source_conversion_watermark": datetime(2026, 1, 3, 9, 5, 0),
             }
@@ -118,7 +121,7 @@ def test_get_summary_returns_business_facing_totals(monkeypatch):
         def get_conversion_findings_lineage(self, target_date):
             return {
                 "findings_last_computed_at": datetime(2026, 1, 3, 9, 12, 0),
-                "settings_updated_at_snapshot": datetime(2026, 1, 3, 7, 30, 0),
+                "settings_version_id": "settings-ver-1",
                 "source_click_watermark": datetime(2026, 1, 3, 9, 0, 0),
                 "source_conversion_watermark": datetime(2026, 1, 3, 9, 5, 0),
             }
@@ -223,6 +226,9 @@ def test_get_summary_handles_datetime_style_resolved_date(monkeypatch):
         def get_all_masters(self):
             return {"last_synced_at": None}
 
+        def get_latest_settings_version_id(self):
+            return None
+
     monkeypatch.setattr(
         reporting,
         "resolve_summary_date",
@@ -272,6 +278,9 @@ def test_get_summary_marks_findings_stale_when_source_watermark_advances(monkeyp
         def get_settings_updated_at(self):
             return datetime(2026, 1, 3, 7, 30, 0)
 
+        def get_latest_settings_version_id(self):
+            return "settings-ver-2"
+
         def get_click_data_watermark(self, target_date):
             return datetime(2026, 1, 3, 9, 30, 0)
 
@@ -281,7 +290,7 @@ def test_get_summary_marks_findings_stale_when_source_watermark_advances(monkeyp
         def get_click_findings_lineage(self, target_date):
             return {
                 "findings_last_computed_at": datetime(2026, 1, 3, 9, 10, 0),
-                "settings_updated_at_snapshot": datetime(2026, 1, 3, 7, 30, 0),
+                "settings_version_id": "settings-ver-1",
                 "source_click_watermark": datetime(2026, 1, 3, 9, 0, 0),
                 "source_conversion_watermark": datetime(2026, 1, 3, 9, 5, 0),
             }
@@ -289,7 +298,7 @@ def test_get_summary_marks_findings_stale_when_source_watermark_advances(monkeyp
         def get_conversion_findings_lineage(self, target_date):
             return {
                 "findings_last_computed_at": datetime(2026, 1, 3, 9, 12, 0),
-                "settings_updated_at_snapshot": datetime(2026, 1, 3, 7, 30, 0),
+                "settings_version_id": "settings-ver-2",
                 "source_click_watermark": datetime(2026, 1, 3, 9, 0, 0),
                 "source_conversion_watermark": datetime(2026, 1, 3, 9, 5, 0),
             }
@@ -307,6 +316,69 @@ def test_get_summary_marks_findings_stale_when_source_watermark_advances(monkeyp
 
     assert payload["quality"]["findings"]["stale"] is True
     assert "click_source_advanced" in payload["quality"]["findings"]["stale_reasons"]
+    assert "settings_changed_after_click_findings" in payload["quality"]["findings"]["stale_reasons"]
+
+
+def test_get_summary_uses_legacy_settings_timestamp_when_version_id_is_unavailable(monkeypatch):
+    class DummyRepo:
+        database_url = "postgresql://example/db"
+
+        def fetch_one(self, query, params=None):
+            if "total_clicks" in query:
+                return {"total_clicks": 120, "unique_ips": 12, "active_media": 3}
+            if "total_conversions" in query:
+                return {"total_conversions": 0, "conversion_ips": 0}
+            if "click_ipua_daily" in query and "prev_date" in query:
+                return {"total": 100}
+            if "conversion_ipua_daily" in query and "prev_date" in query:
+                return {"total": 0}
+            raise AssertionError(f"Unexpected query: {query}")
+
+        def get_click_ipua_coverage(self, target_date):
+            return None
+
+        def get_conversion_click_enrichment(self, target_date):
+            return None
+
+        def get_all_masters(self):
+            return {"last_synced_at": None}
+
+        def get_settings_updated_at(self):
+            return datetime(2026, 1, 3, 7, 30, 0)
+
+        def get_latest_settings_version_id(self):
+            return None
+
+        def get_click_data_watermark(self, target_date):
+            return datetime(2026, 1, 3, 9, 0, 0)
+
+        def get_conversion_data_watermark(self, target_date):
+            return None
+
+        def get_click_findings_lineage(self, target_date):
+            return {
+                "findings_last_computed_at": datetime(2026, 1, 3, 9, 10, 0),
+                "settings_updated_at_snapshot": datetime(2026, 1, 3, 7, 0, 0),
+                "source_click_watermark": datetime(2026, 1, 3, 9, 0, 0),
+                "source_conversion_watermark": None,
+            }
+
+        def get_conversion_findings_lineage(self, target_date):
+            return {}
+
+    monkeypatch.setattr(reporting, "resolve_summary_date", lambda repo, target_date: "2026-01-03")
+    monkeypatch.setattr(
+        reporting.JobStatusStorePG,
+        "get_latest_successful_finished_at",
+        lambda self, job_types: datetime(2026, 1, 3, 9, 0, 0),
+    )
+    DummyRepo.count_current_click_findings = lambda self, target_date: 2
+    DummyRepo.count_current_conversion_findings = lambda self, target_date: 0
+
+    payload = reporting.get_summary(DummyRepo(), target_date=None)
+
+    assert payload["quality"]["findings"]["stale"] is True
+    assert "settings_changed_after_click_findings" in payload["quality"]["findings"]["stale_reasons"]
 
 
 def test_get_daily_stats_skips_invalid_date_rows(monkeypatch):

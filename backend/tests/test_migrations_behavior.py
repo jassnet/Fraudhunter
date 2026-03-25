@@ -56,3 +56,24 @@ def test_infer_legacy_schema_revision_for_job_control_ready_schema() -> None:
     )
 
     assert revision == "0006_add_job_run_controls"
+
+
+def test_infer_legacy_schema_revision_for_provenance_ready_schema() -> None:
+    revision = infer_legacy_schema_revision(
+        {
+            "click_ipua_daily",
+            "conversion_ipua_daily",
+            "job_runs",
+            "settings_versions",
+            "findings_generations",
+            "suspicious_click_findings",
+            "suspicious_conversion_findings",
+        },
+        {
+            "job_runs": {"id", "attempt_count", "next_retry_at"},
+            "findings_generations": {"generation_id", "settings_version_id"},
+            "settings_versions": {"id", "fingerprint"},
+        },
+    )
+
+    assert revision == "0007_add_settings_versions_and_findings_generations"

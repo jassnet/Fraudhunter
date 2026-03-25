@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import uuid
 from datetime import date
@@ -29,6 +31,11 @@ logger = logging.getLogger(__name__)
 
 _settings_cache: dict | None = None
 _settings_cache_updated_at = None
+
+
+def settings_fingerprint(settings: dict) -> str:
+    canonical = json.dumps(settings, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 def _repo_settings_updated_at(repo: SettingsRepository):
@@ -89,8 +96,9 @@ def get_settings(repo: SettingsRepository) -> dict:
 
 def update_settings(repo: SettingsRepository, settings: dict) -> dict:
     global _settings_cache, _settings_cache_updated_at
+    fingerprint = settings_fingerprint(settings)
     try:
-        repo.save_settings(settings)
+        settings_version_id = repo.save_settings(settings, fingerprint=fingerprint)
         _settings_cache = settings
         _settings_cache_updated_at = _repo_settings_updated_at(repo)
         logger.info("Settings saved to DB: %s", _settings_cache)
@@ -123,6 +131,8 @@ def update_settings(repo: SettingsRepository, settings: dict) -> dict:
             "success": True,
             "settings": _settings_cache,
             "persisted": True,
+            "settings_version_id": settings_version_id,
+            "settings_fingerprint": fingerprint,
             "findings_recomputed": True,
             "recomputed_dates": recomputed,
             "generation_id": recompute_generation_id,
@@ -133,6 +143,8 @@ def update_settings(repo: SettingsRepository, settings: dict) -> dict:
             "success": True,
             "settings": _settings_cache,
             "persisted": True,
+            "settings_version_id": settings_version_id,
+            "settings_fingerprint": fingerprint,
             "findings_recomputed": False,
             "warning": str(exc),
         }

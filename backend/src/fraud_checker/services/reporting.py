@@ -25,6 +25,7 @@ def _build_findings_freshness(
         return {"findings_last_computed_at": None, "stale": False, "stale_reasons": []}
 
     settings_updated_at = repo.get_settings_updated_at()
+    latest_settings_version_id = repo.get_latest_settings_version_id()
     click_watermark = repo.get_click_data_watermark(target_date)
     conversion_watermark = repo.get_conversion_data_watermark(target_date)
     click_lineage = repo.get_click_findings_lineage(target_date) or {}
@@ -40,14 +41,20 @@ def _build_findings_freshness(
             stale_reasons.append("click_findings_missing")
         if click_lineage.get("source_click_watermark") != click_watermark:
             stale_reasons.append("click_source_advanced")
-        if settings_updated_at and click_lineage.get("settings_updated_at_snapshot") != settings_updated_at:
+        if latest_settings_version_id:
+            if click_lineage.get("settings_version_id") != latest_settings_version_id:
+                stale_reasons.append("settings_changed_after_click_findings")
+        elif settings_updated_at and click_lineage.get("settings_updated_at_snapshot") != settings_updated_at:
             stale_reasons.append("settings_changed_after_click_findings")
     if has_conversion_data:
         if conversion_last is None:
             stale_reasons.append("conversion_findings_missing")
         if conversion_lineage.get("source_conversion_watermark") != conversion_watermark:
             stale_reasons.append("conversion_source_advanced")
-        if settings_updated_at and conversion_lineage.get("settings_updated_at_snapshot") != settings_updated_at:
+        if latest_settings_version_id:
+            if conversion_lineage.get("settings_version_id") != latest_settings_version_id:
+                stale_reasons.append("settings_changed_after_conversion_findings")
+        elif settings_updated_at and conversion_lineage.get("settings_updated_at_snapshot") != settings_updated_at:
             stale_reasons.append("settings_changed_after_conversion_findings")
 
     return {

@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 from .db.session import normalize_database_url
 
-ALEMBIC_HEAD_REVISION = "0006_add_job_run_controls"
+ALEMBIC_HEAD_REVISION = "0007_add_settings_versions_and_findings_generations"
 
 
 def infer_legacy_schema_revision(
@@ -21,8 +21,10 @@ def infer_legacy_schema_revision(
         "suspicious_click_findings",
         "suspicious_conversion_findings",
     }.issubset(table_names):
-        if "attempt_count" in table_columns.get("job_runs", set()):
+        if {"settings_versions", "findings_generations"}.issubset(table_names):
             return ALEMBIC_HEAD_REVISION
+        if "attempt_count" in table_columns.get("job_runs", set()):
+            return "0006_add_job_run_controls"
         if "computed_by_job_id" in table_columns.get("suspicious_click_findings", set()):
             return "0005_add_findings_lineage"
         return "0004_add_persisted_findings"

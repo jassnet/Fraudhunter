@@ -137,6 +137,19 @@ class AppSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
+class SettingsVersion(Base):
+    __tablename__ = "settings_versions"
+    __table_args__ = (
+        Index("idx_settings_versions_created_at", "created_at"),
+        Index("idx_settings_versions_fingerprint", "fingerprint"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
 class JobStatus(Base):
     __tablename__ = "job_status"
     __table_args__ = (CheckConstraint("id = 1", name="job_status_singleton"),)
@@ -217,6 +230,29 @@ class SuspiciousClickFindingRecord(Base):
     generation_id: Mapped[str | None] = mapped_column(Text)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     search_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class FindingsGeneration(Base):
+    __tablename__ = "findings_generations"
+    __table_args__ = (
+        Index("idx_findings_generations_type_date_current", "finding_type", "target_date", "is_current"),
+        Index("idx_findings_generations_generation_id", "generation_id"),
+        Index("idx_findings_generations_settings_version", "settings_version_id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    generation_id: Mapped[str] = mapped_column(Text, nullable=False)
+    finding_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_date: Mapped[date] = mapped_column(Date, nullable=False)
+    computed_by_job_id: Mapped[str | None] = mapped_column(Text)
+    settings_version_id: Mapped[str | None] = mapped_column(Text)
+    settings_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    detector_code_version: Mapped[str] = mapped_column(Text, nullable=False)
+    source_click_watermark: Mapped[datetime | None] = mapped_column(DateTime)
+    source_conversion_watermark: Mapped[datetime | None] = mapped_column(DateTime)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
 class SuspiciousConversionFindingRecord(Base):

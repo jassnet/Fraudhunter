@@ -303,7 +303,7 @@ def test_save_settings_returns_without_execute_when_empty(monkeypatch):
     monkeypatch.setattr(repo, "_connect", fake_connect)
 
     # When
-    repo.save_settings({})
+    repo.save_settings({}, fingerprint="unused")
 
     # Then
     assert executed["count"] == 0

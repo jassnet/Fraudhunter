@@ -40,6 +40,9 @@ class StubReportingRepo:
     def get_settings_updated_at(self):
         return None
 
+    def get_latest_settings_version_id(self):
+        return None
+
     def get_click_data_watermark(self, target_date: date):
         return None
 

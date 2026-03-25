@@ -11,6 +11,7 @@ def test_recompute_findings_persists_lineage_metadata_for_rows(monkeypatch):
     click_watermark = datetime(2026, 1, 21, 9, 0, 0)
     conversion_watermark = datetime(2026, 1, 21, 10, 0, 0)
     captured: dict[str, list[dict]] = {}
+    captured_generations: dict[str, dict] = {}
 
     click_finding = type(
         "ClickFinding",
@@ -47,6 +48,10 @@ def test_recompute_findings_persists_lineage_metadata_for_rows(monkeypatch):
         def get_settings_updated_at(self):
             return settings_updated_at
 
+        def ensure_settings_version(self, settings, fingerprint):
+            assert fingerprint
+            return "settings-ver-1"
+
         def get_click_data_watermark(self, requested_date):
             assert requested_date == target_date
             return click_watermark
@@ -71,11 +76,13 @@ def test_recompute_findings_persists_lineage_metadata_for_rows(monkeypatch):
         def get_suspicious_conversion_details_bulk(self, requested_date, pairs):
             return {}
 
-        def replace_click_findings(self, requested_date, rows):
+        def replace_click_findings(self, requested_date, rows, *, generation_metadata):
             captured["click"] = rows
+            captured_generations["click"] = generation_metadata
 
-        def replace_conversion_findings(self, requested_date, rows):
+        def replace_conversion_findings(self, requested_date, rows, *, generation_metadata):
             captured["conversion"] = rows
+            captured_generations["conversion"] = generation_metadata
 
     monkeypatch.setattr(findings.settings_service, "get_settings", lambda repo: {"click_threshold": 50})
     monkeypatch.setattr(findings.settings_service, "build_rule_sets", lambda repo: (object(), object()))
@@ -95,3 +102,8 @@ def test_recompute_findings_persists_lineage_metadata_for_rows(monkeypatch):
     assert row["settings_updated_at_snapshot"] == settings_updated_at
     assert row["source_click_watermark"] == click_watermark
     assert row["source_conversion_watermark"] == conversion_watermark
+    assert captured_generations["click"]["settings_version_id"] == "settings-ver-1"
+    assert captured_generations["click"]["generation_id"] == "gen-456"
+    assert captured_generations["click"]["source_click_watermark"] == click_watermark
+    assert captured_generations["click"]["source_conversion_watermark"] == conversion_watermark
+    assert captured_generations["click"]["row_count"] == 1

@@ -51,7 +51,11 @@ def test_get_settings_uses_cache_after_first_load(monkeypatch):
 def test_update_settings_returns_persisted_true_when_save_succeeds():
     # Given
     class DummyRepo:
-        def save_settings(self, settings):
+        def save_settings(self, settings, *, fingerprint):
+            assert fingerprint
+            return "settings-ver-1"
+
+        def get_settings_updated_at(self):
             return None
 
     settings_service._settings_cache = None
@@ -64,12 +68,14 @@ def test_update_settings_returns_persisted_true_when_save_succeeds():
     assert result["success"] is True
     assert result["persisted"] is True
     assert result["settings"] == payload
+    assert result["settings_version_id"] == "settings-ver-1"
+    assert result["settings_fingerprint"]
 
 
 def test_update_settings_returns_warning_when_save_fails():
     # Given
     class DummyRepo:
-        def save_settings(self, settings):
+        def save_settings(self, settings, *, fingerprint):
             raise RuntimeError("db is down")
 
     settings_service._settings_cache = None
