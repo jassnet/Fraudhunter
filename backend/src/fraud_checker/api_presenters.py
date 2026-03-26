@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from .api_models import JobStatusResponse
+from .services import lifecycle
 
 
 IDLE_JOB_MESSAGE = "まだジョブは実行されていません"
@@ -183,6 +184,21 @@ def _detail_fields(details: list[dict]) -> dict:
     }
 
 
+def _evidence_fields(value: object) -> dict:
+    if hasattr(value, "isoformat"):
+        availability = lifecycle.describe_evidence_availability(value)
+    else:
+        availability = {
+            "evidence_status": "unknown",
+            "evidence_available": False,
+            "evidence_expired": False,
+            "evidence_retention_days": lifecycle.get_evidence_contract_days(),
+            "evidence_expires_on": None,
+            "evidence_checked_on": None,
+        }
+    return availability
+
+
 def present_click_finding(finding, include_names: bool, details: list[dict] | None = None) -> dict:
     risk = calculate_risk_level(finding.reasons, finding.total_clicks, is_conversion=False)
     item = {
@@ -199,6 +215,7 @@ def present_click_finding(finding, include_names: bool, details: list[dict] | No
         "risk_level": risk["level"],
         "risk_score": risk["score"],
         "risk_label": risk["label"],
+        **_evidence_fields(finding.date),
     }
     if include_names:
         item.update(_detail_fields(details or []))
@@ -223,6 +240,7 @@ def present_conversion_finding(finding, include_names: bool, details: list[dict]
         "risk_level": risk["level"],
         "risk_score": risk["score"],
         "risk_label": risk["label"],
+        **_evidence_fields(finding.date),
     }
     if include_names:
         item.update(_detail_fields(details or []))
@@ -260,6 +278,7 @@ def present_click_finding_record(
         "media_names": row.get("media_names_json") or [],
         "program_names": row.get("program_names_json") or [],
         "affiliate_names": row.get("affiliate_names_json") or [],
+        **_evidence_fields(row["date"]),
     }
     if details is not None:
         item["details"] = details
@@ -299,6 +318,7 @@ def present_conversion_finding_record(
         "media_names": row.get("media_names_json") or [],
         "program_names": row.get("program_names_json") or [],
         "affiliate_names": row.get("affiliate_names_json") or [],
+        **_evidence_fields(row["date"]),
     }
     if details is not None:
         item["details"] = details

@@ -1,6 +1,6 @@
 """add settings versions and findings generations
 
-Revision ID: 0007_add_settings_versions_and_findings_generations
+Revision ID: 0007_settings_findings_gen
 Revises: 0006_add_job_run_controls
 Create Date: 2026-03-25
 """
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0007_add_settings_versions_and_findings_generations"
+revision = "0007_settings_findings_gen"
 down_revision = "0006_add_job_run_controls"
 branch_labels = None
 depends_on = None

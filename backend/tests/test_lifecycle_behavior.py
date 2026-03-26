@@ -125,3 +125,28 @@ def test_purge_old_data_execute_deletes_only_older_rows() -> None:
     assert repo.click_findings == [date(2026, 3, 20)]
     assert repo.conversion_findings == [date(2026, 3, 20)]
     assert job_store.finished_runs == [datetime(2026, 3, 20, 0, 0, 0)]
+
+
+def test_describe_evidence_availability_marks_old_findings_as_expired() -> None:
+    result = lifecycle.describe_evidence_availability(
+        date(2025, 12, 1),
+        reference_time=datetime(2026, 3, 24, 0, 0, 0),
+        retention_days=90,
+    )
+
+    assert result["evidence_status"] == "expired"
+    assert result["evidence_available"] is False
+    assert result["evidence_expired"] is True
+    assert result["evidence_expires_on"] == "2026-03-01"
+
+
+def test_describe_evidence_availability_keeps_recent_findings_available() -> None:
+    result = lifecycle.describe_evidence_availability(
+        date(2026, 3, 1),
+        reference_time=datetime(2026, 3, 24, 0, 0, 0),
+        retention_days=90,
+    )
+
+    assert result["evidence_status"] == "available"
+    assert result["evidence_available"] is True
+    assert result["evidence_expired"] is False

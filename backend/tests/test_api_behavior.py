@@ -213,6 +213,18 @@ def test_suspicious_click_detail_returns_single_finding(monkeypatch):
 
     monkeypatch.setattr(suspicious_router, "get_repository", lambda: DummyRepo())
     monkeypatch.setattr(suspicious_router, "log_event", fake_log_event)
+    monkeypatch.setattr(
+        suspicious_router.lifecycle,
+        "describe_evidence_availability",
+        lambda target_date: {
+            "evidence_status": "available",
+            "evidence_available": True,
+            "evidence_expired": False,
+            "evidence_retention_days": 90,
+            "evidence_expires_on": "2026-03-31",
+            "evidence_checked_on": "2026-01-01",
+        },
+    )
     client = TestClient(api.app)
 
     response = client.get("/api/suspicious/clicks/f-1")
@@ -227,6 +239,67 @@ def test_suspicious_click_detail_returns_single_finding(monkeypatch):
     assert captured["fields"]["finding_key"] == "f-1"
     assert captured["fields"]["finding_type"] == "click"
     assert captured["fields"]["access_level"] == "analyst"
+    assert captured["fields"]["unmasked_access"] is True
+
+
+def test_suspicious_click_detail_masks_values_when_evidence_has_expired(monkeypatch):
+    first = datetime(2025, 1, 1, 10, 0, 0)
+    captured = {}
+
+    class DummyRepo:
+        def get_click_finding_by_key(self, finding_key):
+            return {
+                "finding_key": finding_key,
+                "date": datetime(2025, 1, 1).date(),
+                "ipaddress": "8.8.8.8",
+                "useragent": "Mozilla/5.0 Chrome/120.0",
+                "total_clicks": 60,
+                "media_count": 2,
+                "program_count": 1,
+                "first_time": first,
+                "last_time": first + timedelta(seconds=120),
+                "reasons_json": ["total_clicks >= 50"],
+                "reasons_formatted_json": ["クリック数が閾値以上です（50件以上）"],
+                "risk_level": "high",
+                "risk_score": 80,
+                "media_names_json": ["Media 1"],
+                "program_names_json": ["Program 1"],
+                "affiliate_names_json": ["Affiliate 1"],
+            }
+
+        def get_suspicious_click_details_bulk(self, target_date, pairs):
+            raise AssertionError("expired evidence should not load supporting details")
+
+    def fake_log_event(logger, event, **fields):
+        captured["event"] = event
+        captured["fields"] = fields
+
+    monkeypatch.setattr(suspicious_router, "get_repository", lambda: DummyRepo())
+    monkeypatch.setattr(suspicious_router, "log_event", fake_log_event)
+    monkeypatch.setattr(
+        suspicious_router.lifecycle,
+        "describe_evidence_availability",
+        lambda target_date: {
+            "evidence_status": "expired",
+            "evidence_available": False,
+            "evidence_expired": True,
+            "evidence_retention_days": 90,
+            "evidence_expires_on": "2025-04-01",
+            "evidence_checked_on": "2025-06-01",
+        },
+    )
+    client = TestClient(api.app)
+
+    response = client.get("/api/suspicious/clicks/f-legacy")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ipaddress"] == "8.8.x.x"
+    assert payload["sensitive_values_masked"] is True
+    assert payload["evidence_status"] == "expired"
+    assert payload["evidence_expired"] is True
+    assert "details" not in payload
+    assert captured["fields"]["unmasked_access"] is False
 
 
 def test_format_reasons_and_risk_scoring_reflect_business_priority():

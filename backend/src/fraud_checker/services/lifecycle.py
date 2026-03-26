@@ -13,6 +13,7 @@ DEFAULT_RAW_RETENTION_DAYS = 90
 DEFAULT_AGGREGATE_RETENTION_DAYS = 365
 DEFAULT_FINDINGS_RETENTION_DAYS = 365
 DEFAULT_JOB_RUN_RETENTION_DAYS = 30
+DEFAULT_EVIDENCE_CONTRACT_DAYS = DEFAULT_RAW_RETENTION_DAYS
 
 
 @dataclass
@@ -21,6 +22,41 @@ class RetentionPolicy:
     aggregate_days: int | None = DEFAULT_AGGREGATE_RETENTION_DAYS
     findings_days: int | None = DEFAULT_FINDINGS_RETENTION_DAYS
     job_run_days: int | None = DEFAULT_JOB_RUN_RETENTION_DAYS
+
+
+def get_evidence_contract_days() -> int | None:
+    return resolve_retention_policy().raw_days
+
+
+def describe_evidence_availability(
+    target_date: date,
+    *,
+    reference_time: datetime | None = None,
+    retention_days: int | None = None,
+) -> dict[str, Any]:
+    effective_days = retention_days if retention_days is not None else get_evidence_contract_days()
+    reference_dt = reference_time or now_local()
+    if effective_days is None:
+        return {
+            "evidence_status": "available",
+            "evidence_available": True,
+            "evidence_expired": False,
+            "evidence_retention_days": None,
+            "evidence_expires_on": None,
+        }
+
+    reference = reference_dt.date()
+    cutoff_date = _cutoff_date(reference_dt, effective_days)
+    expires_on = target_date + timedelta(days=effective_days)
+    available = cutoff_date is None or target_date >= cutoff_date
+    return {
+        "evidence_status": "available" if available else "expired",
+        "evidence_available": available,
+        "evidence_expired": not available,
+        "evidence_retention_days": effective_days,
+        "evidence_expires_on": expires_on.isoformat(),
+        "evidence_checked_on": reference.isoformat(),
+    }
 
 
 def resolve_retention_policy(

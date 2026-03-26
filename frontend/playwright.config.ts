@@ -1,11 +1,17 @@
 import { defineConfig } from "@playwright/test";
 
-const FRONTEND_PORT = 3000;
-const BACKEND_PORT = 8001;
+const FRONTEND_PORT = Number(process.env.PLAYWRIGHT_FRONTEND_PORT || 3000);
+const BACKEND_PORT = Number(process.env.PLAYWRIGHT_BACKEND_PORT || 8001);
 const FRONTEND_URL = `http://127.0.0.1:${FRONTEND_PORT}`;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 const E2E_TEST_KEY = process.env.E2E_TEST_KEY || "fraudchecker-e2e-key";
 const databaseUrl = process.env.FRAUD_TEST_DATABASE_URL || process.env.DATABASE_URL;
+const CORS_ORIGINS = [
+  FRONTEND_URL,
+  `http://localhost:${FRONTEND_PORT}`,
+  BACKEND_URL,
+  `http://localhost:${BACKEND_PORT}`,
+].join(",");
 
 if (!databaseUrl) {
   throw new Error("Set FRAUD_TEST_DATABASE_URL (or DATABASE_URL) before running Playwright E2E tests.");
@@ -38,6 +44,7 @@ export default defineConfig({
         FC_ENV: "test",
         FC_E2E_TEST_KEY: E2E_TEST_KEY,
         FC_ALLOW_INSECURE_ADMIN: "true",
+        FC_CORS_ORIGINS: CORS_ORIGINS,
         PYTHONPATH: "./src",
       },
     },
@@ -50,6 +57,7 @@ export default defineConfig({
       env: {
         ...process.env,
         NEXT_PUBLIC_API_URL: BACKEND_URL,
+        NEXT_DIST_DIR: ".next-playwright",
       },
     },
   ],

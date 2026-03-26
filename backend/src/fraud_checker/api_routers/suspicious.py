@@ -13,7 +13,7 @@ from ..api_presenters import (
     present_conversion_finding_record,
 )
 from ..logging_utils import log_event
-from ..services import reporting
+from ..services import lifecycle, reporting
 from ..services.jobs import get_repository
 
 logger = logging.getLogger(__name__)
@@ -181,8 +181,9 @@ def get_suspicious_click_detail(
         if row is None:
             raise HTTPException(status_code=404, detail="Finding not found")
 
+        evidence = lifecycle.describe_evidence_availability(row["date"])
         details = None
-        if include_names and include_details:
+        if include_names and include_details and evidence["evidence_available"]:
             details = _load_click_details(repo, row)
         log_event(
             logger,
@@ -193,8 +194,14 @@ def get_suspicious_click_detail(
             token_source=access_context.token_source,
             include_names=include_names,
             include_details=include_details,
+            evidence_status=evidence["evidence_status"],
+            unmasked_access=bool(evidence["evidence_available"]),
         )
-        return present_click_finding_record(row, details, mask_sensitive=False)
+        return present_click_finding_record(
+            row,
+            details,
+            mask_sensitive=not evidence["evidence_available"],
+        )
     except HTTPException:
         raise
     except Exception:
@@ -215,8 +222,9 @@ def get_suspicious_conversion_detail(
         if row is None:
             raise HTTPException(status_code=404, detail="Finding not found")
 
+        evidence = lifecycle.describe_evidence_availability(row["date"])
         details = None
-        if include_names and include_details:
+        if include_names and include_details and evidence["evidence_available"]:
             details = _load_conversion_details(repo, row)
         log_event(
             logger,
@@ -227,8 +235,14 @@ def get_suspicious_conversion_detail(
             token_source=access_context.token_source,
             include_names=include_names,
             include_details=include_details,
+            evidence_status=evidence["evidence_status"],
+            unmasked_access=bool(evidence["evidence_available"]),
         )
-        return present_conversion_finding_record(row, details, mask_sensitive=False)
+        return present_conversion_finding_record(
+            row,
+            details,
+            mask_sensitive=not evidence["evidence_available"],
+        )
     except HTTPException:
         raise
     except Exception:

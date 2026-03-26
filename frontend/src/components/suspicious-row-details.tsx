@@ -60,9 +60,25 @@ export function SuspiciousRowDetails({
   const reasons = item.reasons_formatted?.length ? item.reasons_formatted : item.reasons || [];
   const details = item.details || [];
   const visibleDetails = details.slice(0, 5);
+  const evidenceExpired = item.evidence_status === "expired" || item.evidence_expired === true;
 
   return (
     <div className="space-y-4 border-t border-border bg-background px-4 py-4">
+      {item.evidence_status ? (
+        <div
+          className={
+            evidenceExpired
+              ? "border border-[hsl(var(--warning))]/45 bg-[hsl(var(--warning))]/10 px-3 py-3 text-[13px] leading-5 text-[hsl(var(--warning))]"
+              : "border border-border bg-white/[0.03] px-3 py-3 text-[13px] leading-5 text-foreground/84"
+          }
+        >
+          {evidenceExpired
+            ? "証跡保持期限を過ぎているため、この finding は要約のみ表示しています。"
+            : "証跡は保持期間内です。詳細調査に利用できます。"}
+          {item.evidence_expires_on ? ` 保持期限: ${item.evidence_expires_on}` : ""}
+        </div>
+      ) : null}
+
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Stat
           label="IP"
@@ -139,7 +155,7 @@ export function SuspiciousRowDetails({
       ) : null}
       {detailError ? <div className="text-xs text-destructive">{detailError}</div> : null}
 
-      {!isLoadingDetails && !detailError && details.length > 0 ? (
+      {!evidenceExpired && !isLoadingDetails && !detailError && details.length > 0 ? (
         <div className="space-y-2">
           <div className="text-xs tracking-[0.06em] text-foreground/78">詳細内訳</div>
           <div className="overflow-x-auto border border-border">

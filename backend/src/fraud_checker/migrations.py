@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 from .db.session import normalize_database_url
 
-ALEMBIC_HEAD_REVISION = "0007_add_settings_versions_and_findings_generations"
+ALEMBIC_HEAD_REVISION = "0007_settings_findings_gen"
 
 
 def infer_legacy_schema_revision(

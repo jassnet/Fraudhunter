@@ -1,6 +1,8 @@
 import { APIRequestContext, expect } from "@playwright/test";
 
-const API_BASE_URL = process.env.E2E_API_URL || "http://127.0.0.1:8001";
+const backendPort = process.env.PLAYWRIGHT_BACKEND_PORT || "8001";
+const API_BASE_URL =
+  process.env.E2E_API_URL || `http://127.0.0.1:${backendPort}`;
 const E2E_TEST_KEY = process.env.E2E_TEST_KEY || "fraudchecker-e2e-key";
 
 async function postAndAssertOk(request: APIRequestContext, path: string) {

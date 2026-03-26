@@ -76,4 +76,10 @@ def test_infer_legacy_schema_revision_for_provenance_ready_schema() -> None:
         },
     )
 
-    assert revision == "0007_add_settings_versions_and_findings_generations"
+    assert revision == "0007_settings_findings_gen"
+
+
+def test_head_revision_fits_alembic_version_column_limit() -> None:
+    from fraud_checker.migrations import ALEMBIC_HEAD_REVISION
+
+    assert len(ALEMBIC_HEAD_REVISION) <= 32

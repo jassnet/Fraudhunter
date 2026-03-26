@@ -184,6 +184,12 @@ export interface SuspiciousItem {
   risk_level?: SuspiciousRiskLevel;
   risk_score?: number;
   risk_label?: string;
+  evidence_status?: "available" | "expired" | "unknown";
+  evidence_available?: boolean;
+  evidence_expired?: boolean;
+  evidence_retention_days?: number | null;
+  evidence_expires_on?: string | null;
+  evidence_checked_on?: string | null;
   details?: {
     media_id: string;
     program_id: string;
