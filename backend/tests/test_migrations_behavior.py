@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fraud_checker.migrations import infer_legacy_schema_revision
 
 
@@ -100,7 +102,27 @@ def test_infer_legacy_schema_revision_for_queue_concurrency_ready_schema() -> No
     assert revision == "0008_job_run_concurrency"
 
 
+def test_head_revision_advances_beyond_queue_concurrency_schema() -> None:
+    from fraud_checker.migrations import ALEMBIC_HEAD_REVISION
+
+    assert ALEMBIC_HEAD_REVISION == "0009_findings_search_idx"
+
+
 def test_head_revision_fits_alembic_version_column_limit() -> None:
     from fraud_checker.migrations import ALEMBIC_HEAD_REVISION
 
     assert len(ALEMBIC_HEAD_REVISION) <= 32
+
+
+def test_findings_search_index_migration_enables_pg_trgm_for_current_findings() -> None:
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "0009_add_findings_search_indexes.py"
+    ).read_text(encoding="utf-8")
+
+    assert "CREATE EXTENSION IF NOT EXISTS pg_trgm" in migration
+    assert "idx_scf_search_text_trgm" in migration
+    assert "idx_scof_search_text_trgm" in migration
+    assert "WHERE is_current = TRUE" in migration

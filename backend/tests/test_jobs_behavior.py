@@ -369,7 +369,7 @@ def test_enqueue_refresh_job_builds_stable_payload(monkeypatch):
         "conversions": False,
         "detect": True,
     }
-    assert captured["start_message"] == "直近2時間の再取得ジョブを登録しました"
+    assert captured["start_message"] == "\u76f4\u8fd12\u6642\u9593\u306e\u518d\u53d6\u5f97\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f"
 
 
 def test_enqueue_master_sync_job_builds_expected_message(monkeypatch):
@@ -386,7 +386,7 @@ def test_enqueue_master_sync_job_builds_expected_message(monkeypatch):
     assert run.id == "run-master"
     assert captured["job_type"] == jobs.JOB_TYPE_MASTER_SYNC
     assert captured["params"] is None
-    assert captured["start_message"] == "マスタ同期ジョブを登録しました"
+    assert captured["start_message"] == "\u30de\u30b9\u30bf\u540c\u671f\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f"
 
 
 def test_process_queued_jobs_acquires_and_executes(monkeypatch):
@@ -712,3 +712,59 @@ def test_run_recompute_findings_for_date_returns_generation_metadata(monkeypatch
     assert result["trigger"] == "settings_update"
     assert result["source_job_id"] == "settings-job"
     assert result["findings"] == {"suspicious_clicks": 2, "suspicious_conversions": 1}
+
+
+def test_run_master_sync_enqueues_findings_recompute_for_available_dates(monkeypatch):
+    class FakeClient:
+        def fetch_all_media_master(self):
+            return [{"media_id": "m1"}]
+
+        def fetch_all_promotion_master(self):
+            return [{"program_id": "p1"}]
+
+        def fetch_all_user_master(self):
+            return [{"user_id": "u1"}]
+
+    class FakeRepo:
+        def bulk_upsert_media(self, media_list):
+            return len(media_list)
+
+        def bulk_upsert_promotions(self, promo_list):
+            return len(promo_list)
+
+        def bulk_upsert_users(self, user_list):
+            return len(user_list)
+
+        def fetch_all(self, query, params=None):
+            normalized = " ".join(str(query).split())
+            if "SELECT DISTINCT date FROM click_ipua_daily" in normalized:
+                return [{"date": date(2026, 1, 3)}]
+            if "SELECT DISTINCT date FROM conversion_ipua_daily" in normalized:
+                return [{"date": date(2026, 1, 2)}]
+            raise AssertionError(f"unexpected query: {query}")
+
+    captured = {}
+    monkeypatch.setattr(jobs, "get_repository", lambda: FakeRepo())
+    monkeypatch.setattr(jobs, "get_acs_client", lambda: FakeClient())
+    monkeypatch.setattr(
+        jobs,
+        "enqueue_findings_recompute_jobs",
+        lambda dates, **kwargs: captured.update(
+            {
+                "dates": [target_date.isoformat() for target_date in dates],
+                "kwargs": kwargs,
+            }
+        )
+        or [type("QueuedJob", (), {"id": f"recompute-{index + 1}"})() for index, _ in enumerate(dates)],
+    )
+
+    result, message = jobs.run_master_sync(job_run_id="job-master-1")
+
+    assert message == "Master sync completed"
+    assert result["media_count"] == 1
+    assert result["promotion_count"] == 1
+    assert result["user_count"] == 1
+    assert captured["dates"] == ["2026-01-03", "2026-01-02"]
+    assert captured["kwargs"]["trigger"] == "master_sync"
+    assert captured["kwargs"]["source_job_id"] == "job-master-1"
+    assert result["findings_recompute"]["job_ids"] == ["recompute-1", "recompute-2"]

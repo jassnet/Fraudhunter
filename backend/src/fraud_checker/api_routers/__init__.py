@@ -1,4 +1,4 @@
-﻿from .health import router as health_router
+from .health import router as health_router
 from .jobs import router as jobs_router
 from .masters import router as masters_router
 from .reporting import router as reporting_router

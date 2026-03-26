@@ -234,7 +234,7 @@ def enqueue_recompute_findings_job(
         background_tasks=background_tasks,
         job_type=JOB_TYPE_RECOMPUTE_FINDINGS_DATE,
         params=params,
-        start_message=f"finding 再計算ジョブを登録しました（{target_date.isoformat()}）",
+        start_message=f"\u0066\u0069\u006e\u0064\u0069\u006e\u0067\u0020\u518d\u8a08\u7b97\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f\uff08{target_date.isoformat()}\uff09",
     )
 
 
@@ -269,7 +269,7 @@ def enqueue_click_ingestion_job(
         background_tasks=background_tasks,
         job_type=JOB_TYPE_CLICK_INGEST,
         params={"date": target_date.isoformat()},
-        start_message=f"クリック取り込みジョブを登録しました（{target_date.isoformat()}）",
+        start_message=f"\u30af\u30ea\u30c3\u30af\u53d6\u308a\u8fbc\u307f\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f\uff08{target_date.isoformat()}\uff09",
     )
 
 
@@ -282,7 +282,7 @@ def enqueue_conversion_ingestion_job(
         background_tasks=background_tasks,
         job_type=JOB_TYPE_CONVERSION_INGEST,
         params={"date": target_date.isoformat()},
-        start_message=f"成果取り込みジョブを登録しました（{target_date.isoformat()}）",
+        start_message=f"\u6210\u679c\u53d6\u308a\u8fbc\u307f\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f\uff08{target_date.isoformat()}\uff09",
     )
 
 
@@ -303,7 +303,7 @@ def enqueue_refresh_job(
             "conversions": conversions,
             "detect": detect,
         },
-        start_message=f"直近{hours}時間の再取得ジョブを登録しました",
+        start_message=f"\u76f4\u8fd1{hours}\u6642\u9593\u306e\u518d\u53d6\u5f97\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f",
     )
 
 
@@ -312,7 +312,7 @@ def enqueue_master_sync_job(*, background_tasks=None) -> JobRun:
         background_tasks=background_tasks,
         job_type=JOB_TYPE_MASTER_SYNC,
         params=None,
-        start_message="マスタ同期ジョブを登録しました",
+        start_message="\u30de\u30b9\u30bf\u540c\u671f\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f",
     )
 
 
@@ -408,7 +408,7 @@ def _dispatch_job(run: JobRun) -> tuple[dict[str, Any], str]:
             source_job_id=params.get("source_job_id"),
         )
     if run.job_type == JOB_TYPE_MASTER_SYNC:
-        return run_master_sync()
+        return run_master_sync(job_run_id=run.id)
     raise ValueError(f"Unsupported job_type: {run.job_type}")
 
 
@@ -579,7 +579,7 @@ def run_refresh(
     return result, f"Refresh completed for last {hours} hours"
 
 
-def run_master_sync() -> tuple[dict[str, Any], str]:
+def run_master_sync(*, job_run_id: str | None = None) -> tuple[dict[str, Any], str]:
     repo = get_repository()
     client = get_acs_client()
 
@@ -599,4 +599,23 @@ def run_master_sync() -> tuple[dict[str, Any], str]:
         "promotion_count": promo_count,
         "user_count": user_count,
     }
+
+    from . import reporting as reporting_service
+
+    dates = [date.fromisoformat(value) for value in reporting_service.get_available_dates(repo) if value]
+    if dates:
+        generation_id = f"master-sync-{job_run_id or uuid.uuid4().hex[:12]}"
+        recompute_jobs = enqueue_findings_recompute_jobs(
+            dates,
+            generation_id=generation_id,
+            trigger="master_sync",
+            source_job_id=job_run_id,
+        )
+        result["findings_recompute"] = {
+            "mode": "queued",
+            "generation_id": generation_id,
+            "job_ids": [job.id for job in recompute_jobs],
+            "target_dates": [target_date.isoformat() for target_date in dates],
+        }
+
     return result, "Master sync completed"

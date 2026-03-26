@@ -1,4 +1,4 @@
-﻿import { http, HttpResponse } from "msw";
+import { http, HttpResponse } from "msw";
 import { API_BASE_URL } from "@/lib/api";
 
 export const DEFAULT_DATES = ["2026-01-21", "2026-01-20", "2026-01-19"];

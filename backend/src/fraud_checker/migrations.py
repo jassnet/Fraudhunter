@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 from .db.session import normalize_database_url
 
-ALEMBIC_HEAD_REVISION = "0008_job_run_concurrency"
+ALEMBIC_HEAD_REVISION = "0009_findings_search_idx"
 
 
 def infer_legacy_schema_revision(
@@ -23,7 +23,7 @@ def infer_legacy_schema_revision(
     }.issubset(table_names):
         if {"settings_versions", "findings_generations"}.issubset(table_names):
             if "concurrency_key" in table_columns.get("job_runs", set()):
-                return ALEMBIC_HEAD_REVISION
+                return "0008_job_run_concurrency"
             return "0007_settings_findings_gen"
         if "attempt_count" in table_columns.get("job_runs", set()):
             return "0006_add_job_run_controls"

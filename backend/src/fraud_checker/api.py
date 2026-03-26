@@ -1,4 +1,4 @@
-﻿"""FastAPI backend for Fraud Checker v2."""
+"""FastAPI backend for Fraud Checker v2."""
 from __future__ import annotations
 
 import logging
