@@ -171,6 +171,7 @@ class JobRun(Base):
         Index("idx_job_runs_locked_until", "locked_until"),
         Index("idx_job_runs_queue_scan", "status", "next_retry_at", "priority", "queued_at"),
         Index("idx_job_runs_dedupe_status", "dedupe_key", "status", "queued_at"),
+        Index("idx_job_runs_concurrency_status", "concurrency_key", "status", "queued_at"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -185,6 +186,7 @@ class JobRun(Base):
     next_retry_at: Mapped[datetime | None] = mapped_column(DateTime)
     dedupe_key: Mapped[str | None] = mapped_column(Text)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    concurrency_key: Mapped[str | None] = mapped_column(Text)
     queued_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)

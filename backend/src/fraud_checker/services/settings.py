@@ -113,19 +113,15 @@ def update_settings(repo: SettingsRepository, settings: dict) -> dict:
         }
 
     try:
-        from . import findings as findings_service
+        from . import jobs as jobs_service
         from . import reporting as reporting_service
 
-        dates = [
-            date.fromisoformat(value)
-            for value in reporting_service.get_available_dates(repo)
-            if value
-        ]
+        dates = [date.fromisoformat(value) for value in reporting_service.get_available_dates(repo) if value]
         recompute_generation_id = f"settings-{uuid.uuid4().hex[:12]}"
-        recomputed = findings_service.recompute_findings_for_dates(
-            repo,
+        recompute_jobs = jobs_service.enqueue_findings_recompute_jobs(
             dates,
             generation_id=recompute_generation_id,
+            trigger="settings_update",
         )
         return {
             "success": True,
@@ -133,12 +129,14 @@ def update_settings(repo: SettingsRepository, settings: dict) -> dict:
             "persisted": True,
             "settings_version_id": settings_version_id,
             "settings_fingerprint": fingerprint,
-            "findings_recomputed": True,
-            "recomputed_dates": recomputed,
+            "findings_recomputed": len(dates) == 0,
+            "findings_recompute_enqueued": len(dates) > 0,
+            "recompute_job_ids": [job.id for job in recompute_jobs],
+            "recompute_target_dates": [target_date.isoformat() for target_date in dates],
             "generation_id": recompute_generation_id,
         }
     except Exception as exc:
-        logger.exception("Settings persisted but finding recomputation failed")
+        logger.exception("Settings persisted but finding recomputation enqueue failed")
         return {
             "success": True,
             "settings": _settings_cache,
@@ -146,6 +144,7 @@ def update_settings(repo: SettingsRepository, settings: dict) -> dict:
             "settings_version_id": settings_version_id,
             "settings_fingerprint": fingerprint,
             "findings_recomputed": False,
+            "findings_recompute_enqueued": False,
             "warning": str(exc),
         }
 

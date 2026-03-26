@@ -79,6 +79,27 @@ def test_infer_legacy_schema_revision_for_provenance_ready_schema() -> None:
     assert revision == "0007_settings_findings_gen"
 
 
+def test_infer_legacy_schema_revision_for_queue_concurrency_ready_schema() -> None:
+    revision = infer_legacy_schema_revision(
+        {
+            "click_ipua_daily",
+            "conversion_ipua_daily",
+            "job_runs",
+            "settings_versions",
+            "findings_generations",
+            "suspicious_click_findings",
+            "suspicious_conversion_findings",
+        },
+        {
+            "job_runs": {"id", "attempt_count", "next_retry_at", "concurrency_key"},
+            "findings_generations": {"generation_id", "settings_version_id"},
+            "settings_versions": {"id", "fingerprint"},
+        },
+    )
+
+    assert revision == "0008_job_run_concurrency"
+
+
 def test_head_revision_fits_alembic_version_column_limit() -> None:
     from fraud_checker.migrations import ALEMBIC_HEAD_REVISION
 

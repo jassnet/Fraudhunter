@@ -115,13 +115,16 @@ def test_enqueue_persists_json_payload_and_control_columns(monkeypatch):
         max_attempts=4,
         dedupe_key="refresh-key",
         priority=10,
+        concurrency_key="date-write:2026-01-01",
     )
 
     assert run.id == "run-1"
     assert run.max_attempts == 4
     assert run.priority == 10
+    assert run.concurrency_key == "date-write:2026-01-01"
     assert json.loads(captured["params"]["params_json"]) == {"hours": 4, "clicks": True}
     assert captured["params"]["dedupe_key"] == "refresh-key"
+    assert captured["params"]["concurrency_key"] == "date-write:2026-01-01"
     assert captured["params"]["queued_at"] == fixed_now
 
 

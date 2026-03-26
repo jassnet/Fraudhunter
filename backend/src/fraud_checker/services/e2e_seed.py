@@ -23,7 +23,6 @@ RESET_TABLES = (
     "master_promotion",
     "master_user",
     "app_settings",
-    "job_status",
     "job_runs",
     "suspicious_click_findings",
     "suspicious_conversion_findings",

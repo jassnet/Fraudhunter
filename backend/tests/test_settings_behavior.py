@@ -48,7 +48,7 @@ def test_get_settings_uses_cache_after_first_load(monkeypatch):
     assert repo.calls == 1
 
 
-def test_update_settings_returns_persisted_true_when_save_succeeds():
+def test_update_settings_enqueues_findings_recompute_jobs(monkeypatch):
     # Given
     class DummyRepo:
         def save_settings(self, settings, *, fingerprint):
@@ -58,6 +58,14 @@ def test_update_settings_returns_persisted_true_when_save_succeeds():
         def get_settings_updated_at(self):
             return None
 
+    monkeypatch.setattr(
+        "fraud_checker.services.reporting.get_available_dates",
+        lambda repo: ["2026-01-20", "2026-01-21"],
+    )
+    monkeypatch.setattr(
+        "fraud_checker.services.jobs.enqueue_findings_recompute_jobs",
+        lambda dates, **kwargs: [type("QueuedJob", (), {"id": f"job-{index + 1}"})() for index, _ in enumerate(dates)],
+    )
     settings_service._settings_cache = None
     payload = {"click_threshold": 70}
 
@@ -70,6 +78,10 @@ def test_update_settings_returns_persisted_true_when_save_succeeds():
     assert result["settings"] == payload
     assert result["settings_version_id"] == "settings-ver-1"
     assert result["settings_fingerprint"]
+    assert result["findings_recomputed"] is False
+    assert result["findings_recompute_enqueued"] is True
+    assert result["recompute_job_ids"] == ["job-1", "job-2"]
+    assert result["recompute_target_dates"] == ["2026-01-20", "2026-01-21"]
 
 
 def test_update_settings_returns_warning_when_save_fails():
@@ -89,3 +101,30 @@ def test_update_settings_returns_warning_when_save_fails():
     assert result["persisted"] is False
     assert result["settings"] == payload
     assert "db is down" in result["warning"]
+
+
+def test_update_settings_returns_warning_when_recompute_enqueue_fails(monkeypatch):
+    class DummyRepo:
+        def save_settings(self, settings, *, fingerprint):
+            return "settings-ver-1"
+
+        def get_settings_updated_at(self):
+            return None
+
+    monkeypatch.setattr(
+        "fraud_checker.services.reporting.get_available_dates",
+        lambda repo: ["2026-01-20"],
+    )
+    monkeypatch.setattr(
+        "fraud_checker.services.jobs.enqueue_findings_recompute_jobs",
+        lambda dates, **kwargs: (_ for _ in ()).throw(RuntimeError("queue unavailable")),
+    )
+    settings_service._settings_cache = None
+
+    result = settings_service.update_settings(DummyRepo(), {"click_threshold": 70})
+
+    assert result["success"] is True
+    assert result["persisted"] is True
+    assert result["findings_recomputed"] is False
+    assert result["findings_recompute_enqueued"] is False
+    assert "queue unavailable" in result["warning"]

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 
 from .db import Base
 from .db.session import normalize_database_url
@@ -52,6 +54,7 @@ class JobRun:
     heartbeat_at: datetime | None
     locked_until: datetime | None
     worker_id: str | None
+    concurrency_key: str | None = None
 
 
 class JobStatusStorePG:
@@ -86,6 +89,7 @@ class JobStatusStorePG:
             next_retry_at=row.get("next_retry_at"),
             dedupe_key=row.get("dedupe_key"),
             priority=int(row.get("priority") or DEFAULT_PRIORITY),
+            concurrency_key=row.get("concurrency_key"),
             queued_at=row["queued_at"],
             started_at=row.get("started_at"),
             finished_at=row.get("finished_at"),
@@ -100,7 +104,7 @@ class JobStatusStorePG:
                 sa.text(
                     """
                     SELECT id, job_type, status, params_json, result_json, error_message, message,
-                           attempt_count, max_attempts, next_retry_at, dedupe_key, priority,
+                           attempt_count, max_attempts, next_retry_at, dedupe_key, priority, concurrency_key,
                            queued_at, started_at, finished_at, heartbeat_at, locked_until, worker_id
                     FROM job_runs
                     ORDER BY COALESCE(finished_at, started_at, queued_at) DESC, queued_at DESC
@@ -116,7 +120,7 @@ class JobStatusStorePG:
                 sa.text(
                     """
                     SELECT id, job_type, status, params_json, result_json, error_message, message,
-                           attempt_count, max_attempts, next_retry_at, dedupe_key, priority,
+                           attempt_count, max_attempts, next_retry_at, dedupe_key, priority, concurrency_key,
                            queued_at, started_at, finished_at, heartbeat_at, locked_until, worker_id
                     FROM job_runs
                     WHERE id = :run_id
@@ -132,7 +136,7 @@ class JobStatusStorePG:
                 sa.text(
                     """
                     SELECT id, job_type, status, params_json, result_json, error_message, message,
-                           attempt_count, max_attempts, next_retry_at, dedupe_key, priority,
+                           attempt_count, max_attempts, next_retry_at, dedupe_key, priority, concurrency_key,
                            queued_at, started_at, finished_at, heartbeat_at, locked_until, worker_id
                     FROM job_runs
                     WHERE dedupe_key = :dedupe_key
@@ -170,33 +174,38 @@ class JobStatusStorePG:
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         dedupe_key: str | None = None,
         priority: int = DEFAULT_PRIORITY,
+        concurrency_key: str | None = None,
     ) -> JobRun:
         queued_at = now_local()
         run_id = uuid.uuid4().hex
-        with self.engine.begin() as conn:
-            conn.execute(
-                sa.text(
-                    """
-                    INSERT INTO job_runs (
-                        id, job_type, status, params_json, message,
-                        attempt_count, max_attempts, next_retry_at, dedupe_key, priority, queued_at
-                    ) VALUES (
-                        :id, :job_type, 'queued', :params_json, :message,
-                        0, :max_attempts, NULL, :dedupe_key, :priority, :queued_at
-                    )
-                    """
-                ),
-                {
-                    "id": run_id,
-                    "job_type": job_type,
-                    "params_json": self._dumps(params),
-                    "message": message,
-                    "max_attempts": max(1, int(max_attempts)),
-                    "dedupe_key": dedupe_key,
-                    "priority": priority,
-                    "queued_at": queued_at,
-                },
-            )
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(
+                    sa.text(
+                        """
+                        INSERT INTO job_runs (
+                            id, job_type, status, params_json, message,
+                            attempt_count, max_attempts, next_retry_at, dedupe_key, priority, concurrency_key, queued_at
+                        ) VALUES (
+                            :id, :job_type, 'queued', :params_json, :message,
+                            0, :max_attempts, NULL, :dedupe_key, :priority, :concurrency_key, :queued_at
+                        )
+                        """
+                    ),
+                    {
+                        "id": run_id,
+                        "job_type": job_type,
+                        "params_json": self._dumps(params),
+                        "message": message,
+                        "max_attempts": max(1, int(max_attempts)),
+                        "dedupe_key": dedupe_key,
+                        "priority": priority,
+                        "concurrency_key": concurrency_key,
+                        "queued_at": queued_at,
+                    },
+                )
+        except IntegrityError:
+            raise
         return JobRun(
             id=run_id,
             job_type=job_type,
@@ -210,6 +219,7 @@ class JobStatusStorePG:
             next_retry_at=None,
             dedupe_key=dedupe_key,
             priority=priority,
+            concurrency_key=concurrency_key,
             queued_at=queued_at,
             started_at=None,
             finished_at=None,
@@ -264,7 +274,7 @@ class JobStatusStorePG:
                         worker_id = :worker_id
                     WHERE id IN (SELECT id FROM candidate)
                     RETURNING id, job_type, status, params_json, result_json, error_message, message,
-                              attempt_count, max_attempts, next_retry_at, dedupe_key, priority,
+                              attempt_count, max_attempts, next_retry_at, dedupe_key, priority, concurrency_key,
                               queued_at, started_at, finished_at, heartbeat_at, locked_until, worker_id
                     """
                 ),
@@ -294,6 +304,25 @@ class JobStatusStorePG:
                 },
             )
         return result.rowcount == 1
+
+    def requeue_blocked(self, run_id: str, message: str, *, delay_seconds: int = 15) -> None:
+        retry_at = now_local() + timedelta(seconds=max(1, int(delay_seconds)))
+        with self.engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    """
+                    UPDATE job_runs
+                    SET status = 'queued',
+                        message = :message,
+                        worker_id = NULL,
+                        locked_until = NULL,
+                        heartbeat_at = :retry_at,
+                        next_retry_at = :retry_at
+                    WHERE id = :run_id
+                    """
+                ),
+                {"run_id": run_id, "message": message, "retry_at": retry_at},
+            )
 
     def complete(self, run_id: str, message: str, result: dict[str, Any] | None = None) -> None:
         finished_at = now_local()
@@ -474,6 +503,30 @@ class JobStatusStorePG:
 
     def get_latest_run(self) -> JobRun | None:
         return self._fetch_latest_run()
+
+    @contextmanager
+    def advisory_lock(self, concurrency_key: str | None):
+        if not concurrency_key:
+            yield True
+            return
+
+        conn = self.engine.connect()
+        acquired = False
+        try:
+            acquired = bool(
+                conn.execute(
+                    sa.text("SELECT pg_try_advisory_lock(hashtext(:concurrency_key))"),
+                    {"concurrency_key": concurrency_key},
+                ).scalar_one()
+            )
+            yield acquired
+        finally:
+            if acquired:
+                conn.execute(
+                    sa.text("SELECT pg_advisory_unlock(hashtext(:concurrency_key))"),
+                    {"concurrency_key": concurrency_key},
+                )
+            conn.close()
 
     def get(self) -> JobStatus:
         run = self._fetch_latest_run()

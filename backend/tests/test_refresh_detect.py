@@ -19,33 +19,21 @@ def test_run_refresh_includes_detect(monkeypatch):
         def run_for_time_range(self, start_time, end_time):
             return 2, 0, 2, 1
 
-    class DummyDetector:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def find_for_date(self, target_date):
-            return [], [], []
-
     monkeypatch.setattr(jobs, "resolve_acs_settings", lambda: DummySettings())
     monkeypatch.setattr(jobs, "get_repository", lambda: object())
     monkeypatch.setattr(jobs, "get_acs_client", lambda: object())
     monkeypatch.setattr(jobs, "ClickLogIngestor", DummyClickIngestor)
     monkeypatch.setattr(jobs, "ConversionIngestor", DummyConversionIngestor)
-    monkeypatch.setattr(jobs, "CombinedSuspiciousDetector", DummyDetector)
     monkeypatch.setattr(
-        jobs.findings_service,
-        "recompute_findings_for_dates",
-        lambda repo, dates, **kwargs: {
-            target_date.isoformat(): {"suspicious_clicks": 1, "suspicious_conversions": 2}
-            for target_date in dates
-        },
+        jobs,
+        "enqueue_findings_recompute_jobs",
+        lambda dates, **kwargs: [type("QueuedJob", (), {"id": f"job-{index + 1}"})() for index, _ in enumerate(dates)],
     )
-    monkeypatch.setattr(jobs.settings_service, "build_rule_sets", lambda repo: (None, None))
 
     result, message = jobs.run_refresh(1, clicks=True, conversions=True, detect=True)
 
     assert result["clicks"]["new"] == 1
     assert result["conversions"]["new"] == 2
     assert result["conversions"]["click_enriched"] == 1
-    assert "detect" in result
-    assert isinstance(result["detect"], dict)
+    assert result["findings_recompute"]["mode"] == "queued"
+    assert result["findings_recompute"]["detect_requested"] is True

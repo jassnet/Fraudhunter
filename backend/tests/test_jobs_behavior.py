@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from fraud_checker.models import ClickLog, ConversionIpUaRollup, ConversionLog, IpUaRollup
 from fraud_checker.services import jobs
@@ -51,7 +52,7 @@ def _conversion(conversion_id: str, at: datetime) -> ConversionLog:
     )
 
 
-def test_run_refresh_collects_detect_results_per_date(monkeypatch):
+def test_run_refresh_enqueues_findings_recompute_jobs_per_date(monkeypatch):
     class FakeClient:
         def fetch_click_logs_for_time_range(self, start_time, end_time, page, limit):
             if page == 1:
@@ -145,15 +146,18 @@ def test_run_refresh_collects_detect_results_per_date(monkeypatch):
     monkeypatch.setattr(jobs, "get_repository", lambda: repo)
     monkeypatch.setattr(jobs, "get_acs_client", lambda: FakeClient())
     monkeypatch.setattr(jobs, "resolve_acs_settings", lambda: _DummySettings())
+    captured = {}
     monkeypatch.setattr(
-        jobs.findings_service,
-        "recompute_findings_for_dates",
-        lambda repo, dates, **kwargs: {
-            target_date.isoformat(): {"suspicious_clicks": 1, "suspicious_conversions": 1}
-            for target_date in dates
-        },
+        jobs,
+        "enqueue_findings_recompute_jobs",
+        lambda dates, **kwargs: captured.update(
+            {
+                "dates": [target_date.isoformat() for target_date in dates],
+                "kwargs": kwargs,
+            }
+        )
+        or [type("QueuedJob", (), {"id": f"job-{index + 1}"})() for index, _ in enumerate(dates)],
     )
-    jobs.settings_service._settings_cache = None
 
     result, message = jobs.run_refresh(hours=25, clicks=True, conversions=True, detect=True)
 
@@ -165,7 +169,11 @@ def test_run_refresh_collects_detect_results_per_date(monkeypatch):
         "valid_entry": 2,
         "click_enriched": 2,
     }
-    assert result["detect"]["2026-01-02"]["high_risk"] == 1
+    assert captured["dates"] == ["2025-12-31", "2026-01-01", "2026-01-02"]
+    assert captured["kwargs"]["trigger"] == "refresh"
+    assert result["findings_recompute"]["mode"] == "queued"
+    assert result["findings_recompute"]["job_ids"] == ["job-1", "job-2", "job-3"]
+    assert result["findings_recompute"]["detect_requested"] is True
 
 
 def test_enqueue_job_allows_queueing_when_another_job_is_active(monkeypatch):
@@ -173,7 +181,7 @@ def test_enqueue_job_allows_queueing_when_another_job_is_active(monkeypatch):
         def find_active_duplicate(self, dedupe_key):
             return None
 
-        def enqueue(self, *, job_type, params, message, max_attempts, dedupe_key, priority):
+        def enqueue(self, *, job_type, params, message, max_attempts, dedupe_key, priority, concurrency_key=None):
             return type(
                 "QueuedJob",
                 (),
@@ -182,6 +190,7 @@ def test_enqueue_job_allows_queueing_when_another_job_is_active(monkeypatch):
                     "job_type": job_type,
                     "max_attempts": max_attempts,
                     "priority": priority,
+                    "concurrency_key": concurrency_key,
                 },
             )()
 
@@ -204,7 +213,7 @@ def test_enqueue_job_persists_and_schedules_background_runner(monkeypatch):
         def find_active_duplicate(self, dedupe_key):
             return None
 
-        def enqueue(self, *, job_type, params, message, max_attempts, dedupe_key, priority):
+        def enqueue(self, *, job_type, params, message, max_attempts, dedupe_key, priority, concurrency_key=None):
             return type(
                 "QueuedJob",
                 (),
@@ -213,6 +222,7 @@ def test_enqueue_job_persists_and_schedules_background_runner(monkeypatch):
                     "job_type": job_type,
                     "max_attempts": 4,
                     "priority": 10,
+                    "concurrency_key": concurrency_key,
                 },
             )()
 
@@ -260,6 +270,51 @@ def test_enqueue_job_returns_existing_run_when_dedupe_matches(monkeypatch):
     assert run.id == "run-existing"
 
 
+def test_enqueue_job_returns_existing_run_when_unique_index_race_occurs(monkeypatch):
+    class DummyStore:
+        def __init__(self):
+            self.calls = 0
+
+        def advisory_lock(self, concurrency_key):
+            class _Ctx:
+                def __enter__(self_inner):
+                    return True
+
+                def __exit__(self_inner, exc_type, exc, tb):
+                    return False
+
+            return _Ctx()
+
+        def find_active_duplicate(self, dedupe_key):
+            self.calls += 1
+            if self.calls == 1:
+                return None
+            return type(
+                "QueuedJob",
+                (),
+                {
+                    "id": "run-race",
+                    "job_type": jobs.JOB_TYPE_REFRESH,
+                    "max_attempts": 4,
+                    "priority": 10,
+                    "concurrency_key": None,
+                },
+            )()
+
+        def enqueue(self, **kwargs):
+            raise IntegrityError("insert into job_runs", {}, RuntimeError("duplicate key"))
+
+    monkeypatch.setattr(jobs, "get_job_store", lambda: DummyStore())
+
+    run = jobs.enqueue_job(
+        job_type=jobs.JOB_TYPE_REFRESH,
+        params={"hours": 1},
+        start_message="start",
+    )
+
+    assert run.id == "run-race"
+
+
 def test_enqueue_job_skips_in_process_kick_in_production(monkeypatch):
     class DummyStore:
         def has_active_job(self):
@@ -268,7 +323,7 @@ def test_enqueue_job_skips_in_process_kick_in_production(monkeypatch):
         def find_active_duplicate(self, dedupe_key):
             return None
 
-        def enqueue(self, *, job_type, params, message, max_attempts, dedupe_key, priority):
+        def enqueue(self, *, job_type, params, message, max_attempts, dedupe_key, priority, concurrency_key=None):
             return type(
                 "QueuedJob",
                 (),
@@ -277,6 +332,7 @@ def test_enqueue_job_skips_in_process_kick_in_production(monkeypatch):
                     "job_type": job_type,
                     "max_attempts": max_attempts,
                     "priority": priority,
+                    "concurrency_key": concurrency_key,
                 },
             )()
 
@@ -340,6 +396,16 @@ def test_process_queued_jobs_acquires_and_executes(monkeypatch):
         def __init__(self):
             self.calls = 0
 
+        def advisory_lock(self, concurrency_key):
+            class _Ctx:
+                def __enter__(self_inner):
+                    return True
+
+                def __exit__(self_inner, exc_type, exc, tb):
+                    return False
+
+            return _Ctx()
+
         def acquire_next(self, *, worker_id, lease_seconds):
             self.calls += 1
             if self.calls > 1:
@@ -389,6 +455,16 @@ def test_execute_job_run_requeues_retryable_failure(monkeypatch):
     calls = []
 
     class DummyStore:
+        def advisory_lock(self, concurrency_key):
+            class _Ctx:
+                def __enter__(self_inner):
+                    return True
+
+                def __exit__(self_inner, exc_type, exc, tb):
+                    return False
+
+            return _Ctx()
+
         def fail(self, *args, **kwargs):
             calls.append(kwargs)
             return "queued"
@@ -433,6 +509,16 @@ def test_execute_job_run_marks_value_error_non_retryable(monkeypatch):
     calls = []
 
     class DummyStore:
+        def advisory_lock(self, concurrency_key):
+            class _Ctx:
+                def __enter__(self_inner):
+                    return True
+
+                def __exit__(self_inner, exc_type, exc, tb):
+                    return False
+
+            return _Ctx()
+
         def fail(self, *args, **kwargs):
             calls.append(kwargs)
             return "failed"
@@ -471,6 +557,55 @@ def test_execute_job_run_marks_value_error_non_retryable(monkeypatch):
     )
 
     assert calls[0]["retryable"] is False
+
+
+def test_execute_job_run_requeues_when_concurrency_lock_is_busy(monkeypatch):
+    calls = []
+
+    class DummyStore:
+        def advisory_lock(self, concurrency_key):
+            class _Ctx:
+                def __enter__(self_inner):
+                    return False
+
+                def __exit__(self_inner, exc_type, exc, tb):
+                    return False
+
+            return _Ctx()
+
+        def requeue_blocked(self, run_id, message, *, delay_seconds=15):
+            calls.append((run_id, message, delay_seconds))
+
+    run = jobs.JobRun(
+        id="run-1",
+        job_type=jobs.JOB_TYPE_RECOMPUTE_FINDINGS_DATE,
+        status="running",
+        params={"date": "2026-01-21", "generation_id": "gen-1"},
+        result=None,
+        error_message=None,
+        message="queued",
+        attempt_count=0,
+        max_attempts=4,
+        next_retry_at=None,
+        dedupe_key="recompute:2026-01-21",
+        priority=30,
+        queued_at=datetime(2026, 1, 1, 0, 0, 0),
+        started_at=datetime(2026, 1, 1, 0, 0, 1),
+        finished_at=None,
+        heartbeat_at=None,
+        locked_until=None,
+        worker_id="worker-1",
+        concurrency_key="date-write:2026-01-21",
+    )
+
+    jobs._execute_job_run(
+        store=DummyStore(),
+        run=run,
+        worker_id="worker-1",
+        lease_seconds=60,
+    )
+
+    assert calls == [("run-1", "recompute_findings_date is waiting for date-write:2026-01-21", 15)]
 
 
 def test_should_use_in_process_background_kick_defaults_off_in_production(monkeypatch):
@@ -549,3 +684,31 @@ def test_run_conversion_ingestion_returns_summary_message(monkeypatch):
         "findings": {"suspicious_conversions": 1},
     }
     assert message == "Ingested 1 conversions for 2026-01-03"
+
+
+def test_run_recompute_findings_for_date_returns_generation_metadata(monkeypatch):
+    class FakeRepo:
+        pass
+
+    monkeypatch.setattr(jobs, "get_repository", lambda: FakeRepo())
+    monkeypatch.setattr(
+        jobs.findings_service,
+        "recompute_findings_for_dates",
+        lambda repo, dates, **kwargs: {
+            dates[0].isoformat(): {"suspicious_clicks": 2, "suspicious_conversions": 1}
+        },
+    )
+
+    result, message = jobs.run_recompute_findings_for_date(
+        date(2026, 1, 21),
+        generation_id="gen-1",
+        trigger="settings_update",
+        job_run_id="run-1",
+        source_job_id="settings-job",
+    )
+
+    assert message == "Recomputed findings for 2026-01-21"
+    assert result["generation_id"] == "gen-1"
+    assert result["trigger"] == "settings_update"
+    assert result["source_job_id"] == "settings-job"
+    assert result["findings"] == {"suspicious_clicks": 2, "suspicious_conversions": 1}

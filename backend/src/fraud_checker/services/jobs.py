@@ -5,39 +5,43 @@ import logging
 import os
 import socket
 import threading
+import uuid
 from contextlib import contextmanager
 from datetime import date, timedelta
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
+
 from ..acs_client import AcsHttpClient
-from ..config import resolve_acs_settings, resolve_store_raw
+from ..config import resolve_acs_settings
 from ..ingestion import ClickLogIngestor, ConversionIngestor
 from ..job_status_pg import JobRun, JobStatusStorePG
 from ..logging_utils import log_event, log_timed
 from ..repository_pg import PostgresRepository
 from ..runtime_guards import current_env
-from ..suspicious import CombinedSuspiciousDetector
 from ..time_utils import now_local
 from . import findings as findings_service
-from . import settings as settings_service
 
 logger = logging.getLogger(__name__)
 
 JOB_TYPE_CLICK_INGEST = "ingest_clicks"
 JOB_TYPE_CONVERSION_INGEST = "ingest_conversions"
 JOB_TYPE_REFRESH = "refresh"
+JOB_TYPE_RECOMPUTE_FINDINGS_DATE = "recompute_findings_date"
 JOB_TYPE_MASTER_SYNC = "master_sync"
 DEFAULT_JOB_LEASE_SECONDS = 300
 JOB_MAX_ATTEMPTS = {
     JOB_TYPE_CLICK_INGEST: 3,
     JOB_TYPE_CONVERSION_INGEST: 3,
     JOB_TYPE_REFRESH: 4,
+    JOB_TYPE_RECOMPUTE_FINDINGS_DATE: 4,
     JOB_TYPE_MASTER_SYNC: 2,
 }
 JOB_PRIORITIES = {
     JOB_TYPE_CLICK_INGEST: 20,
     JOB_TYPE_CONVERSION_INGEST: 20,
     JOB_TYPE_REFRESH: 10,
+    JOB_TYPE_RECOMPUTE_FINDINGS_DATE: 30,
     JOB_TYPE_MASTER_SYNC: 50,
 }
 
@@ -101,6 +105,23 @@ def _dedupe_key(job_type: str, params: dict[str, Any] | None) -> str:
     return f"{job_type}:{canonical_params}"
 
 
+def _date_write_concurrency_key(target_date: date) -> str:
+    return f"date-write:{target_date.isoformat()}"
+
+
+def _job_concurrency_key(job_type: str, params: dict[str, Any] | None) -> str | None:
+    params = params or {}
+    if job_type in {
+        JOB_TYPE_CLICK_INGEST,
+        JOB_TYPE_CONVERSION_INGEST,
+        JOB_TYPE_RECOMPUTE_FINDINGS_DATE,
+    } and params.get("date"):
+        return _date_write_concurrency_key(date.fromisoformat(params["date"]))
+    if job_type == JOB_TYPE_MASTER_SYNC:
+        return "master-sync"
+    return None
+
+
 def _should_use_in_process_background_kick() -> bool:
     override = os.getenv("FC_ENABLE_IN_PROCESS_JOB_KICK")
     if override is not None:
@@ -135,10 +156,13 @@ def enqueue_job(
     job_type: str,
     params: dict[str, Any] | None,
     start_message: str,
+    dedupe_key: str | None = None,
+    concurrency_key: str | None = None,
     background_tasks=None,
 ) -> JobRun:
     store = get_job_store()
-    dedupe_key = _dedupe_key(job_type, params)
+    dedupe_key = dedupe_key or _dedupe_key(job_type, params)
+    concurrency_key = concurrency_key if concurrency_key is not None else _job_concurrency_key(job_type, params)
     duplicate = store.find_active_duplicate(dedupe_key)
     if duplicate is not None:
         log_event(
@@ -150,14 +174,28 @@ def enqueue_job(
         )
         return duplicate
 
-    job = store.enqueue(
-        job_type=job_type,
-        params=params,
-        message=start_message,
-        max_attempts=_default_max_attempts(job_type),
-        dedupe_key=dedupe_key,
-        priority=_default_priority(job_type),
-    )
+    try:
+        job = store.enqueue(
+            job_type=job_type,
+            params=params,
+            message=start_message,
+            max_attempts=_default_max_attempts(job_type),
+            dedupe_key=dedupe_key,
+            priority=_default_priority(job_type),
+            concurrency_key=concurrency_key,
+        )
+    except IntegrityError:
+        duplicate = store.find_active_duplicate(dedupe_key)
+        if duplicate is not None:
+            log_event(
+                logger,
+                "job_enqueue_deduplicated_race",
+                run_id=duplicate.id,
+                job_type=job_type,
+                dedupe_key=dedupe_key,
+            )
+            return duplicate
+        raise
     log_event(
         logger,
         "job_enqueued",
@@ -167,12 +205,59 @@ def enqueue_job(
         dedupe_key=dedupe_key,
         max_attempts=job.max_attempts,
         priority=job.priority,
+        concurrency_key=getattr(job, "concurrency_key", concurrency_key),
     )
 
     if background_tasks is not None and _should_use_in_process_background_kick():
         background_tasks.add_task(process_queued_jobs, 1)
 
     return job
+
+
+def enqueue_recompute_findings_job(
+    target_date: date,
+    *,
+    generation_id: str,
+    trigger: str,
+    source_job_id: str | None = None,
+    background_tasks=None,
+) -> JobRun:
+    params = {
+        "date": target_date.isoformat(),
+        "generation_id": generation_id,
+        "trigger": trigger,
+    }
+    if source_job_id:
+        params["source_job_id"] = source_job_id
+
+    return enqueue_job(
+        background_tasks=background_tasks,
+        job_type=JOB_TYPE_RECOMPUTE_FINDINGS_DATE,
+        params=params,
+        start_message=f"finding 再計算ジョブを登録しました（{target_date.isoformat()}）",
+    )
+
+
+def enqueue_findings_recompute_jobs(
+    dates: list[date],
+    *,
+    generation_id: str,
+    trigger: str,
+    source_job_id: str | None = None,
+    background_tasks=None,
+) -> list[JobRun]:
+    jobs: list[JobRun] = []
+    for target_date in dates:
+        jobs.append(
+            enqueue_recompute_findings_job(
+                target_date,
+                generation_id=generation_id,
+                trigger=trigger,
+                source_job_id=source_job_id,
+                background_tasks=background_tasks,
+            )
+        )
+    return jobs
 
 
 def enqueue_click_ingestion_job(
@@ -256,14 +341,30 @@ def _execute_job_run(
 ) -> None:
     log_event(logger, "job_started", run_id=run.id, job_type=run.job_type, worker_id=worker_id)
     try:
-        with _heartbeat(store, run.id, worker_id, lease_seconds), log_timed(
-            logger,
-            "job_completed",
-            run_id=run.id,
-            job_type=run.job_type,
-        ):
-            result, done_message = _dispatch_job(run)
-            store.complete(run.id, done_message, result)
+        with store.advisory_lock(run.concurrency_key) as acquired:
+            if not acquired:
+                store.requeue_blocked(
+                    run.id,
+                    f"{run.job_type} is waiting for {run.concurrency_key}",
+                    delay_seconds=15,
+                )
+                log_event(
+                    logger,
+                    "job_requeued_for_concurrency",
+                    run_id=run.id,
+                    job_type=run.job_type,
+                    concurrency_key=run.concurrency_key,
+                )
+                return
+
+            with _heartbeat(store, run.id, worker_id, lease_seconds), log_timed(
+                logger,
+                "job_completed",
+                run_id=run.id,
+                job_type=run.job_type,
+            ):
+                result, done_message = _dispatch_job(run)
+                store.complete(run.id, done_message, result)
     except Exception as exc:
         message = f"{run.job_type} failed: {exc}"
         next_status = store.fail(
@@ -298,9 +399,49 @@ def _dispatch_job(run: JobRun) -> tuple[dict[str, Any], str]:
             detect=bool(params.get("detect", False)),
             job_run_id=run.id,
         )
+    if run.job_type == JOB_TYPE_RECOMPUTE_FINDINGS_DATE:
+        return run_recompute_findings_for_date(
+            date.fromisoformat(params["date"]),
+            generation_id=str(params["generation_id"]),
+            trigger=str(params.get("trigger") or "job"),
+            job_run_id=run.id,
+            source_job_id=params.get("source_job_id"),
+        )
     if run.job_type == JOB_TYPE_MASTER_SYNC:
         return run_master_sync()
     raise ValueError(f"Unsupported job_type: {run.job_type}")
+
+
+def run_recompute_findings_for_date(
+    target_date: date,
+    *,
+    generation_id: str,
+    trigger: str,
+    job_run_id: str | None = None,
+    source_job_id: str | None = None,
+) -> tuple[dict[str, Any], str]:
+    repo = get_repository()
+    with log_timed(
+        logger,
+        "recompute_findings_date_job",
+        target_date=target_date,
+        generation_id=generation_id,
+        trigger=trigger,
+    ):
+        recomputed = findings_service.recompute_findings_for_dates(
+            repo,
+            [target_date],
+            computed_by_job_id=job_run_id,
+            generation_id=generation_id,
+        )
+    return {
+        "success": True,
+        "target_date": target_date.isoformat(),
+        "generation_id": generation_id,
+        "trigger": trigger,
+        "source_job_id": source_job_id,
+        "findings": recomputed.get(target_date.isoformat(), {}),
+    }, f"Recomputed findings for {target_date}"
 
 
 def run_click_ingestion(target_date: date, *, job_run_id: str | None = None) -> tuple[dict[str, Any], str]:
@@ -420,29 +561,20 @@ def run_refresh(
                 current += timedelta(days=1)
 
         if dates_to_recompute:
-            persisted_results = findings_service.recompute_findings_for_dates(
-                repo,
+            generation_id = f"refresh-{job_run_id or uuid.uuid4().hex[:12]}"
+            recompute_jobs = enqueue_findings_recompute_jobs(
                 sorted(dates_to_recompute),
-                computed_by_job_id=job_run_id,
-                generation_id=job_run_id,
+                generation_id=generation_id,
+                trigger="refresh",
+                source_job_id=job_run_id,
             )
-            if detect:
-                click_rules, conv_rules = settings_service.build_rule_sets(repo)
-                detect_results: dict[str, dict[str, int]] = {}
-                for target_date in sorted(dates_to_recompute):
-                    combined = CombinedSuspiciousDetector(
-                        repository=repo,
-                        click_rules=click_rules,
-                        conversion_rules=conv_rules,
-                    )
-                    _, _, high_risk = combined.find_for_date(target_date)
-                    base = persisted_results.get(target_date.isoformat(), {})
-                    detect_results[target_date.isoformat()] = {
-                        "suspicious_clicks": int(base.get("suspicious_clicks", 0)),
-                        "suspicious_conversions": int(base.get("suspicious_conversions", 0)),
-                        "high_risk": len(high_risk),
-                    }
-                result["detect"] = detect_results
+            result["findings_recompute"] = {
+                "mode": "queued",
+                "generation_id": generation_id,
+                "job_ids": [job.id for job in recompute_jobs],
+                "target_dates": [target_date.isoformat() for target_date in sorted(dates_to_recompute)],
+                "detect_requested": detect,
+            }
 
     return result, f"Refresh completed for last {hours} hours"
 
