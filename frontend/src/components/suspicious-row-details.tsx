@@ -1,8 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-
 import type { SuspiciousItem } from "@/lib/api";
+import { suspiciousCopy } from "@/copy/suspicious";
+import { StatePanel } from "@/components/ui/state-panel";
 import { StatusBadge } from "@/components/ui/status-badge";
 
 const riskToneMap: Record<string, "high" | "medium" | "low" | "neutral"> = {
@@ -41,20 +42,20 @@ const renderTags = (items?: string[]) => {
 
 const Stat = ({ label, value }: { label: string; value: ReactNode }) => (
   <div className="border border-border px-3 py-3">
-    <div className="text-xs tracking-[0.06em] text-foreground/78">{label}</div>
+    <div className="text-[12px] text-foreground/72">{label}</div>
     <div className="mt-2 text-[13px] leading-5 text-foreground">{value}</div>
   </div>
 );
 
 interface SuspiciousRowDetailsProps {
   item: SuspiciousItem;
-  isLoadingDetails?: boolean;
+  status?: "idle" | "loading" | "ready" | "expired" | "unauthorized" | "forbidden" | "error";
   detailError?: string | null;
 }
 
 export function SuspiciousRowDetails({
   item,
-  isLoadingDetails = false,
+  status = "ready",
   detailError,
 }: SuspiciousRowDetailsProps) {
   const reasons = item.reasons_formatted?.length ? item.reasons_formatted : item.reasons || [];
@@ -62,63 +63,99 @@ export function SuspiciousRowDetails({
   const visibleDetails = details.slice(0, 5);
   const evidenceExpired = item.evidence_status === "expired" || item.evidence_expired === true;
 
+  const evidencePanel =
+    status === "loading" ? (
+      <StatePanel title={suspiciousCopy.states.detailLoading} tone="info" />
+    ) : status === "unauthorized" ? (
+      <StatePanel
+        title={suspiciousCopy.states.unauthorizedTitle}
+        message={suspiciousCopy.states.detailUnauthorized}
+        tone="warning"
+      />
+    ) : status === "forbidden" ? (
+      <StatePanel
+        title={suspiciousCopy.states.forbiddenTitle}
+        message={suspiciousCopy.states.detailForbidden}
+        tone="danger"
+      />
+    ) : status === "error" ? (
+      <StatePanel
+        title={suspiciousCopy.states.detailError}
+        message={detailError || suspiciousCopy.states.detailError}
+        tone="warning"
+      />
+    ) : evidenceExpired || status === "expired" ? (
+      <StatePanel
+        title="証拠保持期限切れ"
+        message={`${suspiciousCopy.states.evidenceExpired}${item.evidence_expires_on ? ` 期限: ${item.evidence_expires_on}` : ""}`}
+        tone="warning"
+      />
+    ) : (
+      <StatePanel
+        title="証拠利用可"
+        message={`${suspiciousCopy.states.evidenceAvailable}${item.evidence_expires_on ? ` 期限: ${item.evidence_expires_on}` : ""}`}
+        tone="neutral"
+      />
+    );
+
   return (
     <div className="space-y-4 border-t border-border bg-background px-4 py-4">
-      {item.evidence_status ? (
-        <div
-          className={
-            evidenceExpired
-              ? "border border-[hsl(var(--warning))]/45 bg-[hsl(var(--warning))]/10 px-3 py-3 text-[13px] leading-5 text-[hsl(var(--warning))]"
-              : "border border-border bg-white/[0.03] px-3 py-3 text-[13px] leading-5 text-foreground/84"
-          }
-        >
-          {evidenceExpired
-            ? "証跡保持期限を過ぎているため、この finding は要約のみ表示しています。"
-            : "証跡は保持期間内です。詳細調査に利用できます。"}
-          {item.evidence_expires_on ? ` 保持期限: ${item.evidence_expires_on}` : ""}
+      <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+        <div className="space-y-3">
+          <div className="text-[13px] font-semibold text-foreground/88">
+            {suspiciousCopy.labels.summary}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <Stat
+              label="IP"
+              value={<span className="font-mono text-[11px] break-all">{item.ipaddress || "-"}</span>}
+            />
+            <Stat
+              label="User-Agent"
+              value={<span className="text-[11px] break-all">{item.useragent || "-"}</span>}
+            />
+            <Stat
+              label={suspiciousCopy.labels.firstSeen}
+              value={<span className="font-mono text-[11px]">{item.first_time || "-"}</span>}
+            />
+            <Stat
+              label={suspiciousCopy.labels.lastSeen}
+              value={<span className="font-mono text-[11px]">{item.last_time || "-"}</span>}
+            />
+            <Stat
+              label={suspiciousCopy.labels.risk}
+              value={
+                <div className="flex items-center gap-2">
+                  <StatusBadge tone={riskToneMap[item.risk_level || ""] || "neutral"}>
+                    {item.risk_label || item.risk_level || "-"}
+                  </StatusBadge>
+                  {typeof item.risk_score === "number" ? (
+                    <span className="tabular-nums text-[12px] text-foreground/70">{item.risk_score}</span>
+                  ) : null}
+                </div>
+              }
+            />
+            <Stat
+              label={suspiciousCopy.labels.clickToCvGap}
+              value={`最短 ${formatSeconds(item.min_click_to_conv_seconds)} / 最長 ${formatSeconds(
+                item.max_click_to_conv_seconds
+              )}`}
+            />
+          </div>
         </div>
-      ) : null}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Stat
-          label="IP"
-          value={<span className="font-mono text-[11px] break-all">{item.ipaddress || "-"}</span>}
-        />
-        <Stat
-          label="User-Agent"
-          value={<span className="text-[11px] break-all">{item.useragent || "-"}</span>}
-        />
-        <Stat
-          label="最初の発生"
-          value={<span className="font-mono text-[11px]">{item.first_time || "-"}</span>}
-        />
-        <Stat
-          label="最後の発生"
-          value={<span className="font-mono text-[11px]">{item.last_time || "-"}</span>}
-        />
-        <Stat
-          label="リスク"
-          value={
-            <div className="flex items-center gap-2">
-              <StatusBadge tone={riskToneMap[item.risk_level || ""] || "neutral"}>
-                {item.risk_label || item.risk_level || "-"}
-              </StatusBadge>
-              {typeof item.risk_score === "number" && (
-                <span className="tabular-nums text-[12px] text-foreground/70">{item.risk_score}</span>
-              )}
-            </div>
-          }
-        />
-        <Stat
-          label="Click→CV 時間"
-          value={`最短 ${formatSeconds(item.min_click_to_conv_seconds)} / 最長 ${formatSeconds(
-            item.max_click_to_conv_seconds
-          )}`}
-        />
+        <div className="space-y-3">
+          <div className="text-[13px] font-semibold text-foreground/88">
+            {suspiciousCopy.labels.evidence}
+          </div>
+          {evidencePanel}
+        </div>
       </div>
 
       <div className="space-y-2">
-        <div className="text-[11px] tracking-[0.06em] text-foreground/74">検知理由</div>
+        <div className="text-[13px] font-semibold text-foreground/88">
+          {suspiciousCopy.labels.reasons}
+        </div>
         {reasons.length ? (
           <div className="flex flex-wrap gap-2">
             {reasons.map((reason, idx) => (
@@ -137,55 +174,43 @@ export function SuspiciousRowDetails({
 
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="space-y-2">
-          <div className="text-xs tracking-[0.06em] text-foreground/78">媒体</div>
+          <div className="text-[12px] text-foreground/72">{suspiciousCopy.labels.media}</div>
           {renderTags(item.media_names)}
         </div>
         <div className="space-y-2">
-          <div className="text-xs tracking-[0.06em] text-foreground/78">案件</div>
+          <div className="text-[12px] text-foreground/72">{suspiciousCopy.labels.program}</div>
           {renderTags(item.program_names)}
         </div>
         <div className="space-y-2">
-          <div className="text-xs tracking-[0.06em] text-foreground/78">提携先</div>
+          <div className="text-[12px] text-foreground/72">{suspiciousCopy.labels.affiliate}</div>
           {renderTags(item.affiliate_names)}
         </div>
       </div>
 
-      {isLoadingDetails ? (
-        <div className="text-xs text-muted-foreground">詳細を読み込み中です...</div>
-      ) : null}
-      {detailError ? <div className="text-xs text-destructive">{detailError}</div> : null}
-
-      {!evidenceExpired && !isLoadingDetails && !detailError && details.length > 0 ? (
+      {!evidenceExpired && status === "ready" && !detailError && details.length > 0 ? (
         <div className="space-y-2">
-          <div className="text-xs tracking-[0.06em] text-foreground/78">詳細内訳</div>
+          <div className="text-[13px] font-semibold text-foreground/88">
+            {suspiciousCopy.labels.relatedRows}
+          </div>
           <div className="overflow-x-auto border border-border">
             <table className="w-full text-xs">
-              <thead className="border-b border-border text-muted-foreground">
+              <thead className="border-b border-border text-foreground/70">
                 <tr>
-                  <th className="px-3 py-2 text-left font-semibold tracking-[0.12em]">媒体</th>
-                  <th className="px-3 py-2 text-left font-semibold tracking-[0.12em]">案件</th>
-                  <th className="px-3 py-2 text-left font-semibold tracking-[0.12em]">提携先</th>
-                  <th className="px-3 py-2 text-right font-semibold tracking-[0.12em]">
-                    Click
-                  </th>
-                  <th className="px-3 py-2 text-right font-semibold tracking-[0.12em]">CV</th>
+                  <th className="px-3 py-2 text-left font-semibold">{suspiciousCopy.labels.media}</th>
+                  <th className="px-3 py-2 text-left font-semibold">{suspiciousCopy.labels.program}</th>
+                  <th className="px-3 py-2 text-left font-semibold">{suspiciousCopy.labels.affiliate}</th>
+                  <th className="px-3 py-2 text-right font-semibold">Click</th>
+                  <th className="px-3 py-2 text-right font-semibold">CV</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleDetails.map((detail, idx) => (
-                  <tr
-                    key={`${detail.media_id}-${detail.program_id}-${idx}`}
-                    className="border-t border-border"
-                  >
+                  <tr key={`${detail.media_id}-${detail.program_id}-${idx}`} className="border-t border-border">
                     <td className="px-3 py-2">{detail.media_name}</td>
                     <td className="px-3 py-2">{detail.program_name}</td>
                     <td className="px-3 py-2">{detail.affiliate_name || "-"}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {detail.click_count ?? "-"}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {detail.conversion_count ?? "-"}
-                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{detail.click_count ?? "-"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{detail.conversion_count ?? "-"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -1,7 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-
 import { LastUpdated } from "@/components/last-updated";
 
 describe("最終更新表示", () => {
@@ -23,7 +22,7 @@ describe("最終更新表示", () => {
     expect(screen.getByText("更新中")).toBeInTheDocument();
   });
 
-  it("再読込操作で callback を呼ぶ", async () => {
+  it("再読込押下で callback を呼ぶ", async () => {
     const onRefresh = vi.fn();
     const user = userEvent.setup();
     render(

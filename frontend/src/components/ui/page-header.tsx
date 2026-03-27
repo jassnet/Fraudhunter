@@ -5,22 +5,24 @@ interface PageHeaderProps {
   title: string;
   meta?: ReactNode;
   actions?: ReactNode;
+  status?: ReactNode;
   className?: string;
 }
 
-export function PageHeader({ title, meta, actions, className }: PageHeaderProps) {
+export function PageHeader({ title, meta, actions, status, className }: PageHeaderProps) {
   return (
     <header
       className={cn(
-        "flex min-h-12 flex-wrap items-center gap-3 border-b border-border px-6 py-4 sm:px-8",
+        "flex min-h-12 flex-wrap items-start gap-3 border-b border-border px-6 py-4 sm:px-8",
         className
       )}
     >
-      <div className="flex min-w-0 items-baseline gap-3">
-        <h1 className="truncate text-[1.75rem] font-bold tracking-[-0.04em] text-foreground">
+      <div className="min-w-0 space-y-1">
+        <h1 className="truncate text-[1.75rem] font-bold tracking-[-0.03em] text-foreground">
           {title}
         </h1>
-        {meta ? <span className="truncate text-[13px] text-foreground/74">{meta}</span> : null}
+        {meta ? <div className="text-[13px] text-foreground/82">{meta}</div> : null}
+        {status ? <div>{status}</div> : null}
       </div>
       {actions ? <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div> : null}
     </header>

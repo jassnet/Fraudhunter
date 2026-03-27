@@ -62,16 +62,16 @@ function buildSuspiciousRows(kind: SuspiciousKind) {
       risk_level: index % 2 === 0 ? "high" : "medium",
       risk_score: 70 + (index % 20),
       risk_label: index % 2 === 0 ? "高リスク" : "中リスク",
-      media_names: [`メディア ${index}`],
+      media_names: [`媒体 ${index}`],
       program_names: [`案件 ${index}`],
-      affiliate_names: [`提携先 ${index}`],
+      affiliate_names: [`アフィリエイター ${index}`],
       details: [
         {
           media_id: `M-${index}`,
           program_id: `P-${index}`,
-          media_name: `メディア ${index}`,
+          media_name: `媒体 ${index}`,
           program_name: `案件 ${index}`,
-          affiliate_name: `提携先 ${index}`,
+          affiliate_name: `アフィリエイター ${index}`,
           click_count: 100 - (index % 40),
           conversion_count: 30 - (index % 20),
         },
@@ -179,7 +179,7 @@ export const handlers = [
   http.get(`${API_BASE_URL}/api/job/status`, () => {
     return HttpResponse.json({
       status: "idle",
-      message: "まだジョブは実行されていません",
+      message: "まだジョブは登録されていません",
       job_id: null,
       result: null,
     });

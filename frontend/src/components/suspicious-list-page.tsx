@@ -1,18 +1,9 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Fragment, useEffect, useMemo, useState } from "react";
-
+import { Fragment, useEffect, useState } from "react";
 import { DateQuickSelect } from "@/components/date-quick-select";
 import { LastUpdated } from "@/components/last-updated";
 import { SuspiciousRowDetails } from "@/components/suspicious-row-details";
-import { useSuspiciousList } from "@/hooks/use-suspicious-list";
-import {
-  SuspiciousItem,
-  SuspiciousQueryOptions,
-  SuspiciousResponse,
-  getErrorMessage,
-} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { ControlBar } from "@/components/ui/control-bar";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -20,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionFrame } from "@/components/ui/section-frame";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatePanel } from "@/components/ui/state-panel";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Table,
@@ -29,10 +21,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { suspiciousCopy } from "@/copy/suspicious";
+import { useSuspiciousData } from "@/features/suspicious-list/use-suspicious-data";
+import { useSuspiciousDetails } from "@/features/suspicious-list/use-suspicious-details";
+import {
+  type SuspiciousRiskFilter,
+  type SuspiciousSortValue,
+  useSuspiciousListUrlState,
+} from "@/features/suspicious-list/url-state";
+import type { SuspiciousItem, SuspiciousQueryOptions, SuspiciousResponse } from "@/lib/api";
 
 type MetricKey = "total_clicks" | "total_conversions";
-type RiskFilter = "all" | "high" | "medium" | "low";
-type SortValue = "count" | "risk" | "latest";
 type SuspiciousFetcher = (
   date?: string,
   limit?: number,
@@ -43,7 +42,6 @@ type SuspiciousDetailFetcher = (findingKey: string) => Promise<SuspiciousItem>;
 
 interface SuspiciousListPageProps {
   title: string;
-  description?: string;
   countLabel: string;
   fetcher: SuspiciousFetcher;
   fetchDetail: SuspiciousDetailFetcher;
@@ -56,59 +54,16 @@ const riskToneMap: Record<string, "high" | "medium" | "low" | "neutral"> = {
   low: "low",
 };
 
-const riskFilterButtons: {
-  key: RiskFilter;
-  label: string;
-  activeClass?: string;
-  inactiveClass?: string;
-}[] = [
-  { key: "all", label: "すべて" },
-  {
-    key: "high",
-    label: "高",
-    activeClass: "border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90",
-    inactiveClass: "border-destructive/60 text-destructive hover:bg-destructive/10",
-  },
-  {
-    key: "medium",
-    label: "中",
-    activeClass: "border-[hsl(var(--warning))] bg-[hsl(var(--warning))] text-[hsl(var(--warning-foreground))] hover:bg-[hsl(var(--warning))]/90",
-    inactiveClass: "border-[hsl(var(--warning))]/60 text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning))]/10",
-  },
-  {
-    key: "low",
-    label: "低",
-    activeClass: "border-[hsl(var(--success))] bg-[hsl(var(--success))] text-[hsl(var(--success-foreground))] hover:bg-[hsl(var(--success))]/90",
-    inactiveClass: "border-[hsl(var(--success))]/60 text-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/10",
-  },
+const riskButtons: { key: SuspiciousRiskFilter; label: string }[] = [
+  { key: "all", label: suspiciousCopy.labels.all },
+  { key: "high", label: suspiciousCopy.labels.high },
+  { key: "medium", label: suspiciousCopy.labels.medium },
+  { key: "low", label: suspiciousCopy.labels.low },
 ];
 
-const riskRowBg: Record<string, string> = {
-  high: "bg-destructive/[0.07]",
-};
-
-const riskCellBorder: Record<string, string> = {
-  high: "border-l-[3px] border-l-destructive",
-  medium: "border-l-[3px] border-l-[hsl(var(--warning))]",
-  low: "border-l-[3px] border-l-[hsl(var(--success))]",
-};
-
-const riskLabel = (item: SuspiciousItem) => item.risk_label || item.risk_level || "未判定";
-
-function parseRiskFilter(value: string | null): RiskFilter {
-  return value === "high" || value === "medium" || value === "low" ? value : "all";
-}
-
-function parseSortValue(value: string | null): SortValue {
-  return value === "risk" || value === "latest" ? value : "count";
-}
-
-function parsePageValue(value: string | null): number {
-  if (!value) {
-    return 1;
-  }
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+function maskedValue(value?: string, masked?: string, isMasked?: boolean) {
+  if (!isMasked) return value || "-";
+  return masked || suspiciousCopy.labels.masked;
 }
 
 export default function SuspiciousListPage({
@@ -118,158 +73,223 @@ export default function SuspiciousListPage({
   fetchDetail,
   metricKey,
 }: SuspiciousListPageProps) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const initialDate = searchParams.get("date") || "";
-  const initialSearch = searchParams.get("search") || "";
-  const initialPage = parsePageValue(searchParams.get("page"));
-  const [riskFilter, setRiskFilter] = useState<RiskFilter>(() =>
-    parseRiskFilter(searchParams.get("risk"))
-  );
-  const [sortBy, setSortBy] = useState<SortValue>(() =>
-    parseSortValue(searchParams.get("sort"))
-  );
-  const [detailCache, setDetailCache] = useState<Record<string, SuspiciousItem>>({});
-  const [detailErrorByKey, setDetailErrorByKey] = useState<Record<string, string | null>>({});
-  const [detailLoadingKey, setDetailLoadingKey] = useState<string | null>(null);
+  const { state, setDate, setPage, setRisk, setSearch, setSort } = useSuspiciousListUrlState();
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [searchDraft, setSearchDraft] = useState(state.search);
+
+  useEffect(() => {
+    setSearchDraft(state.search);
+  }, [state.search]);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      if (searchDraft !== state.search) {
+        setSearch(searchDraft);
+      }
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchDraft, setSearch, state.search]);
 
   const {
-    data: rawData,
-    loading,
-    error,
-    date,
-    availableDates,
-    search,
-    page,
+    data,
     totalPages,
+    availableDates,
+    status,
+    message,
     lastUpdated,
-    isRefreshing,
-    expandedRow,
-    canPrev,
-    canNext,
     resultRange,
-    handleRefresh,
-    handleDateChange,
-    handleSearchChange,
-    toggleRow,
-    goToFirstPage,
-    goToPreviousPage,
-    goToNextPage,
-    goToLastPage,
-  } = useSuspiciousList(fetcher, {
-    riskLevel: riskFilter === "all" ? undefined : riskFilter,
-    sortBy,
-    sortOrder: "desc",
-    includeDetails: false,
-    maskSensitive: true,
-    initialDate,
-    initialSearch,
-    initialPage,
+    isRefreshing,
+    reload,
+  } = useSuspiciousData({
+    fetcher,
+    date: state.date,
+    page: state.page,
+    search: state.search,
+    risk: state.risk,
+    sort: state.sort,
+    sortOrder: state.sortOrder,
   });
 
   useEffect(() => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (date) {
-      params.set("date", date);
-    } else {
-      params.delete("date");
+    if (!state.date && availableDates[0]) {
+      setDate(availableDates[0]);
     }
-    if (search.trim()) {
-      params.set("search", search.trim());
-    } else {
-      params.delete("search");
-    }
-    if (page > 1) {
-      params.set("page", String(page));
-    } else {
-      params.delete("page");
-    }
-    if (riskFilter !== "all") {
-      params.set("risk", riskFilter);
-    } else {
-      params.delete("risk");
-    }
-    if (sortBy !== "count") {
-      params.set("sort", sortBy);
-    } else {
-      params.delete("sort");
-    }
+  }, [availableDates, setDate, state.date]);
 
-    const nextQuery = params.toString();
-    if (nextQuery !== searchParams.toString()) {
-      router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+  const { loadDetail, getDetailState } = useSuspiciousDetails(fetchDetail);
+
+  const canPrev = state.page > 1;
+  const canNext = state.page < totalPages;
+
+  const pageStatus =
+    status === "unauthorized" ? (
+      <span className="text-[12px] text-[hsl(var(--warning))]">認証が必要です</span>
+    ) : status === "forbidden" ? (
+      <span className="text-[12px] text-destructive">権限不足</span>
+    ) : null;
+
+  const renderBody = () => {
+    if (status === "loading" || status === "refreshing") {
+      return (
+        <SectionFrame title={countLabel}>
+          <div className="space-y-3">
+            {[...Array(6)].map((_, index) => (
+              <Skeleton key={index} className="h-11 w-full" />
+            ))}
+          </div>
+        </SectionFrame>
+      );
     }
-  }, [date, page, pathname, riskFilter, router, search, searchParams, sortBy]);
-
-  const data = useMemo(
-    () =>
-      rawData.map((item) => {
-        if (!item.finding_key) {
-          return item;
-        }
-        const cached = detailCache[item.finding_key];
-        return cached ? { ...item, ...cached } : item;
-      }),
-    [detailCache, rawData]
-  );
-
-  const handleRiskFilterChange = (nextRisk: RiskFilter) => {
-    goToFirstPage();
-    setRiskFilter(nextRisk);
-  };
-
-  const handleSortChange = (nextSort: SortValue) => {
-    goToFirstPage();
-    setSortBy(nextSort);
-  };
-
-  const handleToggleRow = async (item: SuspiciousItem, rowKey: string) => {
-    const isExpanded = expandedRow === rowKey;
-    toggleRow(rowKey);
 
     if (
-      isExpanded ||
-      !item.finding_key ||
-      item.details?.length ||
-      detailCache[item.finding_key]?.details?.length
+      status === "unauthorized" ||
+      status === "forbidden" ||
+      status === "transient-error" ||
+      status === "error"
     ) {
-      return;
+      return (
+        <StatePanel
+          title={
+            status === "unauthorized"
+              ? suspiciousCopy.states.unauthorizedTitle
+              : status === "forbidden"
+                ? suspiciousCopy.states.forbiddenTitle
+                : status === "transient-error"
+                  ? suspiciousCopy.states.transientTitle
+                  : suspiciousCopy.states.loadErrorTitle
+          }
+          message={
+            message ||
+            (status === "unauthorized"
+              ? suspiciousCopy.states.unauthorizedMessage
+              : status === "forbidden"
+                ? suspiciousCopy.states.forbiddenMessage
+                : suspiciousCopy.states.transientMessage)
+          }
+          tone={status === "forbidden" ? "danger" : status === "transient-error" ? "warning" : "neutral"}
+          action={
+            status === "transient-error" || status === "error" ? (
+              <Button variant="outline" onClick={reload}>
+                再読込
+              </Button>
+            ) : undefined
+          }
+        />
+      );
     }
 
-    setDetailLoadingKey(rowKey);
-    setDetailErrorByKey((current) => ({ ...current, [rowKey]: null }));
-    try {
-      const detailItem = await fetchDetail(item.finding_key);
-      setDetailCache((current) => ({ ...current, [item.finding_key as string]: detailItem }));
-    } catch (fetchError) {
-      setDetailErrorByKey((current) => ({
-        ...current,
-        [rowKey]: getErrorMessage(fetchError, "詳細の取得に失敗しました。"),
-      }));
-    } finally {
-      setDetailLoadingKey((current) => (current === rowKey ? null : current));
+    if (status === "empty") {
+      return (
+        <EmptyState
+          title={suspiciousCopy.states.emptyTitle}
+          message={suspiciousCopy.states.emptyMessage}
+        />
+      );
     }
+
+    return (
+      <SectionFrame title={countLabel}>
+        <div className="space-y-3">
+          <div className="text-[12px] text-foreground/68">{suspiciousCopy.states.maskedHint}</div>
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="w-[10rem]">IP</TableHead>
+                <TableHead className="hidden w-[18rem] lg:table-cell">User-Agent</TableHead>
+                <TableHead className="w-[10rem]">{countLabel}</TableHead>
+                <TableHead className="hidden w-[7rem] md:table-cell">{suspiciousCopy.labels.risk}</TableHead>
+                <TableHead className="hidden w-[9rem] xl:table-cell">{suspiciousCopy.labels.reasons}</TableHead>
+                <TableHead className="w-28 text-right">{suspiciousCopy.labels.detail}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.map((item) => {
+                const rowKey = item.finding_key || `${item.ipaddress}-${item.useragent}`;
+                const detailState = getDetailState(item);
+                const isExpanded = expandedRow === rowKey;
+
+                return (
+                  <Fragment key={rowKey}>
+                    <TableRow className={item.risk_level === "high" ? "bg-destructive/[0.04]" : ""}>
+                      <TableCell className="font-mono text-[12px] text-foreground/92">
+                        <div>{maskedValue(item.ipaddress, item.ipaddress_masked, item.sensitive_values_masked)}</div>
+                        {item.sensitive_values_masked ? (
+                          <div className="mt-1 text-[11px] text-foreground/58">{suspiciousCopy.labels.masked}</div>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="hidden text-[12px] text-foreground/82 lg:table-cell">
+                        {maskedValue(
+                          item.useragent,
+                          item.useragent_masked,
+                          item.sensitive_values_masked
+                        )}
+                      </TableCell>
+                      <TableCell className="tabular-nums text-[13px] text-foreground">
+                        {metricKey === "total_clicks"
+                          ? item.total_clicks?.toLocaleString()
+                          : item.total_conversions?.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        <StatusBadge tone={riskToneMap[item.risk_level || ""] || "neutral"}>
+                          {item.risk_label || item.risk_level || "-"}
+                        </StatusBadge>
+                      </TableCell>
+                      <TableCell className="hidden text-[12px] text-foreground/78 xl:table-cell">
+                        {item.reasons_formatted?.[0] || item.reasons?.[0] || "-"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={async () => {
+                            const nextExpanded = isExpanded ? null : rowKey;
+                            setExpandedRow(nextExpanded);
+                            if (!isExpanded) {
+                              await loadDetail(item);
+                            }
+                          }}
+                          className="min-w-[4.75rem] whitespace-nowrap"
+                        >
+                          {isExpanded ? suspiciousCopy.labels.close : suspiciousCopy.labels.detail}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                    {isExpanded ? (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={6} className="p-0">
+                          <SuspiciousRowDetails
+                            item={detailState.item}
+                            status={detailState.status}
+                            detailError={detailState.message}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </SectionFrame>
+    );
   };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PageHeader
         title={title}
-        meta={date ? `対象日 ${date}` : "対象日 -"}
+        meta={state.date ? `対象日 ${state.date}` : "対象日 -"}
+        status={pageStatus}
         actions={
           <>
             <DateQuickSelect
-              value={date}
-              onChange={handleDateChange}
+              value={state.date}
+              onChange={setDate}
               availableDates={availableDates}
               showQuickButtons
             />
-            <LastUpdated
-              lastUpdated={lastUpdated}
-              onRefresh={handleRefresh}
-              isRefreshing={isRefreshing}
-            />
+            <LastUpdated lastUpdated={lastUpdated} onRefresh={reload} isRefreshing={isRefreshing} />
           </>
         }
       />
@@ -281,183 +301,86 @@ export default function SuspiciousListPage({
               <Input
                 name="search"
                 type="search"
-                placeholder="IP / User-Agent / 媒体 / 案件"
-                aria-label="一覧を検索"
-                value={search}
-                onChange={(event) => handleSearchChange(event.target.value)}
+                placeholder={suspiciousCopy.labels.searchPlaceholder}
+                aria-label={suspiciousCopy.labels.search}
+                value={searchDraft}
+                onChange={(event) => setSearchDraft(event.target.value)}
                 autoComplete="off"
               />
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {riskFilterButtons.map(({ key, label, activeClass, inactiveClass }) => (
+              {riskButtons.map((button) => (
                 <Button
-                  key={key}
+                  key={button.key}
                   type="button"
                   size="sm"
-                  variant={riskFilter === key ? "default" : "outline"}
-                  onClick={() => handleRiskFilterChange(key)}
-                  aria-pressed={riskFilter === key}
-                  className={riskFilter === key ? (activeClass ?? "") : (inactiveClass ?? "")}
+                  variant={state.risk === button.key ? "default" : "outline"}
+                  onClick={() => setRisk(button.key)}
                 >
-                  {label}
+                  {button.label}
                 </Button>
               ))}
             </div>
 
             <select
               className="h-10 border border-input bg-card px-3 text-[13px] text-foreground outline-none transition-colors focus:border-white"
-              value={sortBy}
-              onChange={(event) => handleSortChange(event.target.value as SortValue)}
-              aria-label="並び順"
+              value={state.sort}
+              onChange={(event) => setSort(event.target.value as SuspiciousSortValue)}
+              aria-label={suspiciousCopy.labels.sort}
             >
-              <option value="count">件数順</option>
-              <option value="risk">リスク順</option>
-              <option value="latest">最新順</option>
+              <option value="count">{suspiciousCopy.labels.sortCount}</option>
+              <option value="risk">{suspiciousCopy.labels.sortRisk}</option>
+              <option value="latest">{suspiciousCopy.labels.sortLatest}</option>
             </select>
 
-            <div className="w-full text-[13px] text-foreground/78 sm:ml-auto sm:w-auto">
+            <div
+              aria-label="現在の結果範囲"
+              className="w-full text-[13px] text-foreground/78 sm:ml-auto sm:w-auto"
+            >
               {resultRange}
             </div>
           </ControlBar>
 
-          <SectionFrame bodyClassName="p-0">
-            {error ? (
-              <div className="border-b border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                {error}
-              </div>
-            ) : null}
+          {renderBody()}
 
-            {loading ? (
-              <div className="space-y-2 p-4">
-                {[...Array(6)].map((_, index) => (
-                  <Skeleton key={index} className="h-11 w-full" />
-                ))}
-              </div>
-            ) : data.length === 0 ? (
-              <div className="p-4">
-                <EmptyState title="該当なし" message="条件に一致する結果はありません。" />
-              </div>
-            ) : (
-              <>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-24">リスク</TableHead>
-                      <TableHead className="w-[8.5rem]">IP</TableHead>
-                      <TableHead className="hidden lg:table-cell lg:w-[30%]">
-                        User-Agent
-                      </TableHead>
-                      <TableHead className="w-24 text-right">{countLabel}</TableHead>
-                      <TableHead className="hidden xl:table-cell xl:w-20 text-right">
-                        媒体数
-                      </TableHead>
-                      <TableHead className="hidden xl:table-cell xl:w-20 text-right">
-                        案件数
-                      </TableHead>
-                      <TableHead className="hidden 2xl:table-cell 2xl:w-[24%]">
-                        理由
-                      </TableHead>
-                      <TableHead className="w-28 text-right">詳細</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.map((item, index) => {
-                      const rowKey = item.finding_key || `${item.ipaddress}-${index}`;
-                      const isExpanded = expandedRow === rowKey;
-
-                      return (
-                        <Fragment key={rowKey}>
-                          <TableRow className={riskRowBg[item.risk_level || ""] ?? ""}>
-                            <TableCell className={riskCellBorder[item.risk_level || ""] ?? "border-l-[3px] border-l-transparent"}>
-                              <StatusBadge
-                                tone={riskToneMap[item.risk_level || ""] || "neutral"}
-                              >
-                                {riskLabel(item)}
-                              </StatusBadge>
-                            </TableCell>
-                            <TableCell
-                              className="truncate font-mono text-[12px] text-foreground"
-                              title={item.ipaddress}
-                            >
-                              {item.ipaddress}
-                            </TableCell>
-                            <TableCell
-                              className="hidden truncate text-[13px] text-foreground/82 lg:table-cell"
-                              title={item.useragent}
-                            >
-                              {item.useragent}
-                            </TableCell>
-                            <TableCell className="text-right font-semibold tabular-nums text-foreground">
-                              {item[metricKey] ?? 0}
-                            </TableCell>
-                            <TableCell className="hidden text-right tabular-nums text-foreground/76 xl:table-cell">
-                              {item.media_count}
-                            </TableCell>
-                            <TableCell className="hidden text-right tabular-nums text-foreground/76 xl:table-cell">
-                              {item.program_count}
-                            </TableCell>
-                            <TableCell
-                              className="hidden truncate text-[13px] text-foreground/82 2xl:table-cell"
-                              title={(item.reasons_formatted || item.reasons || []).join(" / ")}
-                            >
-                              {(item.reasons_formatted || item.reasons || []).slice(0, 2).join(" / ")}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => void handleToggleRow(item, rowKey)}
-                                aria-expanded={isExpanded}
-                                className="min-w-[4.75rem] whitespace-nowrap px-2"
-                              >
-                                {isExpanded ? "閉じる" : "詳細"}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                          {isExpanded ? (
-                            <TableRow>
-                              <TableCell colSpan={8} className="p-0">
-                                <SuspiciousRowDetails
-                                  item={item}
-                                  isLoadingDetails={detailLoadingKey === rowKey}
-                                  detailError={detailErrorByKey[rowKey]}
-                                />
-                              </TableCell>
-                            </TableRow>
-                          ) : null}
-                        </Fragment>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-
-                <div className="flex flex-wrap items-center gap-2 border-t border-border bg-white/[0.03] px-4 py-3 text-[13px] text-foreground/82">
-                  <Button variant="outline" size="sm" onClick={goToFirstPage} disabled={!canPrev}>
-                    先頭
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={goToPreviousPage}
-                    disabled={!canPrev}
-                  >
-                    前へ
-                  </Button>
-                  <span className="px-2 tabular-nums">
-                    {page} / {totalPages}
-                  </span>
-                  <Button variant="outline" size="sm" onClick={goToNextPage} disabled={!canNext}>
-                    次へ
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={goToLastPage} disabled={!canNext}>
-                    最後
-                  </Button>
-                </div>
-              </>
-            )}
-          </SectionFrame>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3 text-[13px] text-foreground/78">
+            <div aria-label="結果範囲" aria-live="polite">
+              {resultRange}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setPage(1)} disabled={!canPrev}>
+                最初
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPage(Math.max(1, state.page - 1))}
+                disabled={!canPrev}
+              >
+                前へ
+              </Button>
+              <span className="tabular-nums text-foreground/86">
+                {state.page} / {totalPages}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPage(Math.min(totalPages, state.page + 1))}
+                disabled={!canNext}
+              >
+                次へ
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPage(totalPages)}
+                disabled={!canNext}
+              >
+                最後
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

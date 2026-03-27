@@ -1,31 +1,55 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  DailyStatsItem,
-  SummaryResponse,
+  type DailyStatsItem,
+  type SummaryResponse,
   fetchDailyStats,
   fetchSummary,
   getAvailableDates,
   getErrorMessage,
+  toResourceIssue,
 } from "@/lib/api";
+
+export type DashboardStatus =
+  | "loading"
+  | "refreshing"
+  | "ready"
+  | "empty"
+  | "unauthorized"
+  | "forbidden"
+  | "transient-error"
+  | "error";
+
+interface DashboardDiagnostics {
+  findingsStale: boolean;
+  findingsFreshness: string | null;
+  masterSyncAt: string | null;
+  coverage: SummaryResponse["quality"] extends infer Q
+    ? Q extends { click_ip_ua_coverage?: infer T }
+      ? T
+      : null
+    : null;
+  enrichment: SummaryResponse["quality"] extends infer Q
+    ? Q extends { conversion_click_enrichment?: infer T }
+      ? T
+      : null
+    : null;
+  staleReasons: string[];
+}
 
 export function useDashboardData() {
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [dailyStats, setDailyStats] = useState<DailyStatsItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<DashboardStatus>("loading");
+  const [message, setMessage] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState("");
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const loadDashboardData = useCallback(async (targetDate?: string, refresh = false) => {
-    setError(null);
-    setLoading(true);
-    if (refresh) {
-      setIsRefreshing(true);
-    }
+    setMessage(null);
+    setStatus(refresh ? "refreshing" : "loading");
 
     try {
       const [summaryData, dailyData] = await Promise.all([
@@ -35,16 +59,16 @@ export function useDashboardData() {
       setSummary(summaryData);
       setDailyStats(dailyData.data || []);
       setLastUpdated(new Date());
+
       if (!targetDate && summaryData.date) {
         setSelectedDate(summaryData.date);
       }
-    } catch (err) {
-      setError(getErrorMessage(err, "ダッシュボードの取得に失敗しました。"));
-    } finally {
-      setLoading(false);
-      if (refresh) {
-        setIsRefreshing(false);
-      }
+
+      setStatus(summaryData ? "ready" : "empty");
+    } catch (error) {
+      const issue = toResourceIssue(error, "ダッシュボードの取得に失敗しました。");
+      setMessage(issue.message);
+      setStatus(issue.kind);
     }
   }, []);
 
@@ -54,9 +78,7 @@ export function useDashboardData() {
     const init = async () => {
       try {
         const result = await getAvailableDates();
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
 
         const dates = result.dates || [];
         setAvailableDates(dates);
@@ -67,9 +89,10 @@ export function useDashboardData() {
           await loadDashboardData(initialDate, true);
           return;
         }
-      } catch {
-        if (cancelled) {
-          return;
+      } catch (error) {
+        if (!cancelled) {
+          setStatus("error");
+          setMessage(getErrorMessage(error, "対象日の取得に失敗しました。"));
         }
       }
 
@@ -97,15 +120,28 @@ export function useDashboardData() {
     await loadDashboardData(selectedDate || undefined, true);
   }, [loadDashboardData, selectedDate]);
 
+  const diagnostics = useMemo<DashboardDiagnostics>(() => {
+    const quality = summary?.quality;
+    return {
+      findingsStale: Boolean(quality?.findings?.stale),
+      findingsFreshness: quality?.findings?.findings_last_computed_at || null,
+      masterSyncAt: quality?.master_sync?.last_synced_at || null,
+      coverage: quality?.click_ip_ua_coverage || null,
+      enrichment: quality?.conversion_click_enrichment || null,
+      staleReasons: quality?.findings?.stale_reasons || [],
+    };
+  }, [summary]);
+
   return {
     summary,
     dailyStats,
-    loading,
-    error,
+    status,
+    message,
     selectedDate,
     availableDates,
     lastUpdated,
-    isRefreshing,
+    diagnostics,
+    isRefreshing: status === "refreshing",
     handleDateChange,
     handleRefresh,
   };

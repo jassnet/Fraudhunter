@@ -35,7 +35,7 @@ export function MobileNav() {
         aria-expanded={open}
         aria-controls="mobile-nav-panel"
         aria-haspopup="dialog"
-        className="border border-border text-xs uppercase tracking-[0.16em]"
+        className="border border-border text-xs"
       >
         Menu
       </Button>
@@ -48,16 +48,14 @@ export function MobileNav() {
             className="absolute left-0 top-0 flex h-full w-[280px] flex-col border-r border-border bg-card"
           >
             <div className="flex items-center justify-between border-b border-border p-4">
-              <div className="text-sm font-semibold uppercase tracking-[0.16em] text-foreground">
-                Dashboard
-              </div>
+              <div className="text-sm font-semibold text-foreground">Monitoring</div>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => setOpen(false)}
                 aria-label="ナビゲーションを閉じる"
-                className="text-xs uppercase tracking-[0.16em]"
+                className="text-xs"
               >
                 Close
               </Button>
@@ -83,7 +81,7 @@ export function MobileNav() {
                 );
               })}
             </nav>
-            <div className="mt-auto border-t border-border p-4 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+            <div className="mt-auto border-t border-border p-4 text-[11px] text-muted-foreground">
               Read Only
             </div>
           </div>

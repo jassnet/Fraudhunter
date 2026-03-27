@@ -1,17 +1,16 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
-import "./globals.css";
 import { AppShell } from "@/components/app-shell";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fraud Checker v2",
-  description: "不正検知ダッシュボード",
+  title: "Fraud Checker",
+  description: "不正検知モニタリングダッシュボード",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: ReactNode;
+  children: React.ReactNode;
 }>) {
   return (
     <html lang="ja">

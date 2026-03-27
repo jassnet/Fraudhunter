@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +29,7 @@ export function LastUpdated({
         再読込
       </Button>
       {isRefreshing ? (
-        <span aria-live="polite" className="text-xs tracking-[0.08em] text-foreground/80">
+        <span aria-live="polite" className="text-xs text-foreground/78">
           更新中
         </span>
       ) : null}

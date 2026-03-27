@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:coverage:check": "node scripts/check-coverage-targets.mjs",
+    "check:utf8": "node scripts/check-utf8.mjs",
     "test:skill:frontend:react": "node scripts/check-test-skill.mjs",
     "test:skill": "npm run test:skill:frontend:react"
   },

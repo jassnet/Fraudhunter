@@ -1,14 +1,15 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
 import { MetricBlock, MetricStrip } from "@/components/ui/metric-strip";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionFrame } from "@/components/ui/section-frame";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatePanel } from "@/components/ui/state-panel";
 import { DateQuickSelect } from "@/components/date-quick-select";
 import { LastUpdated } from "@/components/last-updated";
 import { OverviewChart } from "@/components/overview-chart";
+import { dashboardCopy } from "@/copy/dashboard";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 
 const formatDelta = (current: number, previous?: number | null) => {
@@ -22,15 +23,22 @@ const formatDelta = (current: number, previous?: number | null) => {
   return `前日比 ${deltaLabel} (${pctSign}${pct}%)`;
 };
 
+const formatCoverage = (missingRate?: number | null) =>
+  typeof missingRate === "number" ? `${Math.round((1 - missingRate) * 1000) / 10}%` : "-";
+
+const formatRate = (value?: number | null) =>
+  typeof value === "number" ? `${Math.round(value * 1000) / 10}%` : "-";
+
 export default function DashboardPage() {
   const {
     summary,
     dailyStats,
-    loading,
-    error,
+    status,
+    message,
     selectedDate,
     availableDates,
     lastUpdated,
+    diagnostics,
     isRefreshing,
     handleDateChange,
     handleRefresh,
@@ -52,42 +60,76 @@ export default function DashboardPage() {
     </>
   );
 
-  if (loading) {
+  const headerStatus =
+    diagnostics.findingsStale && summary ? (
+      <div className="text-[12px] text-[hsl(var(--warning))]">
+        {dashboardCopy.states.staleTitle}
+      </div>
+    ) : null;
+
+  if (status === "loading" || status === "refreshing") {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <PageHeader title="ダッシュボード" meta="読込中" actions={actions} />
+        <PageHeader
+          title={dashboardCopy.title}
+          meta={dashboardCopy.loadingMeta}
+          actions={actions}
+          status={headerStatus}
+        />
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="space-y-4 p-4 sm:p-6">
-          <MetricStrip>
-            {[...Array(4)].map((_, index) => (
-              <div key={index} className="border-t border-border p-4 first:border-t-0 md:odd:border-r xl:border-t-0 xl:border-r xl:last:border-r-0">
-                <Skeleton className="h-3 w-20" />
-                <Skeleton className="mt-5 h-12 w-28" />
-                <Skeleton className="mt-6 h-3 w-32" />
-              </div>
-            ))}
-          </MetricStrip>
-          <SectionFrame title="30日推移">
-            <Skeleton className="h-64 w-full" />
-          </SectionFrame>
-        </div>
+            <MetricStrip>
+              {[...Array(4)].map((_, index) => (
+                <div
+                  key={index}
+                  className="border-t border-border p-4 first:border-t-0 md:odd:border-r xl:border-t-0 xl:border-r xl:last:border-r-0"
+                >
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="mt-5 h-12 w-28" />
+                  <Skeleton className="mt-6 h-3 w-32" />
+                </div>
+              ))}
+            </MetricStrip>
+            <SectionFrame title={dashboardCopy.labels.diagnostics}>
+              <Skeleton className="h-32 w-full" />
+            </SectionFrame>
+            <SectionFrame title={dashboardCopy.labels.chart}>
+              <Skeleton className="h-64 w-full" />
+            </SectionFrame>
+          </div>
         </div>
       </div>
     );
   }
 
-  if (error) {
+  if (
+    status === "unauthorized" ||
+    status === "forbidden" ||
+    status === "transient-error" ||
+    status === "error"
+  ) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <PageHeader title="ダッシュボード" actions={actions} />
+        <PageHeader title={dashboardCopy.title} actions={actions} />
         <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
-          <EmptyState
-            title="取得エラー"
-            message={error}
+          <StatePanel
+            title={
+              status === "unauthorized"
+                ? dashboardCopy.states.unauthorizedTitle
+                : status === "forbidden"
+                  ? dashboardCopy.states.forbiddenTitle
+                  : status === "transient-error"
+                    ? dashboardCopy.states.transientTitle
+                    : "取得エラー"
+            }
+            message={message || dashboardCopy.states.loadError}
+            tone={status === "forbidden" ? "danger" : status === "transient-error" ? "warning" : "neutral"}
             action={
-              <Button onClick={handleRefresh} variant="outline">
-                再試行
-              </Button>
+              status === "transient-error" || status === "error" ? (
+                <Button onClick={handleRefresh} variant="outline">
+                  {dashboardCopy.states.retry}
+                </Button>
+              ) : undefined
             }
           />
         </div>
@@ -95,14 +137,15 @@ export default function DashboardPage() {
     );
   }
 
-  if (!summary) {
+  if (!summary || status === "empty") {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <PageHeader title="ダッシュボード" actions={actions} />
+        <PageHeader title={dashboardCopy.title} actions={actions} />
         <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
-          <EmptyState
-            title="データなし"
-            message="表示対象の集計がありません。"
+          <StatePanel
+            title={dashboardCopy.states.noDataTitle}
+            message={dashboardCopy.states.noDataMessage}
+            tone="neutral"
           />
         </div>
       </div>
@@ -117,43 +160,94 @@ export default function DashboardPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="ダッシュボード" meta={`対象日 ${summary.date}`} actions={actions} />
+      <PageHeader
+        title={dashboardCopy.title}
+        meta={dashboardCopy.targetDateLabel(summary.date)}
+        actions={actions}
+        status={headerStatus}
+      />
 
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="space-y-4 p-4 sm:p-6">
-        <MetricStrip>
-          <MetricBlock
-            label="クリック"
-            value={summary.stats.clicks.total.toLocaleString()}
-            meta={`ユニークIP ${summary.stats.clicks.unique_ips.toLocaleString()}${clickDelta ? ` / ${clickDelta}` : ""}`}
-          />
-          <MetricBlock
-            label="CV"
-            value={summary.stats.conversions.total.toLocaleString()}
-            meta={`ユニークIP ${summary.stats.conversions.unique_ips.toLocaleString()}${conversionDelta ? ` / ${conversionDelta}` : ""}`}
-          />
-          <MetricBlock
-            label="不審クリック"
-            value={summary.stats.suspicious.click_based.toLocaleString()}
-            meta="一覧を開く"
-            tone="warning"
-            href="/suspicious/clicks"
-            ariaLabel={`不審クリック ${summary.stats.suspicious.click_based}件を開く`}
-          />
-          <MetricBlock
-            label="不審CV"
-            value={summary.stats.suspicious.conversion_based.toLocaleString()}
-            meta="一覧を開く"
-            tone="danger"
-            href="/suspicious/conversions"
-            ariaLabel={`不審コンバージョン ${summary.stats.suspicious.conversion_based}件を開く`}
-          />
-        </MetricStrip>
+          <MetricStrip>
+            <MetricBlock
+              label={dashboardCopy.labels.clicks}
+              value={summary.stats.clicks.total.toLocaleString()}
+              meta={`ユニークIP ${summary.stats.clicks.unique_ips.toLocaleString()}${clickDelta ? ` / ${clickDelta}` : ""}`}
+              emphasis="primary"
+            />
+            <MetricBlock
+              label={dashboardCopy.labels.conversions}
+              value={summary.stats.conversions.total.toLocaleString()}
+              meta={`ユニークIP ${summary.stats.conversions.unique_ips.toLocaleString()}${conversionDelta ? ` / ${conversionDelta}` : ""}`}
+              emphasis="primary"
+            />
+            <MetricBlock
+              label={dashboardCopy.labels.suspiciousClicks}
+              value={summary.stats.suspicious.click_based.toLocaleString()}
+              meta="一覧を開く"
+              tone="warning"
+              emphasis="alert"
+              href="/suspicious/clicks"
+              ariaLabel={`不審クリック ${summary.stats.suspicious.click_based}件を開く`}
+            />
+            <MetricBlock
+              label={dashboardCopy.labels.suspiciousConversions}
+              value={summary.stats.suspicious.conversion_based.toLocaleString()}
+              meta="一覧を開く"
+              tone="danger"
+              emphasis="alert"
+              href="/suspicious/conversions"
+              ariaLabel={`不審コンバージョン ${summary.stats.suspicious.conversion_based}件を開く`}
+            />
+          </MetricStrip>
 
-        <SectionFrame title="30日推移">
-          <OverviewChart data={dailyStats} />
-        </SectionFrame>
-      </div>
+          <SectionFrame title={dashboardCopy.labels.diagnostics}>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <MetricBlock
+                label={dashboardCopy.labels.coverage}
+                value={formatCoverage(diagnostics.coverage?.missing_rate)}
+                meta={
+                  diagnostics.coverage
+                    ? `${diagnostics.coverage.missing.toLocaleString()}件欠損`
+                    : dashboardCopy.diagnosticsText.noSignal
+                }
+                emphasis="diagnostic"
+              />
+              <MetricBlock
+                label={dashboardCopy.labels.enrichment}
+                value={formatRate(diagnostics.enrichment?.success_rate)}
+                meta={
+                  diagnostics.enrichment
+                    ? `${diagnostics.enrichment.enriched.toLocaleString()} / ${diagnostics.enrichment.total.toLocaleString()}`
+                    : dashboardCopy.diagnosticsText.noSignal
+                }
+                emphasis="diagnostic"
+              />
+              <MetricBlock
+                label={dashboardCopy.labels.findingsFreshness}
+                value={diagnostics.findingsFreshness ? "最新" : "未計測"}
+                meta={
+                  diagnostics.findingsStale
+                    ? dashboardCopy.diagnosticsText.stale
+                    : dashboardCopy.diagnosticsText.healthy
+                }
+                tone={diagnostics.findingsStale ? "warning" : "neutral"}
+                emphasis="diagnostic"
+              />
+              <MetricBlock
+                label={dashboardCopy.labels.masterSync}
+                value={diagnostics.masterSyncAt ? "同期済み" : "未同期"}
+                meta={diagnostics.masterSyncAt || dashboardCopy.diagnosticsText.masterSyncMissing}
+                emphasis="diagnostic"
+              />
+            </div>
+          </SectionFrame>
+
+          <SectionFrame title={dashboardCopy.labels.chart}>
+            <OverviewChart data={dailyStats} />
+          </SectionFrame>
+        </div>
       </div>
     </div>
   );

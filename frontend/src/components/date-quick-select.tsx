@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -73,7 +72,7 @@ export function DateQuickSelect({
       <select
         className="h-10 border border-input bg-card px-3 text-[13px] text-foreground outline-none transition-colors focus:border-white"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
         aria-label="対象日"
       >
         {options.length === 0 ? (

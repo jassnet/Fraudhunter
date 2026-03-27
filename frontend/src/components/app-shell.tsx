@@ -28,10 +28,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
-  const toggleTheme = () => {
-    setTheme((current) => (current === "dark" ? "light" : "dark"));
-  };
-
   const nextThemeLabel = theme === "dark" ? "LIGHT" : "DARK";
   const nextThemeAriaLabel =
     theme === "dark" ? "ライトテーマに切り替える" : "ダークテーマに切り替える";
@@ -56,11 +52,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="border-b border-border p-4">
               <div className="flex items-start justify-between gap-2">
                 <div className={cn("min-w-0", !sidebarOpen && "sr-only")}>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                  <div className="text-[11px] font-semibold text-foreground/76">
                     Fraud Checker
                   </div>
-                  <div className="mt-3 text-lg font-semibold tracking-[-0.04em] text-foreground">
-                    Dashboard
+                  <div className="mt-3 text-lg font-semibold tracking-[-0.03em] text-foreground">
+                    Monitoring
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -68,10 +64,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={toggleTheme}
+                    onClick={() =>
+                      setTheme((current) => (current === "dark" ? "light" : "dark"))
+                    }
                     aria-label={nextThemeAriaLabel}
                     className={cn(
-                      "h-8 border border-border px-2 text-[10px] font-semibold uppercase tracking-[0.14em]",
+                      "h-8 border border-border px-2 text-[10px] font-semibold tracking-[0.08em]",
                       !sidebarOpen && "w-8 px-0"
                     )}
                   >
@@ -95,11 +93,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               <MainNav compact={!sidebarOpen} />
             </div>
 
-            <div className="border-t border-border px-3 py-4 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+            <div className="border-t border-border px-3 py-4 text-[11px] text-foreground/68">
               {sidebarOpen ? (
-                <div className="space-y-2">
-                  <div>Read Only</div>
-                  <div className="text-[10px] text-muted-foreground/70">v2.0.0</div>
+                <div className="space-y-1">
+                  <div>Read only monitoring surface</div>
+                  <div className="text-[10px] text-foreground/48">v2.0.0</div>
                 </div>
               ) : (
                 <div className="text-center">RO</div>
@@ -108,25 +106,27 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </aside>
 
-        <div className="flex min-w-0 min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <header className="flex h-12 items-center gap-3 border-b border-border bg-card px-4 md:hidden">
             <MobileNav />
-            <div className="min-w-0 flex-1 truncate text-sm font-semibold uppercase tracking-[0.18em] text-foreground">
-              Dashboard
+            <div className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+              Monitoring
             </div>
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              onClick={toggleTheme}
+              onClick={() =>
+                setTheme((current) => (current === "dark" ? "light" : "dark"))
+              }
               aria-label={nextThemeAriaLabel}
-              className="h-8 border border-border px-2 text-[10px] font-semibold uppercase tracking-[0.14em]"
+              className="h-8 border border-border px-2 text-[10px] font-semibold tracking-[0.08em]"
             >
               {nextThemeLabel}
             </Button>
           </header>
 
-          <main id="main-content" className="min-w-0 min-h-0 flex-1 overflow-hidden">
+          <main id="main-content" className="min-h-0 min-w-0 flex-1 overflow-hidden">
             {children}
           </main>
         </div>

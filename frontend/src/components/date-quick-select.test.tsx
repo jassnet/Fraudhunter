@@ -1,7 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-
 import { DateQuickSelect } from "@/components/date-quick-select";
 
 const formatDate = (date: Date) => date.toISOString().slice(0, 10);
@@ -47,7 +46,7 @@ describe("日付クイック選択", () => {
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
-  it("セレクト変更で対象日を直接選べる", async () => {
+  it("セレクト変更で対象日を更新する", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(

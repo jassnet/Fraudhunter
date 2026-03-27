@@ -5,7 +5,7 @@ import { getJobStatus } from "./api";
 
 type Status = "idle" | "running" | "success" | "error";
 
-interface JobResult {
+type JobResult = Record<string, unknown> & {
   success?: boolean;
   clicks?: { new: number; skipped: number };
   conversions?: { new: number; skipped: number; valid_entry?: number };
@@ -13,8 +13,7 @@ interface JobResult {
   total?: number;
   enriched?: number;
   error?: string;
-  [key: string]: unknown;
-}
+};
 
 interface JobState {
   status: string;
@@ -72,8 +71,8 @@ export function useJobRunner(onSuccess?: () => void) {
       setJobId(jobStatus.job_id || null);
       setJobResult(jobStatus.result || null);
       return false;
-    } catch (e) {
-      console.error("Failed to poll job status", e);
+    } catch (error) {
+      console.error("Failed to poll job status", error);
       setStatus("error");
       setMessage("ジョブ状態の取得に失敗しました");
       return false;
@@ -93,19 +92,20 @@ export function useJobRunner(onSuccess?: () => void) {
   }, [status, pollJobStatus]);
 
   const runJob = useCallback(
-    async (jobId: string, runningMessage: string, startJob: () => Promise<void>) => {
+    async (nextJobId: string, runningMessage: string, startJob: () => Promise<void>) => {
       setStatus("running");
       setMessage(runningMessage);
-      setJobId(jobId);
+      setJobId(nextJobId);
       setJobResult(null);
       setLoading(true);
 
       try {
         await startJob();
-      } catch (e: unknown) {
+      } catch (error: unknown) {
         setStatus("error");
-        const msg = e instanceof Error ? e.message : "ジョブの開始に失敗しました";
-        setMessage(msg);
+        const resolvedMessage =
+          error instanceof Error ? error.message : "ジョブ開始に失敗しました";
+        setMessage(resolvedMessage);
         setLoading(false);
         stopPolling();
         return;

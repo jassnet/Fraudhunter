@@ -1,0 +1,33 @@
+export const dashboardCopy = {
+  title: "ダッシュボード",
+  loadingMeta: "読込中",
+  targetDateLabel: (date: string) => `対象日 ${date}`,
+  labels: {
+    clicks: "総クリック",
+    conversions: "総CV",
+    suspiciousClicks: "不審クリック",
+    suspiciousConversions: "不審コンバージョン",
+    chart: "直近14日推移",
+    diagnostics: "診断情報",
+    findingsFreshness: "Findings鮮度",
+    coverage: "IP/UAカバレッジ",
+    enrichment: "CV連携率",
+    masterSync: "マスタ同期",
+  },
+  states: {
+    loadError: "ダッシュボードの取得に失敗しました。",
+    noDataTitle: "表示できるデータがありません",
+    noDataMessage: "対象日の集計データがまだ利用できません。",
+    retry: "再読込",
+    transientTitle: "一時的な取得エラー",
+    staleTitle: "findings の再計算が遅れています",
+    unauthorizedTitle: "認証が必要です",
+    forbiddenTitle: "表示権限がありません",
+  },
+  diagnosticsText: {
+    stale: "raw ingest より findings の更新が遅れています。",
+    healthy: "最新の findings が利用できます。",
+    noSignal: "診断データなし",
+    masterSyncMissing: "同期履歴なし",
+  },
+} as const;

@@ -1,6 +1,5 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-
 import { SuspiciousRowDetails } from "@/components/suspicious-row-details";
 import type { SuspiciousItem } from "@/lib/api";
 
@@ -16,7 +15,7 @@ function buildItem(overrides: Partial<SuspiciousItem> = {}): SuspiciousItem {
     first_time: "2026-01-21T00:00:00Z",
     last_time: "2026-01-21T01:00:00Z",
     reasons: ["total_clicks >= 50"],
-    reasons_formatted: ["クリック数が閾値以上です（50件以上）"],
+    reasons_formatted: ["クリック数が閾値以上です (50件以上)"],
     risk_level: "high",
     risk_score: 90,
     risk_label: "高リスク",
@@ -46,13 +45,15 @@ describe("SuspiciousRowDetails", () => {
             },
           ],
         })}
-      />,
+        status="ready"
+      />
     );
 
     expect(
-      screen.getByText(/証跡は保持期間内です。詳細調査に利用できます。/),
+      screen.getByText(/証拠は保持期間内です。詳細の関連行と判断材料を確認できます。/)
     ).toBeInTheDocument();
-    expect(screen.getByText(/保持期限: 2026-04-20/)).toBeInTheDocument();
+    expect(screen.getByText(/期限: 2026-04-20/)).toBeInTheDocument();
+    expect(screen.getByText("関連行")).toBeInTheDocument();
     expect(screen.getAllByText("Media 1").length).toBeGreaterThan(0);
   });
 
@@ -75,13 +76,21 @@ describe("SuspiciousRowDetails", () => {
             },
           ],
         })}
-      />,
+        status="expired"
+      />
     );
 
     expect(
-      screen.getByText(/証跡保持期限を過ぎているため、この finding は要約のみ表示しています。/),
+      screen.getByText(/証拠保持期間を過ぎているため、この finding は要約のみ表示しています。/)
     ).toBeInTheDocument();
-    expect(screen.queryByText("詳細内訳")).not.toBeInTheDocument();
+    expect(screen.queryByText("関連行")).not.toBeInTheDocument();
     expect(screen.getByText("Media 1")).toBeInTheDocument();
+  });
+
+  it("shows forbidden state separately from expired evidence", () => {
+    render(<SuspiciousRowDetails item={buildItem()} status="forbidden" />);
+
+    expect(screen.getByText("表示権限がありません")).toBeInTheDocument();
+    expect(screen.getByText("この詳細を表示する権限がありません。")).toBeInTheDocument();
   });
 });

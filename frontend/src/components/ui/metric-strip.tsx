@@ -3,6 +3,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 type MetricTone = "neutral" | "warning" | "danger" | "success";
+export type MetricEmphasis = "primary" | "alert" | "diagnostic";
 
 const toneMap: Record<MetricTone, { label: string; value: string; border: string }> = {
   neutral: {
@@ -51,6 +52,7 @@ interface MetricBlockProps {
   value: ReactNode;
   meta?: ReactNode;
   tone?: MetricTone;
+  emphasis?: MetricEmphasis;
   href?: string;
   ariaLabel?: string;
   valueClassName?: string;
@@ -61,11 +63,31 @@ export function MetricBlock({
   value,
   meta,
   tone = "neutral",
+  emphasis = "primary",
   href,
   ariaLabel,
   valueClassName,
 }: MetricBlockProps) {
   const toneClasses = toneMap[tone];
+  const emphasisClasses =
+    emphasis === "diagnostic"
+      ? {
+          label: "text-[11px] text-foreground/78",
+          value: "text-[1.85rem] text-foreground",
+          meta: "text-[12px] leading-5 text-foreground/72",
+        }
+      : emphasis === "alert"
+        ? {
+            label: "text-[12px]",
+            value: "text-[2.8rem]",
+            meta: "text-[13px] leading-5 text-foreground/82",
+          }
+        : {
+            label: "text-[12px]",
+            value: "text-[2.65rem]",
+            meta: "text-[13px] leading-5 text-foreground/80",
+          };
+
   const content = (
     <div
       className={cn(
@@ -75,14 +97,27 @@ export function MetricBlock({
       )}
     >
       <div className="space-y-2">
-        <div className={cn("text-[12px] font-semibold tracking-[0.04em]", toneClasses.label)}>
+        <div
+          className={cn(
+            "font-semibold tracking-[0.02em]",
+            toneClasses.label,
+            emphasisClasses.label
+          )}
+        >
           {label}
         </div>
-        <div className={cn("text-[2.65rem] font-bold tracking-[-0.05em] tabular-nums", toneClasses.value, valueClassName)}>
+        <div
+          className={cn(
+            "font-bold tracking-[-0.04em] tabular-nums",
+            toneClasses.value,
+            emphasisClasses.value,
+            valueClassName
+          )}
+        >
           {value}
         </div>
       </div>
-      {meta ? <div className="text-[13px] leading-5 text-foreground/80">{meta}</div> : null}
+      {meta ? <div className={emphasisClasses.meta}>{meta}</div> : null}
     </div>
   );
 

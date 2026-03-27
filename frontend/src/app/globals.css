@@ -1,4 +1,10 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+@source "../app";
+@source "../components";
+@source "../copy";
+@source "../features";
+@source "../hooks";
+@source "../lib";
 
 :root,
 :root[data-theme="dark"] {

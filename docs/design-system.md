@@ -111,3 +111,17 @@
 - Document a new visual pattern here before reusing it.
 - Avoid page-local color decisions outside the token set.
 - Do not reintroduce rounded card UI or shadow hierarchy without updating this spec.
+
+## Monitoring UX Addendum
+- Prefer noun labels such as `対象日`, `クリック数`, `CV数`, `再読込`, `詳細`.
+- Page headers should make `対象日`, freshness, and actions easy to scan before the main content.
+- Metric strips should distinguish `primary`, `alert`, and `diagnostic` emphasis.
+- State panels should clearly separate `unauthorized`, `forbidden`, `transient error`, `empty`, and `expired evidence`.
+- `expired evidence` is a retention-policy state, not a failure state.
+- Suspicious detail panels should keep a stable order:
+  - summary
+  - reasons
+  - evidence
+  - related rows
+- Search, page, risk, and sort state that must survive deep links should use the URL as the durable source of truth.
+- Detail expansion, hover, and local input drafts should remain ephemeral UI state.

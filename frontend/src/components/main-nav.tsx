@@ -31,11 +31,7 @@ export function MainNav({ compact = false }: { compact?: boolean }) {
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
             )}
           >
-            <span
-              className={cn(
-                compact ? "text-xs font-semibold uppercase tracking-[0.16em]" : "font-medium"
-              )}
-            >
+            <span className={cn(compact ? "text-xs font-semibold" : "font-medium")}>
               {compact ? item.shortTitle : item.title}
             </span>
           </Link>

@@ -13,6 +13,18 @@ export class ApiError extends Error {
   detail?: string;
 }
 
+export type ResourceIssueKind =
+  | "unauthorized"
+  | "forbidden"
+  | "transient-error"
+  | "error";
+
+export interface ResourceIssue {
+  kind: ResourceIssueKind;
+  message: string;
+  retryable: boolean;
+}
+
 const DEFAULT_RETRY_DELAY_MS = 500;
 const defaultRetryOn = (status: number) =>
   status === 408 || status === 429 || (status >= 500 && status <= 599);
@@ -83,6 +95,42 @@ export function getErrorMessage(error: unknown, fallback: string) {
     return error.message;
   }
   return fallback;
+}
+
+export function toResourceIssue(error: unknown, fallback: string): ResourceIssue {
+  if (error instanceof ApiError) {
+    if (error.status === 401) {
+      return {
+        kind: "unauthorized",
+        message: getErrorMessage(error, fallback),
+        retryable: false,
+      };
+    }
+    if (error.status === 403) {
+      return {
+        kind: "forbidden",
+        message: getErrorMessage(error, fallback),
+        retryable: false,
+      };
+    }
+    if (
+      error.status === 408 ||
+      error.status === 429 ||
+      (typeof error.status === "number" && error.status >= 500)
+    ) {
+      return {
+        kind: "transient-error",
+        message: getErrorMessage(error, fallback),
+        retryable: true,
+      };
+    }
+  }
+
+  return {
+    kind: "error",
+    message: getErrorMessage(error, fallback),
+    retryable: false,
+  };
 }
 
 export interface SummaryResponse {
