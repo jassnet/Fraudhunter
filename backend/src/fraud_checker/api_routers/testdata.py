@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..api_dependencies import require_test_key
 from ..api_models import TestDataResponse
+from ..service_dependencies import get_repository
 from ..services import e2e_seed
-from ..services.jobs import get_repository
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/test", tags=["testdata"])
@@ -26,7 +26,7 @@ def reset_test_data():
         raise
     except Exception:
         logger.exception("Error resetting E2E test data")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
 @router.post("/seed/baseline", response_model=TestDataResponse, dependencies=[Depends(require_test_key)])
@@ -42,4 +42,4 @@ def seed_test_baseline():
         raise
     except Exception:
         logger.exception("Error seeding E2E baseline data")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error") from None

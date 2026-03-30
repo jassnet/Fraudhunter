@@ -27,7 +27,6 @@ from .services import e2e_seed, reporting, settings as settings_service
 from .services.jobs import (
     JobConflictError,
     enqueue_job,
-    get_repository,
     run_click_ingestion,
     run_conversion_ingestion,
     run_master_sync,

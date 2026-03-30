@@ -18,7 +18,7 @@ describe("ダッシュボード画面", () => {
     expect(screen.getByText("総CV")).toBeInTheDocument();
     expect(screen.getAllByText("不審クリック").length).toBeGreaterThan(0);
     expect(screen.getByText("不審コンバージョン")).toBeInTheDocument();
-    expect(screen.getByText("診断指標")).toBeInTheDocument();
+    expect(screen.getByText("診断情報")).toBeInTheDocument();
   });
 
   it("admin 権限がないと操作帯を表示しない", async () => {
@@ -30,6 +30,9 @@ describe("ダッシュボード画面", () => {
       screen.queryByRole("button", { name: "最新1時間を再取得" })
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "マスタ同期" })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/FC_ADMIN_API_KEY/)).toBeInTheDocument();
+    });
   });
 
   it("admin 権限があると再取得を enqueue して完了後に再読込する", async () => {

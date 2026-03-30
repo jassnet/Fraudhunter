@@ -150,7 +150,7 @@ describe("不審一覧画面", () => {
     expect(screen.getByText("10.0.*.1")).toBeInTheDocument();
     expect(screen.getAllByText("高リスク").length).toBeGreaterThan(0);
     expect(
-      screen.getByText("一覧では機微情報をマスクしています。必要な値は詳細でのみ確認できます。")
+      screen.getByText("一覧では機微情報をマスクしています。詳細な値は詳細画面でのみ確認できます。")
     ).toBeInTheDocument();
   });
 
@@ -181,12 +181,12 @@ describe("不審一覧画面", () => {
     await screen.findAllByText("1-50件 / 全120件");
     await user.click(screen.getAllByRole("button", { name: "詳細" })[0]);
 
-    await screen.findByText("概要");
+    await screen.findByText("関連行");
     expect(detailFetcher).toHaveBeenCalledWith("finding-1");
 
     await user.click(screen.getByRole("button", { name: "閉じる" }));
     await waitFor(() => {
-      expect(screen.queryByText("概要")).not.toBeInTheDocument();
+      expect(screen.queryByText("関連行")).not.toBeInTheDocument();
     });
   });
 

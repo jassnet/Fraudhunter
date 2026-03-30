@@ -8,7 +8,13 @@ from .services import lifecycle
 
 
 IDLE_JOB_MESSAGE = "まだジョブは実行されていません"
+QUEUED_JOB_MESSAGE = "ジョブを実行待ちキューに登録しました"
 FAILED_JOB_MESSAGE = "ジョブが失敗しました"
+RISK_LABELS = {
+    "high": "高リスク",
+    "medium": "中リスク",
+    "low": "低リスク",
+}
 
 
 def format_reasons(reasons: list[str]) -> list[str]:
@@ -19,14 +25,10 @@ def format_reasons(reasons: list[str]) -> list[str]:
             formatted.append(f"クリック数が閾値以上です（{threshold}件以上）")
         elif reason.startswith("media_count >="):
             threshold = reason.split(">=")[1].strip()
-            formatted.append(
-                f"同一IP/UAで複数メディアにまたがるクリックがあります（{threshold}媒体以上）"
-            )
+            formatted.append(f"同一 IP/UA で複数媒体にまたがるクリックがあります（{threshold}媒体以上）")
         elif reason.startswith("program_count >="):
             threshold = reason.split(">=")[1].strip()
-            formatted.append(
-                f"同一IP/UAで複数案件にまたがるクリックがあります（{threshold}案件以上）"
-            )
+            formatted.append(f"同一 IP/UA で複数案件にまたがるクリックがあります（{threshold}案件以上）")
         elif reason.startswith("burst:") and "clicks" in reason:
             formatted.append("短時間にクリックが集中しています（バースト検知）")
         elif reason.startswith("conversion_count >="):
@@ -46,8 +48,7 @@ def format_reasons(reasons: list[str]) -> list[str]:
 
 
 def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = False) -> dict:
-    score = 0
-    score += len(reasons) * 20
+    score = len(reasons) * 20
 
     for reason in reasons:
         if "burst" in reason.lower():
@@ -71,10 +72,10 @@ def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = F
             score += 10
 
     if score >= 80:
-        return {"level": "high", "score": score, "label": "高リスク"}
+        return {"level": "high", "score": score, "label": RISK_LABELS["high"]}
     if score >= 40:
-        return {"level": "medium", "score": score, "label": "中リスク"}
-    return {"level": "low", "score": score, "label": "低リスク"}
+        return {"level": "medium", "score": score, "label": RISK_LABELS["medium"]}
+    return {"level": "low", "score": score, "label": RISK_LABELS["low"]}
 
 
 def format_datetime_value(value: object) -> str | None:
@@ -186,17 +187,15 @@ def _detail_fields(details: list[dict]) -> dict:
 
 def _evidence_fields(value: object) -> dict:
     if hasattr(value, "isoformat"):
-        availability = lifecycle.describe_evidence_availability(value)
-    else:
-        availability = {
-            "evidence_status": "unknown",
-            "evidence_available": False,
-            "evidence_expired": False,
-            "evidence_retention_days": lifecycle.get_evidence_contract_days(),
-            "evidence_expires_on": None,
-            "evidence_checked_on": None,
-        }
-    return availability
+        return lifecycle.describe_evidence_availability(value)
+    return {
+        "evidence_status": "unknown",
+        "evidence_available": False,
+        "evidence_expired": False,
+        "evidence_retention_days": lifecycle.get_evidence_contract_days(),
+        "evidence_expires_on": None,
+        "evidence_checked_on": None,
+    }
 
 
 def present_click_finding(finding, include_names: bool, details: list[dict] | None = None) -> dict:
@@ -274,7 +273,7 @@ def present_click_finding_record(
         "reasons_formatted": row["reasons_formatted_json"],
         "risk_level": row["risk_level"],
         "risk_score": row["risk_score"],
-        "risk_label": {"high": "高リスク", "medium": "中リスク", "low": "低リスク"}.get(row["risk_level"], row["risk_level"]),
+        "risk_label": RISK_LABELS.get(row["risk_level"], row["risk_level"]),
         "media_names": row.get("media_names_json") or [],
         "program_names": row.get("program_names_json") or [],
         "affiliate_names": row.get("affiliate_names_json") or [],
@@ -314,7 +313,7 @@ def present_conversion_finding_record(
         "max_click_to_conv_seconds": row.get("max_click_to_conv_seconds"),
         "risk_level": row["risk_level"],
         "risk_score": row["risk_score"],
-        "risk_label": {"high": "高リスク", "medium": "中リスク", "low": "低リスク"}.get(row["risk_level"], row["risk_level"]),
+        "risk_label": RISK_LABELS.get(row["risk_level"], row["risk_level"]),
         "media_names": row.get("media_names_json") or [],
         "program_names": row.get("program_names_json") or [],
         "affiliate_names": row.get("affiliate_names_json") or [],

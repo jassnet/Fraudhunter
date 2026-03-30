@@ -6,11 +6,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from ..api_dependencies import require_admin, require_analyst_access
 from ..api_models import IngestResponse
-from ..services.jobs import (
-    JobConflictError,
-    enqueue_master_sync_job,
-    get_repository,
-)
+from ..service_dependencies import get_repository
+from ..services.jobs import JobConflictError, enqueue_master_sync_job
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["masters"])
@@ -21,7 +18,7 @@ def sync_masters(background_tasks: BackgroundTasks):
     try:
         job = enqueue_master_sync_job(background_tasks=background_tasks)
     except JobConflictError:
-        raise HTTPException(status_code=409, detail="Another job is already running")
+        raise HTTPException(status_code=409, detail="Another job is already running") from None
     return IngestResponse(
         success=True,
         message="マスタ同期ジョブを登録しました",
@@ -32,8 +29,7 @@ def sync_masters(background_tasks: BackgroundTasks):
 @router.get("/masters/status", dependencies=[Depends(require_analyst_access)])
 def get_masters_status():
     try:
-        repo = get_repository()
-        return repo.get_all_masters()
+        return get_repository().get_all_masters()
     except Exception:
         logger.exception("Error getting master status")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Internal server error") from None

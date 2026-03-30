@@ -7,6 +7,7 @@ from datetime import timedelta
 
 from .acs_client import AcsHttpClient
 from .config import resolve_acs_settings, resolve_store_raw
+from .env import load_env
 from .ingestion import ClickLogIngestor, ConversionIngestor
 from .job_status_pg import JobStatusStorePG
 from .repository_pg import PostgresRepository
@@ -16,6 +17,7 @@ from .services.jobs import (
     enqueue_master_sync_job,
     enqueue_refresh_job,
     process_queued_jobs,
+    process_queued_jobs_after_cli_enqueue,
 )
 from .time_utils import now_local
 
@@ -238,6 +240,9 @@ def _cmd_enqueue_refresh(args: argparse.Namespace) -> int:
     print(f"Clicks: {clicks}")
     print(f"Conversions: {conversions}")
     print(f"Detect: {args.detect}")
+    processed = process_queued_jobs_after_cli_enqueue(max_jobs=1)
+    if processed:
+        print(f"Processed {processed} queued job(s) (dev in-process kick)")
     return 0
 
 
@@ -245,6 +250,9 @@ def _cmd_enqueue_sync_masters() -> int:
     job = enqueue_master_sync_job()
     print("=== Master Sync Enqueued ===")
     print(f"Job ID: {job.id}")
+    processed = process_queued_jobs_after_cli_enqueue(max_jobs=1)
+    if processed:
+        print(f"Processed {processed} queued job(s) (dev in-process kick)")
     return 0
 
 
@@ -285,6 +293,7 @@ def _cmd_purge_data(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_env()
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "refresh":

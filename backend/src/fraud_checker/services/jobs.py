@@ -7,18 +7,22 @@ import socket
 import threading
 import uuid
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 
-from ..acs_client import AcsHttpClient
 from ..config import resolve_acs_settings
 from ..ingestion import ClickLogIngestor, ConversionIngestor
 from ..job_status_pg import JobRun, JobStatusStorePG
 from ..logging_utils import log_event, log_timed
-from ..repository_pg import PostgresRepository
 from ..runtime_guards import current_env
+from ..service_dependencies import (
+    RuntimeDependencies,
+    get_acs_client as default_get_acs_client,
+    get_job_store as default_get_job_store,
+    get_repository as default_get_repository,
+)
 from ..time_utils import now_local
 from . import findings as findings_service
 
@@ -50,34 +54,33 @@ class JobConflictError(RuntimeError):
     """Raised when another background job is already queued or running."""
 
 
+def get_repository():
+    return default_get_repository()
+
+
+def get_job_store():
+    return default_get_job_store()
+
+
+def get_acs_client():
+    return default_get_acs_client()
+
+
+def get_runtime_dependencies() -> RuntimeDependencies:
+    return RuntimeDependencies(
+        repository_factory=get_repository,
+        job_store_factory=get_job_store,
+        acs_client_factory=get_acs_client,
+        now_provider=now_local,
+    )
+
+
 def _env_truthy(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _require_database_url() -> str:
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL is required for Postgres mode.")
-    return database_url
-
-
-def get_repository() -> PostgresRepository:
-    database_url = _require_database_url()
-    return PostgresRepository(database_url)
-
-
-def get_acs_client() -> AcsHttpClient:
-    settings = resolve_acs_settings()
-    return AcsHttpClient(
-        base_url=settings.base_url,
-        access_key=settings.access_key,
-        secret_key=settings.secret_key,
-        endpoint_path=settings.log_endpoint,
-    )
-
-
-def get_job_store() -> JobStatusStorePG:
-    return JobStatusStorePG(_require_database_url())
+def _deps(deps: RuntimeDependencies | None = None) -> RuntimeDependencies:
+    return deps or get_runtime_dependencies()
 
 
 def _job_lease_seconds() -> int:
@@ -159,8 +162,9 @@ def enqueue_job(
     dedupe_key: str | None = None,
     concurrency_key: str | None = None,
     background_tasks=None,
+    deps: RuntimeDependencies | None = None,
 ) -> JobRun:
-    store = get_job_store()
+    store = _deps(deps).job_store()
     dedupe_key = dedupe_key or _dedupe_key(job_type, params)
     concurrency_key = concurrency_key if concurrency_key is not None else _job_concurrency_key(job_type, params)
     duplicate = store.find_active_duplicate(dedupe_key)
@@ -214,6 +218,18 @@ def enqueue_job(
     return job
 
 
+def process_queued_jobs_after_cli_enqueue(max_jobs: int = 1) -> int:
+    """
+    Drain the queue in-process when dev-style in-process kick is enabled.
+
+    HTTP enqueue paths use FastAPI BackgroundTasks for the same behavior; CLI enqueue
+    commands have no BackgroundTasks, so they call this explicitly.
+    """
+    if not _should_use_in_process_background_kick():
+        return 0
+    return process_queued_jobs(max_jobs=max_jobs)
+
+
 def enqueue_recompute_findings_job(
     target_date: date,
     *,
@@ -221,6 +237,7 @@ def enqueue_recompute_findings_job(
     trigger: str,
     source_job_id: str | None = None,
     background_tasks=None,
+    deps: RuntimeDependencies | None = None,
 ) -> JobRun:
     params = {
         "date": target_date.isoformat(),
@@ -235,6 +252,7 @@ def enqueue_recompute_findings_job(
         job_type=JOB_TYPE_RECOMPUTE_FINDINGS_DATE,
         params=params,
         start_message=f"\u0066\u0069\u006e\u0064\u0069\u006e\u0067\u0020\u518d\u8a08\u7b97\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f\uff08{target_date.isoformat()}\uff09",
+        deps=deps,
     )
 
 
@@ -245,6 +263,7 @@ def enqueue_findings_recompute_jobs(
     trigger: str,
     source_job_id: str | None = None,
     background_tasks=None,
+    deps: RuntimeDependencies | None = None,
 ) -> list[JobRun]:
     jobs: list[JobRun] = []
     for target_date in dates:
@@ -255,6 +274,7 @@ def enqueue_findings_recompute_jobs(
                 trigger=trigger,
                 source_job_id=source_job_id,
                 background_tasks=background_tasks,
+                deps=deps,
             )
         )
     return jobs
@@ -264,12 +284,14 @@ def enqueue_click_ingestion_job(
     target_date: date,
     *,
     background_tasks=None,
+    deps: RuntimeDependencies | None = None,
 ) -> JobRun:
     return enqueue_job(
         background_tasks=background_tasks,
         job_type=JOB_TYPE_CLICK_INGEST,
         params={"date": target_date.isoformat()},
         start_message=f"\u30af\u30ea\u30c3\u30af\u53d6\u308a\u8fbc\u307f\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f\uff08{target_date.isoformat()}\uff09",
+        deps=deps,
     )
 
 
@@ -277,12 +299,14 @@ def enqueue_conversion_ingestion_job(
     target_date: date,
     *,
     background_tasks=None,
+    deps: RuntimeDependencies | None = None,
 ) -> JobRun:
     return enqueue_job(
         background_tasks=background_tasks,
         job_type=JOB_TYPE_CONVERSION_INGEST,
         params={"date": target_date.isoformat()},
         start_message=f"\u6210\u679c\u53d6\u308a\u8fbc\u307f\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f\uff08{target_date.isoformat()}\uff09",
+        deps=deps,
     )
 
 
@@ -293,6 +317,7 @@ def enqueue_refresh_job(
     conversions: bool,
     detect: bool,
     background_tasks=None,
+    deps: RuntimeDependencies | None = None,
 ) -> JobRun:
     return enqueue_job(
         background_tasks=background_tasks,
@@ -304,20 +329,23 @@ def enqueue_refresh_job(
             "detect": detect,
         },
         start_message=f"\u76f4\u8fd1{hours}\u6642\u9593\u306e\u518d\u53d6\u5f97\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f",
+        deps=deps,
     )
 
 
-def enqueue_master_sync_job(*, background_tasks=None) -> JobRun:
+def enqueue_master_sync_job(*, background_tasks=None, deps: RuntimeDependencies | None = None) -> JobRun:
     return enqueue_job(
         background_tasks=background_tasks,
         job_type=JOB_TYPE_MASTER_SYNC,
         params=None,
         start_message="\u30de\u30b9\u30bf\u540c\u671f\u30b8\u30e7\u30d6\u3092\u767b\u9332\u3057\u307e\u3057\u305f",
+        deps=deps,
     )
 
 
-def process_queued_jobs(max_jobs: int = 1) -> int:
-    store = get_job_store()
+def process_queued_jobs(max_jobs: int = 1, deps: RuntimeDependencies | None = None) -> int:
+    runtime = _deps(deps)
+    store = runtime.job_store()
     worker_id = _worker_id()
     lease_seconds = _job_lease_seconds()
     processed = 0
@@ -327,7 +355,13 @@ def process_queued_jobs(max_jobs: int = 1) -> int:
         if run is None:
             break
         processed += 1
-        _execute_job_run(store=store, run=run, worker_id=worker_id, lease_seconds=lease_seconds)
+        _execute_job_run(
+            store=store,
+            run=run,
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            deps=runtime,
+        )
 
     return processed
 
@@ -338,6 +372,7 @@ def _execute_job_run(
     run: JobRun,
     worker_id: str,
     lease_seconds: int,
+    deps: RuntimeDependencies | None = None,
 ) -> None:
     log_event(logger, "job_started", run_id=run.id, job_type=run.job_type, worker_id=worker_id)
     try:
@@ -363,7 +398,7 @@ def _execute_job_run(
                 run_id=run.id,
                 job_type=run.job_type,
             ):
-                result, done_message = _dispatch_job(run)
+                result, done_message = _dispatch_job_with_optional_deps(run, deps)
                 store.complete(run.id, done_message, result)
     except Exception as exc:
         message = f"{run.job_type} failed: {exc}"
@@ -385,12 +420,32 @@ def _execute_job_run(
         logger.exception("Job execution failed", extra={"run_id": run.id, "job_type": run.job_type})
 
 
-def _dispatch_job(run: JobRun) -> tuple[dict[str, Any], str]:
+def _dispatch_job_with_optional_deps(
+    run: JobRun,
+    deps: RuntimeDependencies | None,
+) -> tuple[dict[str, Any], str]:
+    if deps is None:
+        return _dispatch_job(run)
+    try:
+        return _dispatch_job(run, deps=deps)
+    except TypeError as exc:
+        message = str(exc)
+        if "unexpected keyword argument 'deps'" not in message:
+            raise
+        return _dispatch_job(run)
+
+
+def _dispatch_job(
+    run: JobRun,
+    *,
+    deps: RuntimeDependencies | None = None,
+) -> tuple[dict[str, Any], str]:
+    runtime = _deps(deps)
     params = run.params or {}
     if run.job_type == JOB_TYPE_CLICK_INGEST:
-        return run_click_ingestion(date.fromisoformat(params["date"]), job_run_id=run.id)
+        return run_click_ingestion(date.fromisoformat(params["date"]), job_run_id=run.id, deps=runtime)
     if run.job_type == JOB_TYPE_CONVERSION_INGEST:
-        return run_conversion_ingestion(date.fromisoformat(params["date"]), job_run_id=run.id)
+        return run_conversion_ingestion(date.fromisoformat(params["date"]), job_run_id=run.id, deps=runtime)
     if run.job_type == JOB_TYPE_REFRESH:
         return run_refresh(
             hours=int(params["hours"]),
@@ -398,6 +453,7 @@ def _dispatch_job(run: JobRun) -> tuple[dict[str, Any], str]:
             conversions=bool(params.get("conversions", True)),
             detect=bool(params.get("detect", False)),
             job_run_id=run.id,
+            deps=runtime,
         )
     if run.job_type == JOB_TYPE_RECOMPUTE_FINDINGS_DATE:
         return run_recompute_findings_for_date(
@@ -406,9 +462,10 @@ def _dispatch_job(run: JobRun) -> tuple[dict[str, Any], str]:
             trigger=str(params.get("trigger") or "job"),
             job_run_id=run.id,
             source_job_id=params.get("source_job_id"),
+            deps=runtime,
         )
     if run.job_type == JOB_TYPE_MASTER_SYNC:
-        return run_master_sync(job_run_id=run.id)
+        return run_master_sync(job_run_id=run.id, deps=runtime)
     raise ValueError(f"Unsupported job_type: {run.job_type}")
 
 
@@ -419,8 +476,9 @@ def run_recompute_findings_for_date(
     trigger: str,
     job_run_id: str | None = None,
     source_job_id: str | None = None,
+    deps: RuntimeDependencies | None = None,
 ) -> tuple[dict[str, Any], str]:
-    repo = get_repository()
+    repo = _deps(deps).repository()
     with log_timed(
         logger,
         "recompute_findings_date_job",
@@ -444,9 +502,15 @@ def run_recompute_findings_for_date(
     }, f"Recomputed findings for {target_date}"
 
 
-def run_click_ingestion(target_date: date, *, job_run_id: str | None = None) -> tuple[dict[str, Any], str]:
-    repo = get_repository()
-    client = get_acs_client()
+def run_click_ingestion(
+    target_date: date,
+    *,
+    job_run_id: str | None = None,
+    deps: RuntimeDependencies | None = None,
+) -> tuple[dict[str, Any], str]:
+    runtime = _deps(deps)
+    repo = runtime.repository()
+    client = runtime.acs_client()
     settings = resolve_acs_settings()
     ingestor = ClickLogIngestor(
         client=client,
@@ -473,9 +537,11 @@ def run_conversion_ingestion(
     target_date: date,
     *,
     job_run_id: str | None = None,
+    deps: RuntimeDependencies | None = None,
 ) -> tuple[dict[str, Any], str]:
-    repo = get_repository()
-    client = get_acs_client()
+    runtime = _deps(deps)
+    repo = runtime.repository()
+    client = runtime.acs_client()
     settings = resolve_acs_settings()
     ingestor = ConversionIngestor(
         client=client,
@@ -507,12 +573,14 @@ def run_refresh(
     detect: bool,
     *,
     job_run_id: str | None = None,
+    deps: RuntimeDependencies | None = None,
 ) -> tuple[dict[str, Any], str]:
-    end_time = now_local()
+    runtime = _deps(deps)
+    end_time = runtime.now()
     start_time = end_time - timedelta(hours=hours)
 
-    repo = get_repository()
-    client = get_acs_client()
+    repo = runtime.repository()
+    client = runtime.acs_client()
     settings = resolve_acs_settings()
 
     result: dict[str, Any] = {"success": True, "clicks": None, "conversions": None}
@@ -567,6 +635,7 @@ def run_refresh(
                 generation_id=generation_id,
                 trigger="refresh",
                 source_job_id=job_run_id,
+                deps=runtime,
             )
             result["findings_recompute"] = {
                 "mode": "queued",
@@ -579,9 +648,14 @@ def run_refresh(
     return result, f"Refresh completed for last {hours} hours"
 
 
-def run_master_sync(*, job_run_id: str | None = None) -> tuple[dict[str, Any], str]:
-    repo = get_repository()
-    client = get_acs_client()
+def run_master_sync(
+    *,
+    job_run_id: str | None = None,
+    deps: RuntimeDependencies | None = None,
+) -> tuple[dict[str, Any], str]:
+    runtime = _deps(deps)
+    repo = runtime.repository()
+    client = runtime.acs_client()
 
     with log_timed(logger, "master_sync"):
         media_list = client.fetch_all_media_master()
@@ -610,6 +684,7 @@ def run_master_sync(*, job_run_id: str | None = None) -> tuple[dict[str, Any], s
             generation_id=generation_id,
             trigger="master_sync",
             source_job_id=job_run_id,
+            deps=runtime,
         )
         result["findings_recompute"] = {
             "mode": "queued",

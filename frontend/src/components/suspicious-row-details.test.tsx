@@ -50,7 +50,7 @@ describe("SuspiciousRowDetails", () => {
     );
 
     expect(
-      screen.getByText(/証拠は保持期間内です。詳細の関連行と判断材料を確認できます。/)
+      screen.getByText(/証跡は保持期間内です。詳細の関連行と元データを確認できます。/)
     ).toBeInTheDocument();
     expect(screen.getByText(/期限: 2026-04-20/)).toBeInTheDocument();
     expect(screen.getByText("関連行")).toBeInTheDocument();
@@ -81,7 +81,7 @@ describe("SuspiciousRowDetails", () => {
     );
 
     expect(
-      screen.getByText(/証拠保持期間を過ぎているため、この finding は要約のみ表示しています。/)
+      screen.getByText(/証跡保持期間を過ぎているため、この finding は一覧のみ表示しています。/)
     ).toBeInTheDocument();
     expect(screen.queryByText("関連行")).not.toBeInTheDocument();
     expect(screen.getByText("Media 1")).toBeInTheDocument();

@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta
 
 from fraud_checker import job_status_pg
+from fraud_checker import job_status_queue
 
 
 class _DummyContext:
@@ -66,11 +67,11 @@ def test_get_maps_queued_job_to_running_for_api(monkeypatch):
             params={"hours": 1},
             result=None,
             error_message=None,
-            message="直近1時間の再取得を開始しました",
+            message="直近1時間の再取得ジョブを登録しました",
             attempt_count=0,
             max_attempts=4,
             next_retry_at=None,
-            dedupe_key="refresh:{\"hours\":1}",
+            dedupe_key='refresh:{"hours":1}',
             priority=10,
             queued_at=datetime(2026, 1, 1, 0, 0, 0),
             started_at=None,
@@ -87,15 +88,15 @@ def test_get_maps_queued_job_to_running_for_api(monkeypatch):
 
     assert status.status == "running"
     assert status.job_id == "run-1"
-    assert status.message == "直近1時間の再取得を開始しました"
+    assert status.message == "直近1時間の再取得ジョブを登録しました"
 
 
 def test_enqueue_persists_json_payload_and_control_columns(monkeypatch):
     store = _new_store()
     captured = {}
     fixed_now = datetime(2026, 1, 1, 0, 0, 0)
-    monkeypatch.setattr(job_status_pg, "now_local", lambda: fixed_now)
-    monkeypatch.setattr(job_status_pg.uuid, "uuid4", lambda: type("U", (), {"hex": "run-1"})())
+    monkeypatch.setattr(job_status_queue, "now_local", lambda: fixed_now)
+    monkeypatch.setattr(job_status_queue.uuid, "uuid4", lambda: type("U", (), {"hex": "run-1"})())
 
     class DummyConn:
         def execute(self, stmt, params=None):
@@ -177,7 +178,7 @@ def test_find_active_duplicate_returns_existing_run():
 def test_acquire_next_sets_running_and_lease(monkeypatch):
     store = _new_store()
     fixed_now = datetime(2026, 1, 1, 0, 0, 0)
-    monkeypatch.setattr(job_status_pg, "now_local", lambda: fixed_now)
+    monkeypatch.setattr(job_status_queue, "now_local", lambda: fixed_now)
     monkeypatch.setattr(store, "recover_stale_runs", lambda: 0)
 
     row = {
@@ -231,7 +232,7 @@ def test_acquire_next_sets_running_and_lease(monkeypatch):
 def test_fail_requeues_when_attempts_remain(monkeypatch):
     store = _new_store()
     fixed_now = datetime(2026, 1, 1, 0, 5, 0)
-    monkeypatch.setattr(job_status_pg, "now_local", lambda: fixed_now)
+    monkeypatch.setattr(job_status_queue, "now_local", lambda: fixed_now)
     monkeypatch.setattr(store, "_get_attempt_state", lambda run_id: {"attempt_count": 0, "max_attempts": 3})
     calls = []
 
@@ -257,7 +258,7 @@ def test_fail_requeues_when_attempts_remain(monkeypatch):
 def test_fail_marks_terminal_failure_when_attempts_exhausted(monkeypatch):
     store = _new_store()
     fixed_now = datetime(2026, 1, 1, 0, 5, 0)
-    monkeypatch.setattr(job_status_pg, "now_local", lambda: fixed_now)
+    monkeypatch.setattr(job_status_queue, "now_local", lambda: fixed_now)
     monkeypatch.setattr(store, "_get_attempt_state", lambda run_id: {"attempt_count": 2, "max_attempts": 3})
     calls = []
 
@@ -283,7 +284,7 @@ def test_fail_marks_terminal_failure_when_attempts_exhausted(monkeypatch):
 def test_get_queue_metrics_returns_operational_counts(monkeypatch):
     store = _new_store()
     fixed_now = datetime(2026, 1, 1, 1, 0, 0)
-    monkeypatch.setattr(job_status_pg, "now_local", lambda: fixed_now)
+    monkeypatch.setattr(job_status_queue, "now_local", lambda: fixed_now)
 
     class DummyResult:
         def mappings(self):

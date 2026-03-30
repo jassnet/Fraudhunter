@@ -20,8 +20,6 @@ def _env_truthy(name: str) -> bool:
 
 
 def read_access_mode() -> str:
-    if current_env() in LOCAL_ENVS:
-        return "local"
     require_read_auth = _env_truthy("FC_REQUIRE_READ_AUTH")
     external_protection = _env_truthy("FC_EXTERNAL_READ_PROTECTION")
     allow_public_read = _env_truthy("FC_ALLOW_PUBLIC_READ")
@@ -39,7 +37,11 @@ def read_access_mode() -> str:
             "Choose only one read-access mode: FC_REQUIRE_READ_AUTH, "
             "FC_EXTERNAL_READ_PROTECTION, or FC_ALLOW_PUBLIC_READ."
         )
-    return selected[0] if selected else "unset"
+    if selected:
+        return selected[0]
+    if current_env() in LOCAL_ENVS:
+        return "local"
+    return "unset"
 
 
 def should_enable_docs() -> bool:

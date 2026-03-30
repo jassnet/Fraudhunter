@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { dashboardCopy } from "@/copy/dashboard";
 import {
   type DailyStatsItem,
   type SummaryResponse,
@@ -66,7 +67,7 @@ export function useDashboardData() {
 
       setStatus(summaryData ? "ready" : "empty");
     } catch (error) {
-      const issue = toResourceIssue(error, "ダッシュボードの取得に失敗しました。");
+      const issue = toResourceIssue(error, dashboardCopy.states.loadError);
       setMessage(issue.message);
       setStatus(issue.kind);
     }

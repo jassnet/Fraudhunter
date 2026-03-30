@@ -7,16 +7,15 @@ from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..api_dependencies import require_admin
+from ..runtime_guards import read_access_mode
+from ..service_dependencies import get_job_store, get_repository
 from ..services import reporting
 from ..services.jobs import (
     JOB_TYPE_CLICK_INGEST,
     JOB_TYPE_CONVERSION_INGEST,
     JOB_TYPE_REFRESH,
     _should_use_in_process_background_kick,
-    get_job_store,
-    get_repository,
 )
-from ..runtime_guards import read_access_mode
 from ..time_utils import now_local
 
 logger = logging.getLogger(__name__)
@@ -30,10 +29,7 @@ def _serialize_health_metrics(repo) -> dict:
         [item["last_date"] for item in (latest_click, latest_conv) if item and item.get("last_date")],
         default=None,
     )
-    if isinstance(latest_date, str):
-        latest_date_obj = date.fromisoformat(latest_date)
-    else:
-        latest_date_obj = latest_date
+    latest_date_obj = date.fromisoformat(latest_date) if isinstance(latest_date, str) else latest_date
 
     coverage = repo.get_click_ipua_coverage(latest_date_obj) if latest_date_obj else None
     conversion_enrichment = (
@@ -51,19 +47,18 @@ def _serialize_health_metrics(repo) -> dict:
     last_ingest = job_store.get_latest_successful_finished_at(
         [JOB_TYPE_CLICK_INGEST, JOB_TYPE_CONVERSION_INGEST, JOB_TYPE_REFRESH]
     )
-    last_refresh = last_ingest.isoformat() if last_ingest else None
-    queue_metrics = job_store.get_queue_metrics()
-    if isinstance(queue_metrics.get("oldest_queued_at"), datetime):
-        queue_metrics["oldest_queued_at"] = queue_metrics["oldest_queued_at"].isoformat()
     findings = (
         reporting.get_summary(repo, latest_date_obj.isoformat())["quality"]["findings"]
         if latest_date_obj
         else {"findings_last_computed_at": None, "stale": False, "stale_reasons": []}
     )
+    queue_metrics = job_store.get_queue_metrics()
+    if isinstance(queue_metrics.get("oldest_queued_at"), datetime):
+        queue_metrics["oldest_queued_at"] = queue_metrics["oldest_queued_at"].isoformat()
 
     return {
         "latest_data_date": latest_date_obj.isoformat() if latest_date_obj else None,
-        "last_successful_ingest_at": last_refresh,
+        "last_successful_ingest_at": last_ingest.isoformat() if last_ingest else None,
         "findings": findings,
         "click_ip_ua_coverage": coverage,
         "conversion_click_enrichment": conversion_enrichment,
@@ -102,7 +97,7 @@ def health_check():
                 "type": "error",
                 "field": "DATABASE_URL",
                 "message": "PostgreSQL 接続文字列が設定されていません",
-                "hint": ".envファイルにDATABASE_URLを設定してください",
+                "hint": ".env ファイルに DATABASE_URL を設定してください",
             }
         )
 
@@ -112,8 +107,8 @@ def health_check():
             {
                 "type": "error",
                 "field": "ACS_BASE_URL",
-                "message": "ACS APIのURLが設定されていません",
-                "hint": ".envファイルにACS_BASE_URLを設定してください",
+                "message": "ACS API の URL が設定されていません",
+                "hint": ".env ファイルに ACS_BASE_URL を設定してください",
             }
         )
 
@@ -125,34 +120,35 @@ def health_check():
             {
                 "type": "error",
                 "field": "ACS_TOKEN / ACS_ACCESS_KEY / ACS_SECRET_KEY",
-                "message": "ACS API認証情報が設定されていません",
-                "hint": ".envファイルにACS_TOKEN、またはACS_ACCESS_KEYとACS_SECRET_KEYを設定してください",
+                "message": "ACS API 認証情報が設定されていません",
+                "hint": ".env ファイルに ACS_TOKEN または ACS_ACCESS_KEY と ACS_SECRET_KEY を設定してください",
             }
         )
 
     try:
         repo = get_repository()
-        click_count = repo.fetch_one("SELECT COUNT(*) as cnt FROM click_ipua_daily")
+        click_count = repo.fetch_one("SELECT COUNT(*) AS cnt FROM click_ipua_daily")
         if not click_count or click_count["cnt"] == 0:
             warnings.append(
                 {
                     "type": "warning",
                     "field": "click_data",
                     "message": "クリックログデータがありません",
-                    "hint": "「データ取り込み」からクリックログを取り込んでください",
+                    "hint": "「データ再取得」またはクリックログ取り込みを実行してください",
                 }
             )
 
-        media_count = repo.fetch_one("SELECT COUNT(*) as cnt FROM master_media")
+        media_count = repo.fetch_one("SELECT COUNT(*) AS cnt FROM master_media")
         if not media_count or media_count["cnt"] == 0:
             warnings.append(
                 {
                     "type": "warning",
                     "field": "master_data",
-                    "message": "マスタデータが未同期です",
-                    "hint": "「設定」→「マスタデータ」→「ACSから同期」を実行してください",
+                    "message": "マスタデータが同期されていません",
+                    "hint": "管理画面または「マスタ同期」API から同期を実行してください",
                 }
             )
+
         metrics = _serialize_health_metrics(repo)
     except Exception as exc:
         logger.exception("Error checking health status")
@@ -161,15 +157,13 @@ def health_check():
                 "type": "error",
                 "field": "database",
                 "message": f"データベースに接続できません: {exc}",
-                "hint": "DATABASE_URL と migration 適用状態を確認してください",
+                "hint": "DATABASE_URL と migration の適用状況を確認してください",
             }
         )
         metrics = None
 
-    has_errors = any(item["type"] == "error" for item in issues)
-    has_warnings = bool(warnings)
     return {
-        "status": "error" if has_errors else ("warning" if has_warnings else "ok"),
+        "status": "error" if issues else ("warning" if warnings else "ok"),
         "issues": issues + warnings,
         "config": {
             "database_url_configured": bool(database_url),

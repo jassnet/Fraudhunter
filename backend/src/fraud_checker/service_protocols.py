@@ -40,6 +40,46 @@ class FindingsRepository(Protocol):
     ) -> None: ...
 
 
+class FindingsReadRepository(Protocol):
+    def get_suspicious_click_details_bulk(self, target_date: date, pairs: list[tuple[str, str]]): ...
+    def get_suspicious_conversion_details_bulk(
+        self, target_date: date, pairs: list[tuple[str, str]]
+    ): ...
+    def list_click_findings(
+        self,
+        *,
+        target_date: date,
+        limit: int,
+        offset: int,
+        search: str | None,
+        risk_level: str | None,
+        sort_by: str,
+        sort_order: str,
+    ) -> tuple[list[dict], int]: ...
+    def list_conversion_findings(
+        self,
+        *,
+        target_date: date,
+        limit: int,
+        offset: int,
+        search: str | None,
+        risk_level: str | None,
+        sort_by: str,
+        sort_order: str,
+    ) -> tuple[list[dict], int]: ...
+    def get_click_finding_by_key(self, finding_key: str) -> dict | None: ...
+    def get_conversion_finding_by_key(self, finding_key: str) -> dict | None: ...
+
+
+class FindingsWriteRepository(Protocol):
+    def replace_click_findings(
+        self, target_date: date, rows: list[dict], *, generation_metadata: dict
+    ) -> None: ...
+    def replace_conversion_findings(
+        self, target_date: date, rows: list[dict], *, generation_metadata: dict
+    ) -> None: ...
+
+
 class SettingsRepository(Protocol):
     def load_settings(self) -> dict: ...
     def save_settings(self, settings: dict, *, fingerprint: str) -> str | None: ...

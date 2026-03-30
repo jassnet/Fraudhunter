@@ -20,6 +20,18 @@ ROOT = Path(__file__).resolve().parent
 BACKEND_DIR = ROOT / "backend"
 FRONTEND_DIR = ROOT / "frontend"
 
+
+def _load_repo_dotenv() -> None:
+    """Load repo-root .env into this process so child processes inherit DATABASE_URL, FC_ADMIN_API_KEY, etc."""
+    env_file = ROOT / ".env"
+    if not env_file.is_file():
+        return
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(env_file)
+
 BACKEND_PORT = os.getenv("BACKEND_PORT", "8001")
 FRONTEND_PORT = os.getenv("FRONTEND_PORT", "3000")
 
@@ -84,6 +96,7 @@ def _shutdown(procs: Dict[str, subprocess.Popen], *, quiet: bool = False) -> Non
 
 
 def main() -> None:
+    _load_repo_dotenv()
     print(f"Starting backend on http://localhost:{BACKEND_PORT}")
     print(f"Starting frontend on http://localhost:{FRONTEND_PORT}")
     procs = _start_processes()

@@ -3,6 +3,8 @@ from .ingestion import IngestionRepository
 from .master import MasterRepository
 from .reporting_read import ReportingReadRepository
 from .settings import SettingsRepository
+from .suspicious_findings_read import SuspiciousFindingsReadRepository
+from .suspicious_findings_write import SuspiciousFindingsWriteRepository
 from .suspicious_read import SuspiciousReadRepository
 
 __all__ = [
@@ -11,5 +13,7 @@ __all__ = [
     "ReportingReadRepository",
     "RepositoryBase",
     "SettingsRepository",
+    "SuspiciousFindingsReadRepository",
+    "SuspiciousFindingsWriteRepository",
     "SuspiciousReadRepository",
 ]

@@ -95,7 +95,12 @@ def resolve_summary_date(repo: ReportingRepository, target_date: Optional[str]) 
     return (today_local() - timedelta(days=1)).isoformat()
 
 
-def get_summary(repo: ReportingRepository, target_date: Optional[str]) -> dict:
+def get_summary(
+    repo: ReportingRepository,
+    target_date: Optional[str],
+    *,
+    job_store: JobStatusStorePG | None = None,
+) -> dict:
     resolved_date = resolve_summary_date(repo, target_date)
 
     click_row = repo.fetch_one(
@@ -157,7 +162,8 @@ def get_summary(repo: ReportingRepository, target_date: Optional[str]) -> dict:
         conversion_enrichment = None
         findings_freshness = {"findings_last_computed_at": None, "stale": False, "stale_reasons": []}
 
-    last_successful_ingest = JobStatusStorePG(repo.database_url).get_latest_successful_finished_at(
+    status_store = job_store or JobStatusStorePG(repo.database_url)
+    last_successful_ingest = status_store.get_latest_successful_finished_at(
         ["ingest_clicks", "ingest_conversions", "refresh"]
     )
     masters = repo.get_all_masters()

@@ -7,8 +7,8 @@ export const dashboardCopy = {
     conversions: "総CV",
     suspiciousClicks: "不審クリック",
     suspiciousConversions: "不審コンバージョン",
-    chart: "直近14日推移",
-    diagnostics: "診断指標",
+    chart: "直近4週間の推移",
+    diagnostics: "診断情報",
     findingsFreshness: "Findings鮮度",
     coverage: "IP/UAカバレッジ",
     enrichment: "CV紐付け率",
@@ -17,7 +17,7 @@ export const dashboardCopy = {
   states: {
     loadError: "ダッシュボードの取得に失敗しました。",
     noDataTitle: "表示できるデータがありません",
-    noDataMessage: "対象日に利用できるデータがありません。",
+    noDataMessage: "対象日に利用可能なデータがありません。",
     retry: "再読込",
     transientTitle: "一時的な取得エラー",
     staleTitle: "Findings の更新が遅れています",
@@ -27,13 +27,13 @@ export const dashboardCopy = {
   },
   diagnosticsText: {
     stale: "raw ingest より findings が古い状態です。",
-    healthy: "最新の findings を参照しています。",
+    healthy: "最新の findings を表示しています。",
     noSignal: "診断データなし",
     masterSyncMissing: "同期履歴なし",
   },
   chart: {
     empty: "表示できる推移データがありません",
-    title: "クリック、CV、不審件数の比較",
+    title: "クリック、CV、不審件数の推移",
     legends: {
       clicks: "クリック",
       conversions: "CV",
@@ -42,6 +42,8 @@ export const dashboardCopy = {
     },
   },
   admin: {
+    unavailableHint:
+      "再取得・マスタ同期は、Next.js 側に FC_ADMIN_API_KEY（バックエンドと同じ値）があるときだけ使えます。`python dev.py` はリポジトリ直下の .env を読み込みます。",
     actions: {
       refresh: "最新1時間を再取得",
       masterSync: "マスタ同期",

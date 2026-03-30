@@ -86,13 +86,13 @@ export function SuspiciousRowDetails({
       />
     ) : evidenceExpired || status === "expired" ? (
       <StatePanel
-        title="証拠保持期限切れ"
+        title="証跡保持期限切れ"
         message={`${suspiciousCopy.states.evidenceExpired}${item.evidence_expires_on ? ` 期限: ${item.evidence_expires_on}` : ""}`}
         tone="warning"
       />
     ) : (
       <StatePanel
-        title="証拠利用可"
+        title="証跡利用可能"
         message={`${suspiciousCopy.states.evidenceAvailable}${item.evidence_expires_on ? ` 期限: ${item.evidence_expires_on}` : ""}`}
         tone="neutral"
       />

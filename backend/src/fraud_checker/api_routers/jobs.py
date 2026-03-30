@@ -6,12 +6,12 @@ from ..api_dependencies import require_admin, require_analyst_access
 from ..api_models import IngestRequest, IngestResponse, JobStatusResponse, RefreshRequest
 from ..api_parsers import parse_iso_date
 from ..api_presenters import build_job_status_response, build_job_status_summary_response
+from ..service_dependencies import get_job_store
 from ..services.jobs import (
     JobConflictError,
     enqueue_click_ingestion_job,
     enqueue_conversion_ingestion_job,
     enqueue_refresh_job,
-    get_job_store,
 )
 
 router = APIRouter(prefix="/api", tags=["jobs"])
@@ -23,7 +23,7 @@ def ingest_clicks(request: IngestRequest, background_tasks: BackgroundTasks):
     try:
         job = enqueue_click_ingestion_job(target_date, background_tasks=background_tasks)
     except JobConflictError:
-        raise HTTPException(status_code=409, detail="Another job is already running")
+        raise HTTPException(status_code=409, detail="Another job is already running") from None
     return IngestResponse(
         success=True,
         message=f"クリック取り込みジョブを登録しました（{request.date}）",
@@ -37,7 +37,7 @@ def ingest_conversions(request: IngestRequest, background_tasks: BackgroundTasks
     try:
         job = enqueue_conversion_ingestion_job(target_date, background_tasks=background_tasks)
     except JobConflictError:
-        raise HTTPException(status_code=409, detail="Another job is already running")
+        raise HTTPException(status_code=409, detail="Another job is already running") from None
     return IngestResponse(
         success=True,
         message=f"成果取り込みジョブを登録しました（{request.date}）",
@@ -56,7 +56,7 @@ def refresh_data(request: RefreshRequest, background_tasks: BackgroundTasks):
             detect=request.detect,
         )
     except JobConflictError:
-        raise HTTPException(status_code=409, detail="Another job is already running")
+        raise HTTPException(status_code=409, detail="Another job is already running") from None
     return IngestResponse(
         success=True,
         message=f"直近{request.hours}時間の再取得ジョブを登録しました",

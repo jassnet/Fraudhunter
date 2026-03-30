@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { suspiciousCopy } from "@/copy/suspicious";
 import {
   type SuspiciousQueryOptions,
   type SuspiciousResponse,
@@ -85,7 +86,7 @@ export function useSuspiciousData({
         setLastUpdated(new Date());
         setStatus((response.total || 0) > 0 ? "ready" : "empty");
       } catch (error) {
-        const issue = toResourceIssue(error, "一覧の取得に失敗しました。");
+        const issue = toResourceIssue(error, suspiciousCopy.states.loadErrorTitle);
         setMessage(issue.message);
         setStatus(issue.kind);
       }
@@ -107,8 +108,8 @@ export function useSuspiciousData({
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
   const resultRange = useMemo(() => {
-    if (status === "loading" || status === "refreshing") return "読込中...";
-    if (total === 0) return "該当データなし";
+    if (status === "loading" || status === "refreshing") return suspiciousCopy.states.loadingRange;
+    if (total === 0) return suspiciousCopy.states.emptyRange;
     const start = (page - 1) * PAGE_SIZE + 1;
     const end = Math.min(start + data.length - 1, total);
     return `${start}-${end}件 / 全${total.toLocaleString()}件`;

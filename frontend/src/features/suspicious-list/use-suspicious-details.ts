@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { suspiciousCopy } from "@/copy/suspicious";
 import type { SuspiciousItem } from "@/lib/api";
 import { toResourceIssue } from "@/lib/api";
 
@@ -50,7 +51,7 @@ export function useSuspiciousDetails(fetchDetail: SuspiciousDetailFetcher) {
           )
         );
       } catch (error) {
-        const issue = toResourceIssue(error, "詳細の取得に失敗しました。");
+        const issue = toResourceIssue(error, suspiciousCopy.states.detailError);
         const resolvedStatus: SuspiciousDetailStatus =
           issue.kind === "unauthorized"
             ? "unauthorized"
