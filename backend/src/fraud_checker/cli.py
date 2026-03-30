@@ -47,15 +47,53 @@ def _build_client() -> tuple[AcsHttpClient, object]:
     return client, settings
 
 
+def _add_refresh_window_arguments(parser: argparse.ArgumentParser, *, default_hours: int) -> None:
+    parser.add_argument("--hours", type=int, default=default_hours, help="Lookback window in hours")
+    parser.add_argument("--clicks-only", action="store_true", help="Only ingest clicks")
+    parser.add_argument(
+        "--conversions-only",
+        action="store_true",
+        help="Only ingest conversions",
+    )
+    parser.add_argument("--detect", action="store_true", help="Run suspicious detection after ingest")
+
+
+def _resolve_refresh_targets(args: argparse.Namespace) -> tuple[bool, bool]:
+    if args.clicks_only and args.conversions_only:
+        raise SystemExit("Use only one of --clicks-only or --conversions-only.")
+    return (not args.conversions_only, not args.clicks_only)
+
+
+def _enqueue_refresh_like(
+    args: argparse.Namespace,
+    *,
+    title: str,
+) -> int:
+    clicks, conversions = _resolve_refresh_targets(args)
+    job = enqueue_refresh_job(
+        hours=args.hours,
+        clicks=clicks,
+        conversions=conversions,
+        detect=args.detect,
+    )
+    print(f"=== {title} ===")
+    print(f"Job ID: {job.id}")
+    print(f"Hours: {args.hours}")
+    print(f"Clicks: {clicks}")
+    print(f"Conversions: {conversions}")
+    print(f"Detect: {args.detect}")
+    processed = process_queued_jobs_after_cli_enqueue(max_jobs=1)
+    if processed:
+        print(f"Processed {processed} queued job(s) (dev in-process kick)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Fraud checker maintenance tasks")
     sub = parser.add_subparsers(dest="command")
 
     refresh = sub.add_parser("refresh", help="Fetch ACS logs for the last N hours (break-glass inline run)")
-    refresh.add_argument("--hours", type=int, default=1, help="Lookback window in hours")
-    refresh.add_argument("--clicks-only", action="store_true", help="Only ingest clicks")
-    refresh.add_argument("--conversions-only", action="store_true", help="Only ingest conversions")
-    refresh.add_argument("--detect", action="store_true", help="Run suspicious detection after ingest")
+    _add_refresh_window_arguments(refresh, default_hours=1)
     refresh.add_argument(
         "--store-raw",
         action="store_true",
@@ -69,32 +107,13 @@ def build_parser() -> argparse.ArgumentParser:
         "enqueue-refresh",
         help="Enqueue ACS log refresh as a durable job",
     )
-    enqueue_refresh.add_argument("--hours", type=int, default=1, help="Lookback window in hours")
-    enqueue_refresh.add_argument("--clicks-only", action="store_true", help="Only ingest clicks")
-    enqueue_refresh.add_argument(
-        "--conversions-only",
-        action="store_true",
-        help="Only ingest conversions",
-    )
-    enqueue_refresh.add_argument("--detect", action="store_true", help="Run suspicious detection after ingest")
+    _add_refresh_window_arguments(enqueue_refresh, default_hours=1)
 
     enqueue_backfill = sub.add_parser(
         "enqueue-backfill",
         help="Enqueue wider ACS backfill for initial sync or gap recovery",
     )
-    enqueue_backfill.add_argument(
-        "--hours",
-        type=int,
-        default=DEFAULT_BACKFILL_HOURS,
-        help="Lookback window in hours",
-    )
-    enqueue_backfill.add_argument("--clicks-only", action="store_true", help="Only ingest clicks")
-    enqueue_backfill.add_argument(
-        "--conversions-only",
-        action="store_true",
-        help="Only ingest conversions",
-    )
-    enqueue_backfill.add_argument("--detect", action="store_true", help="Run suspicious detection after ingest")
+    _add_refresh_window_arguments(enqueue_backfill, default_hours=DEFAULT_BACKFILL_HOURS)
 
     sub.add_parser(
         "enqueue-sync-masters",
@@ -243,51 +262,11 @@ def _cmd_sync_masters() -> int:
 
 
 def _cmd_enqueue_refresh(args: argparse.Namespace) -> int:
-    if args.clicks_only and args.conversions_only:
-        raise SystemExit("Use only one of --clicks-only or --conversions-only.")
-
-    clicks = not args.conversions_only
-    conversions = not args.clicks_only
-    job = enqueue_refresh_job(
-        hours=args.hours,
-        clicks=clicks,
-        conversions=conversions,
-        detect=args.detect,
-    )
-    print("=== Refresh Enqueued ===")
-    print(f"Job ID: {job.id}")
-    print(f"Hours: {args.hours}")
-    print(f"Clicks: {clicks}")
-    print(f"Conversions: {conversions}")
-    print(f"Detect: {args.detect}")
-    processed = process_queued_jobs_after_cli_enqueue(max_jobs=1)
-    if processed:
-        print(f"Processed {processed} queued job(s) (dev in-process kick)")
-    return 0
+    return _enqueue_refresh_like(args, title="Refresh Enqueued")
 
 
 def _cmd_enqueue_backfill(args: argparse.Namespace) -> int:
-    if args.clicks_only and args.conversions_only:
-        raise SystemExit("Use only one of --clicks-only or --conversions-only.")
-
-    clicks = not args.conversions_only
-    conversions = not args.clicks_only
-    job = enqueue_refresh_job(
-        hours=args.hours,
-        clicks=clicks,
-        conversions=conversions,
-        detect=args.detect,
-    )
-    print("=== Backfill Enqueued ===")
-    print(f"Job ID: {job.id}")
-    print(f"Hours: {args.hours}")
-    print(f"Clicks: {clicks}")
-    print(f"Conversions: {conversions}")
-    print(f"Detect: {args.detect}")
-    processed = process_queued_jobs_after_cli_enqueue(max_jobs=1)
-    if processed:
-        print(f"Processed {processed} queued job(s) (dev in-process kick)")
-    return 0
+    return _enqueue_refresh_like(args, title="Backfill Enqueued")
 
 
 def _cmd_enqueue_sync_masters() -> int:

@@ -48,6 +48,24 @@ function getConflictJobId(payload: unknown): string | null {
   return "job_id" in payload.details ? (payload.details.job_id as string | null | undefined) ?? null : null;
 }
 
+async function enqueueAdminJob(
+  path: string,
+  init?: RequestInit
+): Promise<{ jobId: string | null }> {
+  try {
+    const response = await fetchAdminJson<IngestResponse>(path, init);
+    return { jobId: response.details?.job_id ?? null };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      const jobId = getConflictJobId(error.payload);
+      if (jobId) {
+        return { jobId };
+      }
+    }
+    throw error;
+  }
+}
+
 export async function getJobStatus(): Promise<JobStatusResponse> {
   return fetchJson<JobStatusResponse>(`/api/job/status`);
 }
@@ -69,44 +87,22 @@ export async function probeAdminCapabilities(): Promise<boolean> {
 }
 
 export async function enqueueRefreshJob(): Promise<{ jobId: string | null }> {
-  try {
-    const response = await fetchAdminJson<IngestResponse>("/refresh", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        hours: ADMIN_REFRESH_LOOKBACK_HOURS,
-        clicks: true,
-        conversions: true,
-        detect: true,
-      }),
-    });
-    return { jobId: response.details?.job_id ?? null };
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 409) {
-      const jobId = getConflictJobId(error.payload);
-      if (jobId) {
-        return { jobId };
-      }
-    }
-    throw error;
-  }
+  return enqueueAdminJob("/refresh", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      hours: ADMIN_REFRESH_LOOKBACK_HOURS,
+      clicks: true,
+      conversions: true,
+      detect: true,
+    }),
+  });
 }
 
 export async function enqueueMasterSyncJob(): Promise<{ jobId: string | null }> {
-  try {
-    const response = await fetchAdminJson<IngestResponse>("/master-sync", {
-      method: "POST",
-    });
-    return { jobId: response.details?.job_id ?? null };
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 409) {
-      const jobId = getConflictJobId(error.payload);
-      if (jobId) {
-        return { jobId };
-      }
-    }
-    throw error;
-  }
+  return enqueueAdminJob("/master-sync", {
+    method: "POST",
+  });
 }
