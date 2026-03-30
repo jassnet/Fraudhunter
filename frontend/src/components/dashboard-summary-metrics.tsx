@@ -43,20 +43,20 @@ export function DashboardSummaryMetrics({
       <MetricBlock
         label={dashboardCopy.labels.suspiciousClicks}
         value={summary.stats.suspicious.click_based.toLocaleString()}
-        meta="一覧を開く"
+        meta="一覧を表示"
         tone="warning"
         emphasis="alert"
         href="/suspicious/clicks"
-        ariaLabel={`不審クリック ${summary.stats.suspicious.click_based} 件を開く`}
+        ariaLabel={`不審クリック ${summary.stats.suspicious.click_based} 件を表示`}
       />
       <MetricBlock
         label={dashboardCopy.labels.suspiciousConversions}
         value={summary.stats.suspicious.conversion_based.toLocaleString()}
-        meta="一覧を開く"
+        meta="一覧を表示"
         tone="danger"
         emphasis="alert"
         href="/suspicious/conversions"
-        ariaLabel={`不審コンバージョン ${summary.stats.suspicious.conversion_based} 件を開く`}
+        ariaLabel={`不審コンバージョン ${summary.stats.suspicious.conversion_based} 件を表示`}
       />
     </MetricStrip>
   );

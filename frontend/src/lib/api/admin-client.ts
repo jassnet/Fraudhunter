@@ -29,6 +29,7 @@ interface IngestResponse {
 }
 
 const ADMIN_API_BASE = "/api/admin";
+export const ADMIN_REFRESH_LOOKBACK_HOURS = 24;
 
 async function fetchAdminJson<T>(path: string, init?: RequestInit) {
   return fetchJson<T>(`${ADMIN_API_BASE}${path}`, init, {
@@ -75,7 +76,7 @@ export async function enqueueRefreshJob(): Promise<{ jobId: string | null }> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        hours: 1,
+        hours: ADMIN_REFRESH_LOOKBACK_HOURS,
         clicks: true,
         conversions: true,
         detect: true,

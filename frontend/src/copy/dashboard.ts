@@ -3,12 +3,12 @@ export const dashboardCopy = {
   loadingMeta: "読み込み中",
   targetDateLabel: (date: string) => `対象日 ${date}`,
   labels: {
-    clicks: "総クリック",
-    conversions: "総CV",
+    clicks: "トラッキング数",
+    conversions: "CV数",
     suspiciousClicks: "不審クリック",
     suspiciousConversions: "不審コンバージョン",
-    chart: "直近4週間の推移",
-    diagnostics: "診断情報",
+    chart: "推移",
+    diagnostics: "診断",
     findingsFreshness: "Findings鮮度",
     coverage: "IP/UAカバレッジ",
     enrichment: "CV紐付け率",
@@ -20,7 +20,7 @@ export const dashboardCopy = {
     noDataMessage: "対象日に利用可能なデータがありません。",
     retry: "再読込",
     transientTitle: "一時的な取得エラー",
-    staleTitle: "Findings の更新が遅れています",
+    staleTitle: "Findings の鮮度が低下しています",
     unauthorizedTitle: "認証が必要です",
     forbiddenTitle: "表示権限がありません",
     genericErrorTitle: "表示エラー",
@@ -33,9 +33,9 @@ export const dashboardCopy = {
   },
   chart: {
     empty: "表示できる推移データがありません",
-    title: "クリック、CV、不審件数の推移",
+    title: "トラッキング・CV・不審件数の推移",
     legends: {
-      clicks: "クリック",
+      clicks: "トラッキング",
       conversions: "CV",
       suspiciousClicks: "不審クリック",
       suspiciousConversions: "不審CV",
@@ -43,9 +43,9 @@ export const dashboardCopy = {
   },
   admin: {
     unavailableHint:
-      "再取得・マスタ同期は、Next.js 側に FC_ADMIN_API_KEY（バックエンドと同じ値）があるときだけ使えます。`python dev.py` はリポジトリ直下の .env を読み込みます。",
+      "再取得とマスタ同期は、Next.js 側に FC_ADMIN_API_KEY と backend への接続設定があるときだけ使えます。`python dev.py` ではリポジトリ直下の .env を読み込みます。",
     actions: {
-      refresh: "最新1時間を再取得",
+      refresh: "直近24時間を再取得",
       masterSync: "マスタ同期",
     },
     feedback: {

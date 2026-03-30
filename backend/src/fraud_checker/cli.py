@@ -21,6 +21,8 @@ from .services.jobs import (
 )
 from .time_utils import now_local
 
+DEFAULT_BACKFILL_HOURS = 24
+
 
 def _require_database_url() -> str:
     database_url = os.getenv("DATABASE_URL")
@@ -75,6 +77,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only ingest conversions",
     )
     enqueue_refresh.add_argument("--detect", action="store_true", help="Run suspicious detection after ingest")
+
+    enqueue_backfill = sub.add_parser(
+        "enqueue-backfill",
+        help="Enqueue wider ACS backfill for initial sync or gap recovery",
+    )
+    enqueue_backfill.add_argument(
+        "--hours",
+        type=int,
+        default=DEFAULT_BACKFILL_HOURS,
+        help="Lookback window in hours",
+    )
+    enqueue_backfill.add_argument("--clicks-only", action="store_true", help="Only ingest clicks")
+    enqueue_backfill.add_argument(
+        "--conversions-only",
+        action="store_true",
+        help="Only ingest conversions",
+    )
+    enqueue_backfill.add_argument("--detect", action="store_true", help="Run suspicious detection after ingest")
 
     sub.add_parser(
         "enqueue-sync-masters",
@@ -246,6 +266,30 @@ def _cmd_enqueue_refresh(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_enqueue_backfill(args: argparse.Namespace) -> int:
+    if args.clicks_only and args.conversions_only:
+        raise SystemExit("Use only one of --clicks-only or --conversions-only.")
+
+    clicks = not args.conversions_only
+    conversions = not args.clicks_only
+    job = enqueue_refresh_job(
+        hours=args.hours,
+        clicks=clicks,
+        conversions=conversions,
+        detect=args.detect,
+    )
+    print("=== Backfill Enqueued ===")
+    print(f"Job ID: {job.id}")
+    print(f"Hours: {args.hours}")
+    print(f"Clicks: {clicks}")
+    print(f"Conversions: {conversions}")
+    print(f"Detect: {args.detect}")
+    processed = process_queued_jobs_after_cli_enqueue(max_jobs=1)
+    if processed:
+        print(f"Processed {processed} queued job(s) (dev in-process kick)")
+    return 0
+
+
 def _cmd_enqueue_sync_masters() -> int:
     job = enqueue_master_sync_job()
     print("=== Master Sync Enqueued ===")
@@ -302,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_sync_masters()
     if args.command == "enqueue-refresh":
         return _cmd_enqueue_refresh(args)
+    if args.command == "enqueue-backfill":
+        return _cmd_enqueue_backfill(args)
     if args.command == "enqueue-sync-masters":
         return _cmd_enqueue_sync_masters()
     if args.command == "run-worker":

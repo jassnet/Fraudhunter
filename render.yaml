@@ -72,6 +72,33 @@ services:
         value: "Asia/Tokyo"
 
   - type: cron
+    name: fraudchecker-backfill-6hourly
+    env: python
+    rootDir: backend
+    schedule: "15 */6 * * *"
+    buildCommand: pip install .
+    startCommand: python -m fraud_checker.cli enqueue-backfill --hours 24 --detect
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fraudchecker-db
+          property: connectionString
+      - key: ACS_BASE_URL
+        sync: false
+      - key: ACS_ACCESS_KEY
+        sync: false
+      - key: ACS_SECRET_KEY
+        sync: false
+      - key: ACS_TOKEN
+        sync: false
+      - key: ACS_ALLOW_INSECURE
+        value: "false"
+      - key: FRAUD_TIMEZONE
+        value: "Asia/Tokyo"
+
+  - type: cron
     name: fraudchecker-sync-masters-daily
     env: python
     rootDir: backend

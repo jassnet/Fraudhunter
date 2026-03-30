@@ -57,6 +57,7 @@ def test_build_parser_accepts_refresh_sync_masters_and_worker():
     refresh_args = parser.parse_args(["refresh", "--hours", "3", "--detect"])
     sync_args = parser.parse_args(["sync-masters"])
     enqueue_refresh_args = parser.parse_args(["enqueue-refresh", "--hours", "2", "--detect"])
+    enqueue_backfill_args = parser.parse_args(["enqueue-backfill", "--hours", "24", "--detect"])
     enqueue_sync_args = parser.parse_args(["enqueue-sync-masters"])
     worker_args = parser.parse_args(["run-worker", "--max-jobs", "2"])
     purge_args = parser.parse_args(["purge-data", "--execute", "--raw-days", "45"])
@@ -69,6 +70,9 @@ def test_build_parser_accepts_refresh_sync_masters_and_worker():
     assert enqueue_refresh_args.command == "enqueue-refresh"
     assert enqueue_refresh_args.hours == 2
     assert enqueue_refresh_args.detect is True
+    assert enqueue_backfill_args.command == "enqueue-backfill"
+    assert enqueue_backfill_args.hours == 24
+    assert enqueue_backfill_args.detect is True
     assert enqueue_sync_args.command == "enqueue-sync-masters"
     assert worker_args.command == "run-worker"
     assert worker_args.max_jobs == 2
@@ -356,6 +360,31 @@ def test_cmd_enqueue_refresh_registers_durable_job(monkeypatch, capsys):
     assert "=== Refresh Enqueued ===" in output
     assert "Job ID: job-refresh-1" in output
     assert "Clicks: False" in output
+    assert "Conversions: True" in output
+
+
+def test_cmd_enqueue_backfill_registers_durable_job(monkeypatch, capsys):
+    monkeypatch.setattr(
+        cli,
+        "enqueue_refresh_job",
+        lambda **kwargs: type("QueuedJob", (), {"id": "job-backfill-1"})(),
+    )
+
+    code = cli._cmd_enqueue_backfill(
+        argparse.Namespace(
+            hours=24,
+            clicks_only=False,
+            conversions_only=False,
+            detect=True,
+        )
+    )
+    output = capsys.readouterr().out
+
+    assert code == 0
+    assert "=== Backfill Enqueued ===" in output
+    assert "Job ID: job-backfill-1" in output
+    assert "Hours: 24" in output
+    assert "Clicks: True" in output
     assert "Conversions: True" in output
 
 
