@@ -11,6 +11,7 @@ type RetryOptions = {
 export class ApiError extends Error {
   status?: number;
   detail?: string;
+  payload?: unknown;
 }
 
 export type ResourceIssueKind =
@@ -45,8 +46,9 @@ async function fetchJson<T>(
       const res = await fetch(url, init);
       if (!res.ok) {
         let detail = "";
+        let payload: unknown;
         try {
-          const payload = await res.json();
+          payload = await res.json();
           if (typeof payload === "string") {
             detail = payload;
           } else if (payload?.detail) {
@@ -64,6 +66,7 @@ async function fetchJson<T>(
         const error = new ApiError(detail || `Request failed (${res.status})`);
         error.status = res.status;
         error.detail = detail;
+        error.payload = payload;
 
         if (attempt < retries && retryOn(res.status)) {
           attempt += 1;
@@ -338,4 +341,118 @@ export interface JobStatusResponse {
 
 export async function getJobStatus(): Promise<JobStatusResponse> {
   return fetchJson<JobStatusResponse>(`${API_BASE_URL}/api/job/status`);
+}
+
+export type AdminCapabilityState = "unknown" | "available" | "unavailable";
+export type AdminActionType = "refresh" | "master-sync";
+export type AdminJobUiStatus =
+  | "idle"
+  | "submitting"
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed";
+
+interface IngestResponse {
+  success: boolean;
+  message?: string;
+  details?: {
+    job_id?: string | null;
+  };
+}
+
+const ADMIN_API_BASE = "/api/admin";
+
+async function fetchAdminJson<T>(path: string, init?: RequestInit) {
+  return fetchJson<T>(`${ADMIN_API_BASE}${path}`, init, {
+    retries: 0,
+    retryOn: () => false,
+  });
+}
+
+export async function getAdminJobStatus(): Promise<JobStatusResponse> {
+  return fetchAdminJson<JobStatusResponse>("/job-status");
+}
+
+export async function probeAdminCapabilities(): Promise<boolean> {
+  try {
+    await getAdminJobStatus();
+    return true;
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export async function enqueueRefreshJob(): Promise<{ jobId: string | null }> {
+  try {
+    const response = await fetchAdminJson<IngestResponse>("/refresh", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        hours: 1,
+        clicks: true,
+        conversions: true,
+        detect: true,
+      }),
+    });
+
+    return {
+      jobId: response.details?.job_id ?? null,
+    };
+  } catch (error) {
+    if (
+      error instanceof ApiError &&
+      error.status === 409 &&
+      typeof error.payload === "object" &&
+      error.payload !== null
+    ) {
+      const jobId =
+        "details" in error.payload &&
+        typeof error.payload.details === "object" &&
+        error.payload.details !== null &&
+        "job_id" in error.payload.details
+          ? (error.payload.details.job_id as string | null | undefined)
+          : null;
+      if (jobId) {
+        return { jobId };
+      }
+    }
+    throw error;
+  }
+}
+
+export async function enqueueMasterSyncJob(): Promise<{ jobId: string | null }> {
+  try {
+    const response = await fetchAdminJson<IngestResponse>("/master-sync", {
+      method: "POST",
+    });
+
+    return {
+      jobId: response.details?.job_id ?? null,
+    };
+  } catch (error) {
+    if (
+      error instanceof ApiError &&
+      error.status === 409 &&
+      typeof error.payload === "object" &&
+      error.payload !== null
+    ) {
+      const jobId =
+        "details" in error.payload &&
+        typeof error.payload.details === "object" &&
+        error.payload.details !== null &&
+        "job_id" in error.payload.details
+          ? (error.payload.details.job_id as string | null | undefined)
+          : null;
+      if (jobId) {
+        return { jobId };
+      }
+    }
+    throw error;
+  }
 }

@@ -23,6 +23,26 @@ export function buildSummaryResponse(targetDate: string) {
         conversion_based: 17,
       },
     },
+    quality: {
+      click_ip_ua_coverage: {
+        total: 1000,
+        missing: 24,
+        missing_rate: 0.024,
+      },
+      conversion_click_enrichment: {
+        total: 210,
+        enriched: 205,
+        success_rate: 0.976,
+      },
+      findings: {
+        findings_last_computed_at: "2026-01-21T09:20:00Z",
+        stale: false,
+        stale_reasons: [],
+      },
+      master_sync: {
+        last_synced_at: "2026-01-21T03:30:00Z",
+      },
+    },
   };
 }
 
@@ -58,7 +78,7 @@ function buildSuspiciousRows(kind: SuspiciousKind) {
       first_time: `${DEFAULT_DATES[0]}T00:00:${String(index % 60).padStart(2, "0")}Z`,
       last_time: `${DEFAULT_DATES[0]}T01:00:${String(index % 60).padStart(2, "0")}Z`,
       reasons: ["ip_frequency_high"],
-      reasons_formatted: ["IP からのアクセス頻度が高すぎます"],
+      reasons_formatted: ["IP からのアクセス密度が高すぎます"],
       risk_level: index % 2 === 0 ? "high" : "medium",
       risk_score: 70 + (index % 20),
       risk_label: index % 2 === 0 ? "高リスク" : "中リスク",
@@ -179,9 +199,21 @@ export const handlers = [
   http.get(`${API_BASE_URL}/api/job/status`, () => {
     return HttpResponse.json({
       status: "idle",
-      message: "まだジョブは登録されていません",
+      message: "ジョブはありません",
       job_id: null,
       result: null,
     });
+  }),
+
+  http.get("*/api/admin/job-status", () => {
+    return HttpResponse.json({ detail: "forbidden" }, { status: 403 });
+  }),
+
+  http.post("*/api/admin/refresh", () => {
+    return HttpResponse.json({ detail: "forbidden" }, { status: 403 });
+  }),
+
+  http.post("*/api/admin/master-sync", () => {
+    return HttpResponse.json({ detail: "forbidden" }, { status: 403 });
   }),
 ];

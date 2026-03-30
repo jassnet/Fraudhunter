@@ -1,5 +1,4 @@
 import { expect, test } from "@playwright/test";
-
 import { prepareBaselineData } from "../helpers/test-data";
 
 test.describe("dashboard e2e", () => {
@@ -12,8 +11,12 @@ test.describe("dashboard e2e", () => {
 
     await expect(page.getByRole("heading", { name: "ダッシュボード" })).toBeVisible();
     await expect(page.getByText("対象日 2026-01-21")).toBeVisible();
-    await expect(page.locator("section").filter({ has: page.getByText("総クリック") }).first()).toContainText("3,300");
-    await expect(page.locator("section").filter({ has: page.getByText("総CV") }).first()).toContainText("6");
+    await expect(
+      page.locator("section").filter({ has: page.getByText("総クリック") }).first()
+    ).toContainText("3,300");
+    await expect(
+      page.locator("section").filter({ has: page.getByText("総CV") }).first()
+    ).toContainText("6");
 
     const suspiciousClicksBlock = page.getByRole("link", {
       name: /不審クリック 55件を開く/i,
@@ -32,7 +35,16 @@ test.describe("dashboard e2e", () => {
     await page.getByLabel("対象日").selectOption("2026-01-20");
 
     await expect(page.getByText("対象日 2026-01-20")).toBeVisible();
-    await expect(page.locator("section").filter({ has: page.getByText("総クリック") }).first()).toContainText("22");
+    await expect(
+      page.locator("section").filter({ has: page.getByText("総クリック") }).first()
+    ).toContainText("22");
     await expect(page.getByRole("link", { name: /不審クリック 0件を開く/i })).toContainText("0");
+  });
+
+  test("shows admin actions in the dashboard header", async ({ page }) => {
+    await page.goto("/");
+
+    await expect(page.getByRole("button", { name: "最新1時間を再取得" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "マスタ同期" })).toBeVisible();
   });
 });

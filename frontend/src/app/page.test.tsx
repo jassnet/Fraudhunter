@@ -8,7 +8,7 @@ import { buildSummaryResponse } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
 
 describe("ダッシュボード画面", () => {
-  it("最新の対象日と KPI 帯を表示する", async () => {
+  it("最新の対象日と KPI を表示する", async () => {
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: "ダッシュボード" });
@@ -18,10 +18,141 @@ describe("ダッシュボード画面", () => {
     expect(screen.getByText("総CV")).toBeInTheDocument();
     expect(screen.getAllByText("不審クリック").length).toBeGreaterThan(0);
     expect(screen.getByText("不審コンバージョン")).toBeInTheDocument();
-    expect(screen.getByText("診断情報")).toBeInTheDocument();
+    expect(screen.getByText("診断指標")).toBeInTheDocument();
   });
 
-  it("一時的な取得失敗のあと再読込で通常表示に戻る", async () => {
+  it("admin 権限がないと操作帯を表示しない", async () => {
+    render(<DashboardPage />);
+
+    await screen.findByRole("heading", { name: "ダッシュボード" });
+
+    expect(
+      screen.queryByRole("button", { name: "最新1時間を再取得" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "マスタ同期" })).not.toBeInTheDocument();
+  });
+
+  it("admin 権限があると再取得を enqueue して完了後に再読込する", async () => {
+    let summaryCalls = 0;
+    let statusCalls = 0;
+    let refreshPayload: Record<string, unknown> | null = null;
+
+    server.use(
+      http.get("*/api/admin/job-status", () => {
+        statusCalls += 1;
+        if (statusCalls === 1) {
+          return HttpResponse.json({
+            status: "idle",
+            message: "idle",
+            job_id: null,
+            result: null,
+          });
+        }
+        if (statusCalls === 2) {
+          return HttpResponse.json({
+            status: "running",
+            message: "running",
+            job_id: "job-refresh-1",
+            result: null,
+          });
+        }
+        return HttpResponse.json({
+          status: "completed",
+          message: "completed",
+          job_id: "job-refresh-1",
+          result: { success: true },
+        });
+      }),
+      http.post("*/api/admin/refresh", async ({ request }) => {
+        refreshPayload = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({
+          success: true,
+          details: {
+            job_id: "job-refresh-1",
+          },
+        });
+      }),
+      http.get(`${API_BASE_URL}/api/summary`, ({ request }) => {
+        summaryCalls += 1;
+        const url = new URL(request.url);
+        const targetDate = url.searchParams.get("target_date") || "2026-01-21";
+        return HttpResponse.json(buildSummaryResponse(targetDate));
+      })
+    );
+
+    const user = userEvent.setup();
+    render(<DashboardPage />);
+
+    await screen.findByRole("button", { name: "最新1時間を再取得" });
+    await user.click(screen.getByRole("button", { name: "最新1時間を再取得" }));
+
+    await screen.findByText("再取得 / キュー登録済み");
+    await waitFor(() => {
+      expect(screen.getByText("再取得 / 実行中")).toBeInTheDocument();
+    }, { timeout: 4000 });
+    await waitFor(() => {
+      expect(screen.getByText("再取得 / 完了")).toBeInTheDocument();
+    }, { timeout: 4000 });
+
+    expect(refreshPayload).toEqual({
+      hours: 1,
+      clicks: true,
+      conversions: true,
+      detect: true,
+    });
+
+    await waitFor(() => {
+      expect(summaryCalls).toBe(2);
+    });
+  });
+
+  it("admin 権限があるとマスタ同期を enqueue できる", async () => {
+    let statusCalls = 0;
+    let masterSyncCalls = 0;
+
+    server.use(
+      http.get("*/api/admin/job-status", () => {
+        statusCalls += 1;
+        if (statusCalls === 1) {
+          return HttpResponse.json({
+            status: "idle",
+            message: "idle",
+            job_id: null,
+            result: null,
+          });
+        }
+        return HttpResponse.json({
+          status: "completed",
+          message: "completed",
+          job_id: "job-master-sync-1",
+          result: { success: true },
+        });
+      }),
+      http.post("*/api/admin/master-sync", () => {
+        masterSyncCalls += 1;
+        return HttpResponse.json({
+          success: true,
+          details: {
+            job_id: "job-master-sync-1",
+          },
+        });
+      })
+    );
+
+    const user = userEvent.setup();
+    render(<DashboardPage />);
+
+    await screen.findByRole("button", { name: "マスタ同期" });
+    await user.click(screen.getByRole("button", { name: "マスタ同期" }));
+
+    await screen.findByText("マスタ同期 / キュー登録済み");
+    await waitFor(() => {
+      expect(screen.getByText("マスタ同期 / 完了")).toBeInTheDocument();
+    }, { timeout: 4000 });
+    expect(masterSyncCalls).toBe(1);
+  });
+
+  it("一時的なエラー時に再読込で通常表示へ戻る", async () => {
     let attemptCount = 0;
     server.use(
       http.get(`${API_BASE_URL}/api/summary`, ({ request }) => {
@@ -87,6 +218,6 @@ describe("ダッシュボード画面", () => {
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: "ダッシュボード" });
-    expect(screen.getByText("findings の再計算が遅れています")).toBeInTheDocument();
+    expect(screen.getByText("Findings の更新が遅れています")).toBeInTheDocument();
   });
 });

@@ -6,7 +6,7 @@ import { DateQuickSelect } from "@/components/date-quick-select";
 const formatDate = (date: Date) => date.toISOString().slice(0, 10);
 
 describe("日付クイック選択", () => {
-  it("最新ボタンで利用可能な最新日を選ぶ", async () => {
+  it("最新ボタンで利用可能な最新日付を選ぶ", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
@@ -21,7 +21,7 @@ describe("日付クイック選択", () => {
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
-  it("今日ボタンで利用可能な当日を選ぶ", async () => {
+  it("今日ボタンで利用可能な今日を選ぶ", async () => {
     const today = formatDate(new Date());
     const onChange = vi.fn();
     const user = userEvent.setup();

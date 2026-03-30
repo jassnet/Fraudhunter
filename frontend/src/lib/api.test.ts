@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
-
 import {
   API_BASE_URL,
   ApiError,
+  enqueueMasterSyncJob,
+  enqueueRefreshJob,
   fetchSummary,
   fetchSuspiciousClickDetail,
   fetchSuspiciousClicks,
@@ -17,7 +18,7 @@ describe("API helper", () => {
     const error = new ApiError("fallback");
     error.detail = "詳細なエラーメッセージ";
 
-    expect(getErrorMessage(error, "元のメッセージ")).toBe("詳細なエラーメッセージ");
+    expect(getErrorMessage(error, "既定メッセージ")).toBe("詳細なエラーメッセージ");
   });
 
   it("一時的な summary 失敗は再試行後に payload を返す", async () => {
@@ -84,6 +85,42 @@ describe("API helper", () => {
       status: 400,
       detail: "不正な finding_key です",
       message: "不正な finding_key です",
+    });
+  });
+
+  it("admin refresh enqueue は conflict payload の job_id を吸収する", async () => {
+    server.use(
+      http.post("*/api/admin/refresh", () =>
+        HttpResponse.json(
+          {
+            detail: "duplicate",
+            details: { job_id: "run-refresh-existing" },
+          },
+          { status: 409 }
+        )
+      )
+    );
+
+    await expect(enqueueRefreshJob()).resolves.toEqual({
+      jobId: "run-refresh-existing",
+    });
+  });
+
+  it("admin master sync enqueue は conflict payload の job_id を吸収する", async () => {
+    server.use(
+      http.post("*/api/admin/master-sync", () =>
+        HttpResponse.json(
+          {
+            detail: "duplicate",
+            details: { job_id: "run-master-existing" },
+          },
+          { status: 409 }
+        )
+      )
+    );
+
+    await expect(enqueueMasterSyncJob()).resolves.toEqual({
+      jobId: "run-master-existing",
     });
   });
 });

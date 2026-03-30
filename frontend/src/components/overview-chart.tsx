@@ -1,5 +1,6 @@
 "use client";
 
+import { dashboardCopy } from "@/copy/dashboard";
 import type { DailyStatsItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +27,7 @@ export function OverviewChart({
           className
         )}
       >
-        表示できる推移データがありません
+        {dashboardCopy.chart.empty}
       </div>
     );
   }
@@ -46,24 +47,24 @@ export function OverviewChart({
     <div className={cn("space-y-5", className)}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-[13px] font-medium text-foreground/86">
-          クリック、CV、不審件数の比較
+          {dashboardCopy.chart.title}
         </div>
         <div className="flex flex-wrap items-center gap-4 text-[12px] text-foreground/74">
           <span className="inline-flex items-center gap-2">
             <span className="h-2.5 w-2.5 bg-foreground" />
-            クリック
+            {dashboardCopy.chart.legends.clicks}
           </span>
           <span className="inline-flex items-center gap-2">
             <span className="h-2.5 w-2.5 bg-[hsl(var(--info))]" />
-            CV
+            {dashboardCopy.chart.legends.conversions}
           </span>
           <span className="inline-flex items-center gap-2">
             <span className="h-2.5 w-2.5 bg-[hsl(var(--warning))]" />
-            不審クリック
+            {dashboardCopy.chart.legends.suspiciousClicks}
           </span>
           <span className="inline-flex items-center gap-2">
             <span className="h-2.5 w-2.5 bg-destructive" />
-            不審CV
+            {dashboardCopy.chart.legends.suspiciousConversions}
           </span>
         </div>
       </div>

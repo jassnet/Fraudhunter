@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Fraud Checker",
-  description: "不正検知モニタリングダッシュボード",
+  description: "不正監視モニタリングダッシュボード",
 };
 
 export default function RootLayout({

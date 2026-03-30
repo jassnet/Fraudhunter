@@ -1,15 +1,18 @@
 "use client";
 
+import { useMemo } from "react";
+import { DateQuickSelect } from "@/components/date-quick-select";
+import { LastUpdated } from "@/components/last-updated";
+import { OverviewChart } from "@/components/overview-chart";
 import { Button } from "@/components/ui/button";
 import { MetricBlock, MetricStrip } from "@/components/ui/metric-strip";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionFrame } from "@/components/ui/section-frame";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatePanel } from "@/components/ui/state-panel";
-import { DateQuickSelect } from "@/components/date-quick-select";
-import { LastUpdated } from "@/components/last-updated";
-import { OverviewChart } from "@/components/overview-chart";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { dashboardCopy } from "@/copy/dashboard";
+import { useAdminJobActions } from "@/features/admin-actions/use-admin-job-actions";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 
 const formatDelta = (current: number, previous?: number | null) => {
@@ -44,8 +47,50 @@ export default function DashboardPage() {
     handleRefresh,
   } = useDashboardData();
 
+  const adminActions = useAdminJobActions({ onSuccess: handleRefresh });
+
+  const adminStatusTone = useMemo<"neutral" | "medium" | "low" | "high">(() => {
+    if (adminActions.status === "running") return "medium";
+    if (adminActions.status === "succeeded") return "low";
+    if (adminActions.status === "failed") return "high";
+    return "neutral";
+  }, [adminActions.status]);
+
+  const adminStatusLabel = useMemo(() => {
+    if (!adminActions.action) return null;
+    if (adminActions.status === "idle" || adminActions.status === "submitting") return null;
+    const feedback =
+      adminActions.action === "refresh"
+        ? dashboardCopy.admin.feedback.refresh
+        : dashboardCopy.admin.feedback.masterSync;
+    return feedback[adminActions.status];
+  }, [adminActions.action, adminActions.status]);
+
   const actions = (
     <>
+      {adminActions.capability === "available" ? (
+        <div className="flex items-center gap-2 border border-border bg-card px-2 py-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void adminActions.runRefresh()}
+            disabled={adminActions.isBusy}
+          >
+            {dashboardCopy.admin.actions.refresh}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void adminActions.runMasterSync()}
+            disabled={adminActions.isBusy}
+          >
+            {dashboardCopy.admin.actions.masterSync}
+          </Button>
+          {adminStatusLabel ? (
+            <StatusBadge tone={adminStatusTone}>{adminStatusLabel}</StatusBadge>
+          ) : null}
+        </div>
+      ) : null}
       <DateQuickSelect
         value={selectedDate}
         onChange={handleDateChange}
@@ -120,7 +165,7 @@ export default function DashboardPage() {
                   ? dashboardCopy.states.forbiddenTitle
                   : status === "transient-error"
                     ? dashboardCopy.states.transientTitle
-                    : "取得エラー"
+                    : dashboardCopy.states.genericErrorTitle
             }
             message={message || dashboardCopy.states.loadError}
             tone={status === "forbidden" ? "danger" : status === "transient-error" ? "warning" : "neutral"}
@@ -226,7 +271,7 @@ export default function DashboardPage() {
               />
               <MetricBlock
                 label={dashboardCopy.labels.findingsFreshness}
-                value={diagnostics.findingsFreshness ? "最新" : "未計測"}
+                value={diagnostics.findingsFreshness ? "最新" : "未計算"}
                 meta={
                   diagnostics.findingsStale
                     ? dashboardCopy.diagnosticsText.stale
