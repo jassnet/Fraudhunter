@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 """
-Simple dev runner that starts the FastAPI backend and Next.js frontend together.
+Simple dev runner that starts the FastAPI backend, Next.js frontend, and a local queue worker together.
 Usage: python dev.py
 Environment:
-  BACKEND_PORT   (default: 8000)
+  BACKEND_PORT   (default: 8001)
   FRONTEND_PORT  (default: 3000)
+  WORKER_ENABLED (default: true)
+  WORKER_MAX_JOBS (default: 5)
+  WORKER_POLL_SECONDS (default: 5)
 """
 from __future__ import annotations
 
@@ -12,6 +15,7 @@ import os
 import signal
 import subprocess
 import sys
+import textwrap
 import time
 from pathlib import Path
 from typing import Dict
@@ -36,14 +40,27 @@ BACKEND_PORT = os.getenv("BACKEND_PORT", "8001")
 FRONTEND_PORT = os.getenv("FRONTEND_PORT", "3000")
 
 
-def _start_processes() -> Dict[str, subprocess.Popen]:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(BACKEND_DIR / "src") + os.pathsep + env.get("PYTHONPATH", "")
-    env.setdefault("NEXT_PUBLIC_API_URL", f"http://localhost:{BACKEND_PORT}")
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
-    npm_exe = "npm.cmd" if os.name == "nt" and (FRONTEND_DIR / "package.json").exists() else "npm"
 
-    backend_cmd = [
+def _worker_enabled() -> bool:
+    return _env_bool("WORKER_ENABLED", True)
+
+
+def _worker_max_jobs() -> str:
+    return os.getenv("WORKER_MAX_JOBS", "5")
+
+
+def _worker_poll_seconds() -> str:
+    return os.getenv("WORKER_POLL_SECONDS", "5")
+
+
+def _build_backend_cmd() -> list[str]:
+    return [
         sys.executable,
         "-m",
         "uvicorn",
@@ -54,7 +71,10 @@ def _start_processes() -> Dict[str, subprocess.Popen]:
         "--port",
         BACKEND_PORT,
     ]
-    frontend_cmd = [
+
+
+def _build_frontend_cmd(npm_exe: str) -> list[str]:
+    return [
         npm_exe,
         "run",
         "dev",
@@ -64,6 +84,45 @@ def _start_processes() -> Dict[str, subprocess.Popen]:
         "--port",
         FRONTEND_PORT,
     ]
+
+
+def _build_worker_cmd() -> list[str]:
+    worker_script = textwrap.dedent(
+        f"""
+        import subprocess
+        import sys
+        import time
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "fraud_checker.cli",
+            "run-worker",
+            "--max-jobs",
+            "{_worker_max_jobs()}",
+        ]
+
+        while True:
+            completed = subprocess.run(cmd)
+            if completed.returncode not in (0,):
+                print(
+                    f"[worker] run-worker exited with code {{completed.returncode}}",
+                    flush=True,
+                )
+            time.sleep({_worker_poll_seconds()})
+        """
+    ).strip()
+    return [sys.executable, "-u", "-c", worker_script]
+
+
+def _start_processes() -> Dict[str, subprocess.Popen]:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(BACKEND_DIR / "src") + os.pathsep + env.get("PYTHONPATH", "")
+    env.setdefault("NEXT_PUBLIC_API_URL", f"http://localhost:{BACKEND_PORT}")
+
+    npm_exe = "npm.cmd" if os.name == "nt" and (FRONTEND_DIR / "package.json").exists() else "npm"
+    backend_cmd = _build_backend_cmd()
+    frontend_cmd = _build_frontend_cmd(npm_exe)
 
     try:
         backend = subprocess.Popen(backend_cmd, cwd=BACKEND_DIR, env=env)
@@ -76,7 +135,12 @@ def _start_processes() -> Dict[str, subprocess.Popen]:
         backend.terminate()
         raise SystemExit("npm is required to start the frontend.") from exc
 
-    return {"backend": backend, "frontend": frontend}
+    processes = {"backend": backend, "frontend": frontend}
+    if _worker_enabled():
+        worker = subprocess.Popen(_build_worker_cmd(), cwd=BACKEND_DIR, env=env)
+        processes["worker"] = worker
+
+    return processes
 
 
 def _shutdown(procs: Dict[str, subprocess.Popen], *, quiet: bool = False) -> None:
@@ -99,6 +163,11 @@ def main() -> None:
     _load_repo_dotenv()
     print(f"Starting backend on http://localhost:{BACKEND_PORT}")
     print(f"Starting frontend on http://localhost:{FRONTEND_PORT}")
+    if _worker_enabled():
+        print(
+            "Starting local worker loop "
+            f"(max_jobs={_worker_max_jobs()}, poll={_worker_poll_seconds()}s)"
+        )
     procs = _start_processes()
 
     def handle_signal(signum, frame):
