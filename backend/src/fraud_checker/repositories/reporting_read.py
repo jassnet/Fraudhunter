@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import sqlalchemy as sa
 
 from ..ip_filters import DATACENTER_IP_PREFIXES
-from ..models import AggregatedRow, ConversionIpUaRollup, IpUaRollup
+from ..models import AggregatedRow, ConversionIpUaRollup
 from .base import RepositoryBase
 
 
@@ -44,9 +44,8 @@ class ReportingReadRepository(RepositoryBase):
             return None
         return self._max_timestamp_for_date("conversion_ipua_daily", target_date)
 
-    def _get_findings_lineage(self, table_name: str, target_date: date) -> dict | None:
+    def get_conversion_findings_lineage(self, target_date: date) -> dict | None:
         if self._table_exists("findings_generations"):
-            finding_type = "click" if table_name == "suspicious_click_findings" else "conversion"
             return self.fetch_one(
                 """
                 SELECT
@@ -60,35 +59,29 @@ class ReportingReadRepository(RepositoryBase):
                     generation_id,
                     computed_by_job_id
                 FROM findings_generations
-                WHERE finding_type = :finding_type
+                WHERE finding_type = 'conversion'
                   AND target_date = :target_date
                   AND is_current = TRUE
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
-                {"finding_type": finding_type, "target_date": target_date},
+                {"target_date": target_date},
             )
-        if not self._table_exists(table_name):
+        if not self._table_exists("suspicious_conversion_findings"):
             return None
         return self.fetch_one(
-            f"""
+            """
             SELECT
                 MAX(computed_at) AS findings_last_computed_at,
                 MAX(settings_updated_at_snapshot) AS settings_updated_at_snapshot,
                 MAX(source_click_watermark) AS source_click_watermark,
                 MAX(source_conversion_watermark) AS source_conversion_watermark
-            FROM {table_name}
+            FROM suspicious_conversion_findings
             WHERE date = :target_date
               AND is_current = TRUE
             """,
             {"target_date": target_date},
         )
-
-    def get_click_findings_lineage(self, target_date: date) -> dict | None:
-        return self._get_findings_lineage("suspicious_click_findings", target_date)
-
-    def get_conversion_findings_lineage(self, target_date: date) -> dict | None:
-        return self._get_findings_lineage("suspicious_conversion_findings", target_date)
 
     def fetch_aggregates(self, target_date: date) -> list[AggregatedRow]:
         with self._connect() as conn:
@@ -130,106 +123,6 @@ class ReportingReadRepository(RepositoryBase):
             ).scalar_one()
         return int(result)
 
-    def fetch_rollups(self, target_date: date) -> list[IpUaRollup]:
-        with self._connect() as conn:
-            result = conn.execute(
-                sa.text(
-                    """
-                    SELECT
-                        date,
-                        ipaddress,
-                        useragent,
-                        SUM(click_count) AS total_clicks,
-                        COUNT(DISTINCT media_id) AS media_count,
-                        COUNT(DISTINCT program_id) AS program_count,
-                        MIN(first_time) AS first_time,
-                        MAX(last_time) AS last_time
-                    FROM click_ipua_daily
-                    WHERE date = :target_date
-                    GROUP BY date, ipaddress, useragent
-                    """
-                ),
-                {"target_date": target_date},
-            )
-            rows = result.fetchall()
-        return [
-            IpUaRollup(
-                date=row[0],
-                ipaddress=row[1],
-                useragent=row[2],
-                total_clicks=row[3],
-                media_count=row[4],
-                program_count=row[5],
-                first_time=row[6],
-                last_time=row[7],
-            )
-            for row in rows
-        ]
-
-    def fetch_suspicious_rollups(
-        self,
-        target_date: date,
-        *,
-        click_threshold: int,
-        media_threshold: int,
-        program_threshold: int,
-        burst_click_threshold: int,
-        browser_only: bool = False,
-        exclude_datacenter_ip: bool = False,
-    ) -> list[IpUaRollup]:
-        browser_filter = self._browser_filter_sql() if browser_only else ""
-        datacenter_filter = (
-            self._datacenter_filter_sql(DATACENTER_IP_PREFIXES) if exclude_datacenter_ip else ""
-        )
-
-        query = f"""
-            SELECT
-                date,
-                ipaddress,
-                useragent,
-                SUM(click_count) AS total_clicks,
-                COUNT(DISTINCT media_id) AS media_count,
-                COUNT(DISTINCT program_id) AS program_count,
-                MIN(first_time) AS first_time,
-                MAX(last_time) AS last_time
-            FROM click_ipua_daily
-            WHERE date = :target_date
-            {browser_filter}
-            {datacenter_filter}
-            GROUP BY date, ipaddress, useragent
-            HAVING
-                SUM(click_count) >= :click_threshold
-                OR COUNT(DISTINCT media_id) >= :media_threshold
-                OR COUNT(DISTINCT program_id) >= :program_threshold
-                OR SUM(click_count) >= :burst_click_threshold
-        """
-
-        with self._connect() as conn:
-            result = conn.execute(
-                sa.text(query),
-                {
-                    "target_date": target_date,
-                    "click_threshold": click_threshold,
-                    "media_threshold": media_threshold,
-                    "program_threshold": program_threshold,
-                    "burst_click_threshold": burst_click_threshold,
-                },
-            )
-            rows = result.fetchall()
-        return [
-            IpUaRollup(
-                date=row[0],
-                ipaddress=row[1],
-                useragent=row[2],
-                total_clicks=row[3],
-                media_count=row[4],
-                program_count=row[5],
-                first_time=row[6],
-                last_time=row[7],
-            )
-            for row in rows
-        ]
-
     def fetch_conversion_rollups(self, target_date: date) -> list[ConversionIpUaRollup]:
         if not self._table_exists("conversion_ipua_daily"):
             return []
@@ -268,7 +161,10 @@ class ReportingReadRepository(RepositoryBase):
             for row in rows
         ]
 
-    def fetch_click_to_conversion_gaps(self, target_date: date) -> dict[tuple[str, str], dict[str, float]]:
+    def fetch_click_to_conversion_gaps(
+        self,
+        target_date: date,
+    ) -> dict[tuple[str, str], dict[str, float]]:
         if not self._table_exists("conversion_raw"):
             return {}
         with self._connect() as conn:
@@ -318,10 +214,7 @@ class ReportingReadRepository(RepositoryBase):
         chunk_size = 200
         for index in range(0, len(ip_ua_pairs), chunk_size):
             chunk = ip_ua_pairs[index : index + chunk_size]
-            conversion_rows = self._fetch_conversion_padding_conversion_rows(
-                target_date,
-                chunk,
-            )
+            conversion_rows = self._fetch_conversion_padding_conversion_rows(target_date, chunk)
             if not conversion_rows:
                 continue
             metrics.update(
@@ -338,9 +231,7 @@ class ReportingReadRepository(RepositoryBase):
         target_date: date,
         ip_ua_pairs: list[tuple[str, str]],
     ) -> list[dict]:
-        placeholders = ",".join(
-            f"(:ip{idx}, :ua{idx})" for idx in range(len(ip_ua_pairs))
-        )
+        placeholders = ",".join(f"(:ip{idx}, :ua{idx})" for idx in range(len(ip_ua_pairs)))
         params: dict[str, object] = {"target_date": target_date}
         for idx, (ipaddress, useragent) in enumerate(ip_ua_pairs):
             params[f"ip{idx}"] = ipaddress
@@ -391,13 +282,8 @@ class ReportingReadRepository(RepositoryBase):
             )
             params.update(placeholder_params)
         if cids:
-            placeholders, placeholder_params = self._sequence_placeholders(
-                "cid_",
-                cids,
-            )
-            conditions.append(
-                f"NULLIF(raw_payload::jsonb->>'track_cid', '') IN ({placeholders})"
-            )
+            placeholders, placeholder_params = self._sequence_placeholders("cid_", cids)
+            conditions.append(f"NULLIF(raw_payload::jsonb->>'track_cid', '') IN ({placeholders})")
             params.update(placeholder_params)
 
         with self._connect() as conn:
@@ -497,10 +383,7 @@ class ReportingReadRepository(RepositoryBase):
             if row["conversion_time"] > state["last_time"]:
                 state["last_time"] = row["conversion_time"]
 
-        direct_rows = self._fetch_direct_linked_click_rows(
-            sorted(conversion_ids),
-            sorted(cids),
-        )
+        direct_rows = self._fetch_direct_linked_click_rows(sorted(conversion_ids), sorted(cids))
         action_log_to_click_ids: dict[str, set[str]] = {}
         cid_to_click_ids: dict[str, set[str]] = {}
         for row in direct_rows:
@@ -512,10 +395,7 @@ class ReportingReadRepository(RepositoryBase):
             if track_cid:
                 cid_to_click_ids.setdefault(track_cid, set()).add(click_id)
 
-        bucket_click_rows = self._fetch_bucket_click_rows(
-            target_date,
-            sorted(bucket_keys),
-        )
+        bucket_click_rows = self._fetch_bucket_click_rows(target_date, sorted(bucket_keys))
         bucket_to_click_rows: dict[tuple[str, str], list[dict]] = {}
         for row in bucket_click_rows:
             bucket_key = (row["affiliate_user_id"], row["program_id"])

@@ -1,10 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { SuspiciousListTable } from "@/components/suspicious-list-table";
-import { SuspiciousRowDetails } from "@/components/suspicious-row-details";
+import { suspiciousCopy } from "@/features/suspicious-list/copy";
+import { SuspiciousListTable } from "@/features/suspicious-list/suspicious-list-table";
+import { SuspiciousRowDetails } from "@/features/suspicious-list/suspicious-row-details";
 import type { SuspiciousItem } from "@/lib/api";
 
-const EXTRA_COUNT_LABEL = "\u4ed61\u4ef6";
+const EXTRA_COUNT_LABEL = suspiciousCopy.labels.extraCount(1);
 
 function buildItem(overrides: Partial<SuspiciousItem> = {}): SuspiciousItem {
   return {
@@ -33,8 +34,6 @@ describe("Suspicious reason presentation", () => {
   it("renders grouped summary and extra count in the list", () => {
     render(
       <SuspiciousListTable
-        title="CV"
-        metricKey="total_conversions"
         data={[
           buildItem({
             reason_summary: "Grouped spread signal",
@@ -51,14 +50,7 @@ describe("Suspicious reason presentation", () => {
   });
 
   it("falls back to formatted reasons when grouped fields are absent", () => {
-    render(
-      <SuspiciousListTable
-        title="CV"
-        metricKey="total_conversions"
-        data={[buildItem()]}
-        onOpenDetail={vi.fn()}
-      />
-    );
+    render(<SuspiciousListTable data={[buildItem()]} onOpenDetail={vi.fn()} />);
 
     expect(screen.getByText("Legacy formatted reason")).toBeInTheDocument();
     expect(screen.queryByText(EXTRA_COUNT_LABEL)).not.toBeInTheDocument();

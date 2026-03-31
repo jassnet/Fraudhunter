@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-
+import { suspiciousCopy } from "../../src/features/suspicious-list/copy";
 import { prepareBaselineData } from "../helpers/test-data";
 
 test.describe("suspicious conversions e2e", () => {
@@ -7,15 +7,19 @@ test.describe("suspicious conversions e2e", () => {
     await prepareBaselineData(request);
   });
 
-  test("shows conversion list and details", async ({ page }) => {
+  test("shows the conversion list and details", async ({ page }) => {
     await page.goto("/suspicious/conversions");
 
-    await expect(page.getByRole("heading", { name: "不審コンバージョン" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "CV数" })).toBeVisible();
-    await expect(page.getByLabel("表示件数", { exact: true })).toHaveText("1〜1件（全1件）");
+    await expect(page.getByRole("heading", { name: suspiciousCopy.conversionsTitle })).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: suspiciousCopy.countLabelConversions })
+    ).toBeVisible();
+    await expect(page.getByLabel(suspiciousCopy.labels.resultRange, { exact: true })).toHaveText(
+      "1-1 of 1"
+    );
 
-    await page.getByRole("button", { name: "詳細" }).first().click();
-    await expect(page.getByText("クリック〜CV の時間差")).toBeVisible();
+    await page.getByRole("button", { name: suspiciousCopy.labels.detail }).first().click();
+    await expect(page.getByText(suspiciousCopy.labels.clickToCvGap)).toBeVisible();
     await expect(page.getByRole("cell", { name: "Program Alpha", exact: true })).toBeVisible();
   });
 });

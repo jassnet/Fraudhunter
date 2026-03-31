@@ -1,8 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import SuspiciousListPage from "@/components/suspicious-list-page";
-import { suspiciousCopy } from "@/copy/suspicious";
+import {
+  formatSuspiciousResultRange,
+  suspiciousCopy,
+} from "@/features/suspicious-list/copy";
+import SuspiciousListPage from "@/features/suspicious-list/suspicious-list-page";
 import { SUSPICIOUS_LIST_PAGE_SIZE } from "@/features/suspicious-list/use-suspicious-data";
 import { ApiError } from "@/lib/api";
 import type { SuspiciousItem, SuspiciousQueryOptions, SuspiciousResponse } from "@/lib/api";
@@ -33,17 +36,16 @@ function buildRows(count = 120): SuspiciousItem[] {
       ipaddress_masked: `10.0.*.${index}`,
       useragent_masked: `Mozilla/Masked-${index}`,
       sensitive_values_masked: true,
-      total_clicks: 200 - i,
+      total_conversions: 200 - i,
       media_count: (index % 4) + 1,
       program_count: (index % 3) + 1,
       first_time: `2026-01-21T00:00:${String(index % 60).padStart(2, "0")}Z`,
       last_time: `2026-01-21T01:00:${String(index % 60).padStart(2, "0")}Z`,
-      reasons: ["total_clicks >= 50"],
-      reasons_formatted: ["クリック数が閾値以上です (50件以上)"],
+      reasons: ["total_conversions >= 50"],
+      reasons_formatted: ["Conversions exceed threshold (50+)"],
       risk_level: riskLevel,
       risk_score: riskLevel === "high" ? 90 : riskLevel === "medium" ? 60 : 20,
-      risk_label:
-        riskLevel === "high" ? "高リスク" : riskLevel === "medium" ? "中リスク" : "低リスク",
+      risk_label: riskLevel === "high" ? "High" : riskLevel === "medium" ? "Medium" : "Low",
       media_names: [`Media ${index}`],
       program_names: [`Program ${index}`],
       affiliate_names: [`Affiliate ${index}`],
@@ -90,16 +92,16 @@ function createDetailFetcher() {
     date: "2026-01-21",
     ipaddress: "10.0.0.1",
     useragent: "Mozilla/TestAgent-1",
-    total_clicks: 200,
+    total_conversions: 200,
     media_count: 2,
     program_count: 1,
     first_time: "2026-01-21T00:00:01Z",
     last_time: "2026-01-21T01:00:01Z",
-    reasons: ["total_clicks >= 50"],
-    reasons_formatted: ["クリック数が閾値以上です (50件以上)"],
+    reasons: ["total_conversions >= 50"],
+    reasons_formatted: ["Conversions exceed threshold (50+)"],
     risk_level: "high",
     risk_score: 90,
-    risk_label: "高リスク",
+    risk_label: "High",
     media_names: ["Media 1"],
     program_names: ["Program 1"],
     affiliate_names: ["Affiliate 1"],
@@ -124,43 +126,53 @@ function renderPage(
   fetcher: ReturnType<typeof createFetcher>,
   detailFetcher = createDetailFetcher()
 ) {
-  return render(
-    <SuspiciousListPage
-      title={suspiciousCopy.conversionsTitle}
-      countLabel={suspiciousCopy.countLabelClicks}
-      fetcher={fetcher}
-      fetchDetail={detailFetcher}
-      metricKey="total_clicks"
-    />
-  );
+  vi.mocked(fetchSuspiciousConversions).mockImplementation(fetcher);
+  vi.mocked(fetchSuspiciousConversionDetail).mockImplementation(detailFetcher);
+  return render(<SuspiciousListPage />);
 }
 
-describe("不審一覧画面", () => {
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return {
+    ...actual,
+    fetchSuspiciousConversions: vi.fn(),
+    fetchSuspiciousConversionDetail: vi.fn(),
+  };
+});
+
+import {
+  fetchSuspiciousConversionDetail,
+  fetchSuspiciousConversions,
+} from "@/lib/api";
+
+describe("Suspicious list page", () => {
   beforeEach(() => {
     navigation.replace.mockReset();
     navigation.pathname = "/suspicious/conversions";
     navigation.searchParams = new URLSearchParams("date=2026-01-21");
+    vi.mocked(fetchSuspiciousConversions).mockReset();
+    vi.mocked(fetchSuspiciousConversionDetail).mockReset();
   });
 
-  it("初期表示で件数と一覧を表示する", async () => {
+  it("shows the first page count and list rows on initial render", async () => {
     const fetcher = createFetcher();
     renderPage(fetcher);
 
     await screen.findByRole("heading", { name: suspiciousCopy.conversionsTitle });
-    expect(await screen.findByLabelText("表示件数")).toHaveTextContent(
-      `1〜${SUSPICIOUS_LIST_PAGE_SIZE}件（全120件）`
+    expect(await screen.findByLabelText(suspiciousCopy.labels.resultRange)).toHaveTextContent(
+      formatSuspiciousResultRange(1, SUSPICIOUS_LIST_PAGE_SIZE, 120)
     );
 
     expect(screen.getByText("10.0.*.1")).toBeInTheDocument();
-    expect(screen.getAllByText("高リスク").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("High").length).toBeGreaterThan(0);
   });
 
-  it("検索語を URL durable state として反映する", async () => {
+  it("writes search text into the URL durable state", async () => {
     const fetcher = createFetcher();
     const user = userEvent.setup();
     renderPage(fetcher);
 
-    await screen.findByLabelText("表示件数");
+    await screen.findByLabelText(suspiciousCopy.labels.resultRange);
     await user.click(screen.getByRole("button", { name: suspiciousCopy.labels.searchOpenButton }));
     const input = screen.getByRole("searchbox", { name: suspiciousCopy.labels.search });
 
@@ -174,13 +186,13 @@ describe("不審一覧画面", () => {
     });
   });
 
-  it("詳細展開時に lazy detail fetch を呼び、一覧を残したまま詳細を表示する", async () => {
+  it("loads details lazily and keeps the list visible while the drawer is open", async () => {
     const fetcher = createFetcher();
     const detailFetcher = createDetailFetcher();
     const user = userEvent.setup();
     renderPage(fetcher, detailFetcher);
 
-    await screen.findByLabelText("表示件数");
+    await screen.findByLabelText(suspiciousCopy.labels.resultRange);
     await user.click(screen.getAllByRole("button", { name: suspiciousCopy.labels.detail })[0]);
 
     await screen.findByText(suspiciousCopy.labels.detailBreadcrumb);
@@ -193,12 +205,12 @@ describe("不審一覧画面", () => {
     });
   });
 
-  it("リスク絞り込みを URL durable state として反映する", async () => {
+  it("writes risk filtering into the URL durable state", async () => {
     const fetcher = createFetcher();
     const user = userEvent.setup();
     renderPage(fetcher);
 
-    await screen.findByLabelText("表示件数");
+    await screen.findByLabelText(suspiciousCopy.labels.resultRange);
     await user.selectOptions(screen.getByLabelText(suspiciousCopy.labels.riskFilter), "high");
 
     await waitFor(() => {
@@ -209,7 +221,7 @@ describe("不審一覧画面", () => {
     });
   });
 
-  it("query string の初期値を復元して URL を更新する", async () => {
+  it("restores initial values from the query string and updates the URL", async () => {
     navigation.searchParams = new URLSearchParams(
       "date=2026-01-21&search=10.0.0&page=2&risk=high&sort=risk"
     );
@@ -244,7 +256,7 @@ describe("不審一覧画面", () => {
     });
   });
 
-  it("forbidden 状態を state panel で表示する", async () => {
+  it("shows forbidden state in the state panel", async () => {
     const fetcher = vi.fn(async () => {
       const error = new ApiError(suspiciousCopy.states.forbiddenMessage);
       error.status = 403;

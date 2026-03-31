@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { suspiciousCopy } from "@/copy/suspicious";
+import { suspiciousCopy } from "@/features/suspicious-list/copy";
 import type { SuspiciousItem } from "@/lib/api";
 import { toResourceIssue } from "@/lib/api";
 

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from fastapi.testclient import TestClient
 
 from fraud_checker import api
+from fraud_checker import api_presenters
 from fraud_checker.api_routers import (
     health as health_router,
     jobs as jobs_router,
@@ -15,7 +16,6 @@ from fraud_checker.api_routers import (
     testdata as testdata_router,
 )
 from fraud_checker.job_status_pg import JobStatus
-from fraud_checker.models import SuspiciousFinding
 
 
 def test_health_requires_admin_token(monkeypatch):
@@ -272,7 +272,7 @@ def _deprecated_test_suspicious_click_detail_returns_single_finding(monkeypatch)
     monkeypatch.setattr(suspicious_router, "get_repository", lambda: DummyRepo())
     monkeypatch.setattr(suspicious_router, "log_event", fake_log_event)
     monkeypatch.setattr(
-        suspicious_router.lifecycle,
+        suspicious_router.suspicious_service.lifecycle,
         "describe_evidence_availability",
         lambda target_date: {
             "evidence_status": "available",
@@ -349,7 +349,7 @@ def test_suspicious_conversion_detail_includes_click_padding_metrics(monkeypatch
 
     monkeypatch.setattr(suspicious_router, "get_repository", lambda: DummyRepo())
     monkeypatch.setattr(
-        suspicious_router.lifecycle,
+        suspicious_router.suspicious_service.lifecycle,
         "describe_evidence_availability",
         lambda target_date: {
             "evidence_status": "available",
@@ -439,8 +439,8 @@ def test_format_reasons_and_risk_scoring_reflect_business_priority():
         "click_to_conversion_seconds <= 5s (min=1s)",
     ]
 
-    formatted = api.format_reasons(reasons)
-    risk = api.calculate_risk_level(reasons, count=5, is_conversion=True)
+    formatted = api_presenters.format_reasons(reasons)
+    risk = api_presenters.calculate_risk_level(reasons, count=5, is_conversion=True)
 
     assert formatted == [
         "成果数が閾値以上です（5件以上）",
@@ -562,31 +562,28 @@ def _deprecated_test_suspicious_clicks_returns_empty_when_latest_date_is_missing
     assert response.json() == {"date": "", "data": [], "total": 0, "limit": 500, "offset": 0}
 
 
-def test_suspicious_clicks_returns_gone():
+def test_suspicious_clicks_endpoint_is_removed():
     client = TestClient(api.app)
 
     response = client.get("/api/suspicious/clicks")
 
-    assert response.status_code == 410
-    assert response.json()["detail"] == suspicious_router.CLICK_FINDINGS_DEPRECATED_DETAIL
+    assert response.status_code == 404
 
 
-def test_suspicious_click_detail_returns_gone():
+def test_suspicious_click_detail_endpoint_is_removed():
     client = TestClient(api.app)
 
     response = client.get("/api/suspicious/clicks/f-1")
 
-    assert response.status_code == 410
-    assert response.json()["detail"] == suspicious_router.CLICK_FINDINGS_DEPRECATED_DETAIL
+    assert response.status_code == 404
 
 
-def test_suspicious_click_detail_returns_gone_even_with_include_details():
+def test_suspicious_click_detail_endpoint_is_removed_with_query_params():
     client = TestClient(api.app)
 
     response = client.get("/api/suspicious/clicks/f-legacy", params={"include_details": True})
 
-    assert response.status_code == 410
-    assert response.json()["detail"] == suspicious_router.CLICK_FINDINGS_DEPRECATED_DETAIL
+    assert response.status_code == 404
 
 
 def test_dates_endpoint_returns_available_dates(monkeypatch):

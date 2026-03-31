@@ -81,14 +81,35 @@ export function useSuspiciousListUrlState() {
     [pathname, router, state]
   );
 
+  const setDate = useCallback(
+    (date: string) => replaceState({ date, page: 1 }),
+    [replaceState]
+  );
+  const setPage = useCallback(
+    (page: number) => replaceState({ page }),
+    [replaceState]
+  );
+  const setSearch = useCallback(
+    (search: string) => replaceState({ search, page: 1 }),
+    [replaceState]
+  );
+  const setRisk = useCallback(
+    (risk: SuspiciousRiskFilter) => replaceState({ risk, page: 1 }),
+    [replaceState]
+  );
+  const setSort = useCallback(
+    (sort: SuspiciousSortValue, sortOrder: SuspiciousSortOrder = "desc") =>
+      replaceState({ sort, sortOrder, page: 1 }),
+    [replaceState]
+  );
+
   return {
     state,
     replaceState,
-    setDate: (date: string) => replaceState({ date, page: 1 }),
-    setPage: (page: number) => replaceState({ page }),
-    setSearch: (search: string) => replaceState({ search, page: 1 }),
-    setRisk: (risk: SuspiciousRiskFilter) => replaceState({ risk, page: 1 }),
-    setSort: (sort: SuspiciousSortValue, sortOrder: SuspiciousSortOrder = "desc") =>
-      replaceState({ sort, sortOrder, page: 1 }),
+    setDate,
+    setPage,
+    setSearch,
+    setRisk,
+    setSort,
   };
 }

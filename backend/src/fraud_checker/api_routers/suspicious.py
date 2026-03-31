@@ -9,27 +9,10 @@ from ..api_dependencies import AccessContext, get_analyst_access_context, requir
 from ..api_models import SuspiciousResponse
 from ..logging_utils import log_event
 from ..service_dependencies import get_repository
-from ..services import lifecycle, reporting, suspicious as suspicious_service
+from ..services import suspicious as suspicious_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/suspicious", tags=["suspicious"], dependencies=[Depends(require_analyst_access)])
-CLICK_FINDINGS_DEPRECATED_DETAIL = "Suspicious click findings are deprecated; use suspicious conversions."
-
-
-@router.get("/clicks", response_model=SuspiciousResponse)
-def get_suspicious_clicks(
-    target_date: Optional[str] = Query(None, alias="date"),
-    limit: int = Query(500, ge=1, le=10000),
-    offset: int = Query(0, ge=0),
-    search: Optional[str] = Query(None, description="IP/UA/媒体/案件で検索"),
-    include_names: bool = Query(True, description="媒体名・案件名を含める"),
-    include_details: bool = Query(True, description="詳細行を含める"),
-    mask_sensitive: bool = Query(True, description="IP/UA をマスク表示する"),
-    risk_level: Optional[str] = Query(None, pattern="^(high|medium|low)$"),
-    sort_by: str = Query("count", pattern="^(count|risk|latest)$"),
-    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
-):
-    raise HTTPException(status_code=410, detail=CLICK_FINDINGS_DEPRECATED_DETAIL)
 
 
 @router.get("/conversions", response_model=SuspiciousResponse)
@@ -37,10 +20,10 @@ def get_suspicious_conversions(
     target_date: Optional[str] = Query(None, alias="date"),
     limit: int = Query(500, ge=1, le=10000),
     offset: int = Query(0, ge=0),
-    search: Optional[str] = Query(None, description="IP/UA/媒体/案件で検索"),
-    include_names: bool = Query(True, description="媒体名・案件名を含める"),
-    include_details: bool = Query(True, description="詳細行を含める"),
-    mask_sensitive: bool = Query(True, description="IP/UA をマスク表示する"),
+    search: Optional[str] = Query(None, description="IP/UA/media/program search"),
+    include_names: bool = Query(True, description="Include media/program names"),
+    include_details: bool = Query(True, description="Include supporting details"),
+    mask_sensitive: bool = Query(True, description="Mask IP/UA in list responses"),
     risk_level: Optional[str] = Query(None, pattern="^(high|medium|low)$"),
     sort_by: str = Query("count", pattern="^(count|risk|latest)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
@@ -67,21 +50,11 @@ def get_suspicious_conversions(
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
-@router.get("/clicks/{finding_key}")
-def get_suspicious_click_detail(
-    finding_key: str,
-    include_names: bool = Query(True, description="媒体名・案件名を含める"),
-    include_details: bool = Query(True, description="詳細行を含める"),
-    access_context: AccessContext = Depends(get_analyst_access_context),
-):
-    raise HTTPException(status_code=410, detail=CLICK_FINDINGS_DEPRECATED_DETAIL)
-
-
 @router.get("/conversions/{finding_key}")
 def get_suspicious_conversion_detail(
     finding_key: str,
-    include_names: bool = Query(True, description="媒体名・案件名を含める"),
-    include_details: bool = Query(True, description="詳細行を含める"),
+    include_names: bool = Query(True, description="Include media/program names"),
+    include_details: bool = Query(True, description="Include supporting details"),
     access_context: AccessContext = Depends(get_analyst_access_context),
 ):
     try:

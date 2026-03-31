@@ -8,9 +8,6 @@ import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api_dependencies import extract_bearer as _extract_bearer
-from .api_dependencies import require_admin, require_test_key, require_test_mode
-from .api_presenters import calculate_risk_level, format_reasons
 from .api_routers import (
     health_router,
     jobs_router,
@@ -23,16 +20,6 @@ from .api_routers import (
 from .env import load_env
 from .logging_utils import log_event
 from .runtime_guards import should_enable_docs, validate_runtime_guards
-from .services import e2e_seed, reporting, settings as settings_service
-from .services.jobs import (
-    JobConflictError,
-    enqueue_job,
-    run_click_ingestion,
-    run_conversion_ingestion,
-    run_master_sync,
-    run_refresh,
-)
-from .suspicious import ConversionSuspiciousDetector, SuspiciousDetector
 
 load_env()
 

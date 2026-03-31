@@ -73,24 +73,6 @@ def recompute_findings_for_dates(
         with log_timed(logger, "recompute_findings", target_date=target_date):
             source_click_watermark = repo.get_click_data_watermark(target_date)
             source_conversion_watermark = repo.get_conversion_data_watermark(target_date)
-            repo.replace_click_findings(
-                target_date,
-                [],
-                generation_metadata={
-                    "generation_id": generation_id,
-                    "finding_type": "click",
-                    "target_date": target_date,
-                    "computed_by_job_id": computed_by_job_id,
-                    "settings_version_id": settings_version_id,
-                    "settings_fingerprint": settings_fingerprint,
-                    "detector_code_version": detector_code_version,
-                    "source_click_watermark": source_click_watermark,
-                    "source_conversion_watermark": source_conversion_watermark,
-                    "row_count": 0,
-                    "created_at": computed_at,
-                },
-            )
-
             conversion_findings = conversion_detector.find_for_date(target_date)
             conversion_details = repo.get_suspicious_conversion_details_bulk(
                 target_date,
@@ -182,14 +164,12 @@ def recompute_findings_for_dates(
             )
 
             results[target_date.isoformat()] = {
-                "suspicious_clicks": 0,
                 "suspicious_conversions": len(conversion_rows),
             }
             log_event(
                 logger,
                 "findings_recomputed",
                 target_date=target_date,
-                suspicious_clicks=0,
                 suspicious_conversions=len(conversion_rows),
                 rule_version=rule_version,
                 settings_version_id=settings_version_id,

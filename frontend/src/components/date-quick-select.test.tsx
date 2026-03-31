@@ -5,8 +5,8 @@ import { DateQuickSelect } from "@/components/date-quick-select";
 
 const formatDate = (date: Date) => date.toISOString().slice(0, 10);
 
-describe("日付クイック選択", () => {
-  it("最新ボタンで利用可能な最新日付を選ぶ", async () => {
+describe("DateQuickSelect", () => {
+  it("selects the latest available date from the latest shortcut", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
@@ -17,21 +17,21 @@ describe("日付クイック選択", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "最新" }));
+    await user.click(screen.getByRole("button", { name: "Latest" }));
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
-  it("今日ボタンで利用可能な今日を選ぶ", async () => {
+  it("selects today when it is available", async () => {
     const today = formatDate(new Date());
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(<DateQuickSelect value="" onChange={onChange} availableDates={[today, "2026-01-20"]} />);
 
-    await user.click(screen.getByRole("button", { name: "今日" }));
+    await user.click(screen.getByRole("button", { name: "Today" }));
     expect(onChange).toHaveBeenCalledWith(today);
   });
 
-  it("昨日が利用不可なら最新日に寄せる", async () => {
+  it("falls back to the latest date when yesterday is unavailable", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
@@ -42,11 +42,11 @@ describe("日付クイック選択", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "昨日" }));
+    await user.click(screen.getByRole("button", { name: "Yesterday" }));
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
-  it("セレクト変更で対象日を更新する", async () => {
+  it("updates the target date when the select value changes", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
@@ -57,7 +57,7 @@ describe("日付クイック選択", () => {
       />
     );
 
-    await user.selectOptions(screen.getByLabelText("対象日"), "2026-01-20");
+    await user.selectOptions(screen.getByLabelText("Target date"), "2026-01-20");
     expect(onChange).toHaveBeenCalledWith("2026-01-20");
   });
 });

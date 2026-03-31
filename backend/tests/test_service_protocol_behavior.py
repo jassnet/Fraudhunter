@@ -43,25 +43,16 @@ class StubReportingRepo:
     def get_latest_settings_version_id(self):
         return None
 
-    def get_click_data_watermark(self, target_date: date):
-        return None
-
     def get_conversion_data_watermark(self, target_date: date):
-        return None
-
-    def get_click_findings_lineage(self, target_date: date):
         return None
 
     def get_conversion_findings_lineage(self, target_date: date):
         return None
 
-    def count_current_click_findings(self, target_date: date) -> int:
-        return 0
-
     def count_current_conversion_findings(self, target_date: date) -> int:
         return 0
 
-    def get_daily_finding_counts(self, limit: int) -> dict[str, dict[str, int]]:
+    def get_daily_finding_counts(self, limit: int, *, target_date: date | None = None) -> dict[str, dict[str, int]]:
         return {}
 
 
@@ -73,7 +64,7 @@ class StubLifecycleRepo:
         return {"click_ipua_daily": 3}
 
     def purge_findings_before(self, cutoff: date, *, execute: bool) -> dict[str, int]:
-        return {"suspicious_click_findings": 2}
+        return {"suspicious_conversion_findings": 2}
 
 
 class StubJobStore:
@@ -107,5 +98,5 @@ def test_lifecycle_service_accepts_narrow_repository_interface():
 
     assert result["counts"]["raw"]["click_raw"] == 5
     assert result["counts"]["aggregates"]["click_ipua_daily"] == 3
-    assert result["counts"]["findings"]["suspicious_click_findings"] == 2
+    assert result["counts"]["findings"]["suspicious_conversion_findings"] == 2
     assert result["counts"]["job_runs"]["job_runs"] == 7

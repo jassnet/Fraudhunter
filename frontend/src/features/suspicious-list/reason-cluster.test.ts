@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clusterSuspiciousItems,
   getReasonClusterKey,
-  sumMetric,
+  sumConversions,
   worstRiskLevel,
 } from "./reason-cluster";
 import type { SuspiciousItem } from "@/lib/api";
@@ -61,16 +61,13 @@ describe("worstRiskLevel", () => {
   });
 });
 
-describe("sumMetric", () => {
+describe("sumConversions", () => {
   it("sums conversions", () => {
     expect(
-      sumMetric(
-        [
-          item({ finding_key: "a", total_conversions: 2 }),
-          item({ finding_key: "b", total_conversions: 3 }),
-        ],
-        "total_conversions"
-      )
+      sumConversions([
+        item({ finding_key: "a", total_conversions: 2 }),
+        item({ finding_key: "b", total_conversions: 3 }),
+      ])
     ).toBe(5);
   });
 });

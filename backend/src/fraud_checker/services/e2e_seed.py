@@ -24,7 +24,6 @@ RESET_TABLES = (
     "master_user",
     "app_settings",
     "job_runs",
-    "suspicious_click_findings",
     "suspicious_conversion_findings",
 )
 
@@ -41,10 +40,7 @@ def _ensure_seed_schemas(repo: PostgresRepository) -> None:
     JobStatusStorePG(repo.database_url).ensure_schema()
     Base.metadata.create_all(
         repo.engine,
-        tables=[
-            Base.metadata.tables["suspicious_click_findings"],
-            Base.metadata.tables["suspicious_conversion_findings"],
-        ],
+        tables=[Base.metadata.tables["suspicious_conversion_findings"]],
     )
 
 
@@ -243,9 +239,6 @@ def seed_baseline(repo: PostgresRepository) -> dict:
             "master_media": len(media_rows),
             "master_promotion": len(promotion_rows),
             "master_user": len(user_rows),
-            "suspicious_click_findings": sum(
-                item.get("suspicious_clicks", 0) for item in recomputed.values()
-            ),
             "suspicious_conversion_findings": sum(
                 item.get("suspicious_conversions", 0) for item in recomputed.values()
             ),

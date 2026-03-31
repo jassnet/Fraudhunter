@@ -22,7 +22,7 @@ def test_postgres_repository_keeps_split_methods_available():
     repo = object.__new__(PostgresRepository)
 
     assert callable(repo.merge_clicks)
-    assert callable(repo.fetch_rollups)
-    assert callable(repo.list_click_findings)
+    assert callable(repo.fetch_suspicious_conversion_rollups)
+    assert callable(repo.list_conversion_findings)
     assert callable(repo.bulk_upsert_media)
     assert callable(repo.load_settings)

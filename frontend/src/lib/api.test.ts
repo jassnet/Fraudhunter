@@ -6,28 +6,26 @@ import {
   enqueueMasterSyncJob,
   enqueueRefreshJob,
   fetchSummary,
-  fetchSuspiciousClickDetail,
-  fetchSuspiciousClicks,
   getErrorMessage,
 } from "@/lib/api";
 import { buildSummaryResponse } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
 
-describe("API helper", () => {
-  it("ApiError.detail があれば fallback より優先して返す", () => {
+describe("API helpers", () => {
+  it("prefers ApiError.detail over the fallback message", () => {
     const error = new ApiError("fallback");
-    error.detail = "詳細なエラーメッセージ";
+    error.detail = "Detailed error message";
 
-    expect(getErrorMessage(error, "既定メッセージ")).toBe("詳細なエラーメッセージ");
+    expect(getErrorMessage(error, "Fallback message")).toBe("Detailed error message");
   });
 
-  it("一時的な summary 失敗は再試行後に payload を返す", async () => {
+  it("retries transient summary failures before succeeding", async () => {
     let attemptCount = 0;
     server.use(
       http.get(`${API_BASE_URL}/api/summary`, ({ request }) => {
         attemptCount += 1;
         if (attemptCount < 3) {
-          return HttpResponse.json({ detail: "一時的なエラーです" }, { status: 500 });
+          return HttpResponse.json({ detail: "Temporary failure" }, { status: 500 });
         }
         const url = new URL(request.url);
         const targetDate = url.searchParams.get("target_date") || "2026-01-21";
@@ -41,73 +39,7 @@ describe("API helper", () => {
     expect(attemptCount).toBe(3);
   });
 
-  it("deprecated suspicious clicks API の 410 detail をそのまま返す", async () => {
-    server.use(
-      http.get(`${API_BASE_URL}/api/suspicious/clicks`, () =>
-        HttpResponse.json(
-          { detail: "Suspicious click findings are deprecated; use suspicious conversions." },
-          { status: 410 }
-        )
-      )
-    );
-
-    await expect(fetchSuspiciousClicks("2026-01-21", 50, 0)).rejects.toMatchObject({
-      status: 410,
-      detail: "Suspicious click findings are deprecated; use suspicious conversions.",
-      message: "Suspicious click findings are deprecated; use suspicious conversions.",
-    });
-  });
-
-  it("deprecated suspicious click detail API の 410 detail をそのまま返す", async () => {
-    server.use(
-      http.get(`${API_BASE_URL}/api/suspicious/clicks/:findingKey`, () =>
-        HttpResponse.json(
-          { detail: "Suspicious click findings are deprecated; use suspicious conversions." },
-          { status: 410 }
-        )
-      )
-    );
-
-    await expect(fetchSuspiciousClickDetail("broken-key")).rejects.toMatchObject({
-      status: 410,
-      detail: "Suspicious click findings are deprecated; use suspicious conversions.",
-      message: "Suspicious click findings are deprecated; use suspicious conversions.",
-    });
-  });
-
-  it("deprecated API でも query builder 自体は壊れていない", async () => {
-    server.use(
-      http.get(`${API_BASE_URL}/api/suspicious/clicks`, ({ request }) => {
-        const url = new URL(request.url);
-        expect(url.searchParams.get("date")).toBe("2026-01-21");
-        expect(url.searchParams.get("search")).toBe("Media Alpha");
-        expect(url.searchParams.get("risk_level")).toBe("high");
-        expect(url.searchParams.get("sort_by")).toBe("risk");
-        expect(url.searchParams.get("sort_order")).toBe("asc");
-        expect(url.searchParams.get("include_details")).toBe("false");
-        expect(url.searchParams.get("mask_sensitive")).toBe("true");
-        return HttpResponse.json(
-          { detail: "Suspicious click findings are deprecated; use suspicious conversions." },
-          { status: 410 }
-        );
-      })
-    );
-
-    await expect(
-      fetchSuspiciousClicks("2026-01-21", 50, 0, {
-        search: "Media Alpha",
-        riskLevel: "high",
-        sortBy: "risk",
-        sortOrder: "asc",
-        includeDetails: false,
-        maskSensitive: true,
-      })
-    ).rejects.toMatchObject({
-      status: 410,
-    });
-  });
-
-  it("admin refresh enqueue は conflict payload の job_id を返す", async () => {
+  it("returns the conflict job id for refresh enqueue", async () => {
     server.use(
       http.post("*/api/admin/refresh", () =>
         HttpResponse.json(
@@ -125,7 +57,7 @@ describe("API helper", () => {
     });
   });
 
-  it("admin master sync enqueue は conflict payload の job_id を返す", async () => {
+  it("returns the conflict job id for master sync enqueue", async () => {
     server.use(
       http.post("*/api/admin/master-sync", () =>
         HttpResponse.json(

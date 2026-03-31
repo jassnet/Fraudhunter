@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from fraud_checker.models import ClickLog, ConversionIpUaRollup, ConversionLog, IpUaRollup
+from fraud_checker.models import ClickLog, ConversionIpUaRollup, ConversionLog
 from fraud_checker.services import jobs
 
 
@@ -103,21 +103,6 @@ def test_run_refresh_enqueues_findings_recompute_jobs_per_date(monkeypatch):
                 "browser_only": False,
                 "exclude_datacenter_ip": False,
             }
-
-        def fetch_suspicious_rollups(self, target_date: date, **kwargs):
-            start = datetime.combine(target_date, datetime.min.time())
-            return [
-                IpUaRollup(
-                    date=target_date,
-                    ipaddress="1.1.1.1",
-                    useragent="Mozilla/5.0",
-                    total_clicks=2,
-                    media_count=1,
-                    program_count=1,
-                    first_time=start,
-                    last_time=start + timedelta(seconds=10),
-                )
-            ]
 
         def fetch_suspicious_conversion_rollups(self, target_date: date, **kwargs):
             start = datetime.combine(target_date, datetime.min.time())
@@ -642,12 +627,12 @@ def test_run_click_ingestion_returns_summary_message(monkeypatch):
     monkeypatch.setattr(
         jobs.findings_service,
         "recompute_findings_for_dates",
-        lambda repo, dates, **kwargs: {dates[0].isoformat(): {"suspicious_clicks": 1}},
+        lambda repo, dates, **kwargs: {dates[0].isoformat(): {"suspicious_conversions": 1}},
     )
 
     result, message = jobs.run_click_ingestion(datetime(2026, 1, 3).date())
 
-    assert result == {"success": True, "count": 1, "findings": {"suspicious_clicks": 1}}
+    assert result == {"success": True, "count": 1, "findings": {"suspicious_conversions": 1}}
     assert message == "Ingested 1 clicks for 2026-01-03"
 
 
@@ -695,7 +680,7 @@ def test_run_recompute_findings_for_date_returns_generation_metadata(monkeypatch
         jobs.findings_service,
         "recompute_findings_for_dates",
         lambda repo, dates, **kwargs: {
-            dates[0].isoformat(): {"suspicious_clicks": 2, "suspicious_conversions": 1}
+            dates[0].isoformat(): {"suspicious_conversions": 1}
         },
     )
 
@@ -711,7 +696,7 @@ def test_run_recompute_findings_for_date_returns_generation_metadata(monkeypatch
     assert result["generation_id"] == "gen-1"
     assert result["trigger"] == "settings_update"
     assert result["source_job_id"] == "settings-job"
-    assert result["findings"] == {"suspicious_clicks": 2, "suspicious_conversions": 1}
+    assert result["findings"] == {"suspicious_conversions": 1}
 
 
 def test_run_master_sync_enqueues_findings_recompute_for_available_dates(monkeypatch):

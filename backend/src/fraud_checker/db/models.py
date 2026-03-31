@@ -195,45 +195,6 @@ class JobRun(Base):
     worker_id: Mapped[str | None] = mapped_column(Text)
 
 
-class SuspiciousClickFindingRecord(Base):
-    __tablename__ = "suspicious_click_findings"
-    __table_args__ = (
-        Index("idx_scf_date_current", "date", "is_current"),
-        Index("idx_scf_date_current_risk", "date", "is_current", "risk_level"),
-        Index("idx_scf_date_current_computed", "date", "is_current", "computed_at"),
-    )
-
-    finding_key: Mapped[str] = mapped_column(Text, primary_key=True)
-    date: Mapped[date] = mapped_column(Date, nullable=False)
-    ipaddress: Mapped[str] = mapped_column(Text, nullable=False)
-    useragent: Mapped[str] = mapped_column(Text, nullable=False)
-    ua_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    media_ids_json: Mapped[str | None] = mapped_column(Text)
-    program_ids_json: Mapped[str | None] = mapped_column(Text)
-    media_names_json: Mapped[str | None] = mapped_column(Text)
-    program_names_json: Mapped[str | None] = mapped_column(Text)
-    affiliate_names_json: Mapped[str | None] = mapped_column(Text)
-    risk_level: Mapped[str] = mapped_column(Text, nullable=False)
-    risk_score: Mapped[int] = mapped_column(Integer, nullable=False)
-    reasons_json: Mapped[str] = mapped_column(Text, nullable=False)
-    reasons_formatted_json: Mapped[str] = mapped_column(Text, nullable=False)
-    metrics_json: Mapped[str] = mapped_column(Text, nullable=False)
-    total_clicks: Mapped[int] = mapped_column(Integer, nullable=False)
-    media_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    program_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    first_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    last_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    rule_version: Mapped[str] = mapped_column(Text, nullable=False)
-    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    computed_by_job_id: Mapped[str | None] = mapped_column(Text)
-    settings_updated_at_snapshot: Mapped[datetime | None] = mapped_column(DateTime)
-    source_click_watermark: Mapped[datetime | None] = mapped_column(DateTime)
-    source_conversion_watermark: Mapped[datetime | None] = mapped_column(DateTime)
-    generation_id: Mapped[str | None] = mapped_column(Text)
-    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    search_text: Mapped[str] = mapped_column(Text, nullable=False)
-
-
 class FindingsGeneration(Base):
     __tablename__ = "findings_generations"
     __table_args__ = (

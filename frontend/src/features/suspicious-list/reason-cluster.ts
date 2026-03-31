@@ -62,12 +62,9 @@ export function worstRiskLabel(items: SuspiciousItem[]): string | undefined {
   return withLevel?.risk_label ?? lvl;
 }
 
-export function sumMetric(
-  items: SuspiciousItem[],
-  metricKey: "total_clicks" | "total_conversions"
-): number {
+export function sumConversions(items: SuspiciousItem[]): number {
   return items.reduce((acc, it) => {
-    const v = metricKey === "total_clicks" ? it.total_clicks : it.total_conversions;
-    return acc + (typeof v === "number" ? v : 0);
+    const value = it.total_conversions;
+    return acc + (typeof value === "number" ? value : 0);
   }, 0);
 }

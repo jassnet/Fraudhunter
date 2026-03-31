@@ -1,7 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { formatSuspiciousResultRange, suspiciousCopy } from "@/copy/suspicious";
+import { useCallback, useEffect, useEffectEvent, useMemo, useState } from "react";
+import {
+  formatSuspiciousResultRange,
+  suspiciousCopy,
+} from "@/features/suspicious-list/copy";
 import {
   type SuspiciousQueryOptions,
   type SuspiciousResponse,
@@ -15,7 +18,6 @@ import type {
   SuspiciousSortValue,
 } from "./url-state";
 
-/** 一覧の行数（慣習的なページサイズに寄せて認知負荷を下げる） */
 export const SUSPICIOUS_LIST_PAGE_SIZE = 10;
 
 type SuspiciousFetcher = (
@@ -61,53 +63,59 @@ export function useSuspiciousData({
   const [message, setMessage] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const loadDates = useCallback(async () => {
-    const result = await getAvailableDates();
-    setAvailableDates(result.dates || []);
-    return result.dates || [];
-  }, []);
+  const executeLoadData = useCallback(async (refresh = false) => {
+    setStatus(refresh ? "refreshing" : "loading");
+    setMessage(null);
 
-  const loadData = useCallback(
-    async (refresh = false) => {
-      setStatus(refresh ? "refreshing" : "loading");
-      setMessage(null);
+    try {
+      const offset = (page - 1) * SUSPICIOUS_LIST_PAGE_SIZE;
+      const response = await fetcher(date || undefined, SUSPICIOUS_LIST_PAGE_SIZE, offset, {
+        search: search.trim() || undefined,
+        riskLevel: risk === "all" ? undefined : risk,
+        sortBy: sort,
+        sortOrder,
+        includeDetails: false,
+        maskSensitive: true,
+      });
 
-      try {
-        const offset = (page - 1) * SUSPICIOUS_LIST_PAGE_SIZE;
-        const response = await fetcher(date || undefined, SUSPICIOUS_LIST_PAGE_SIZE, offset, {
-          search: search.trim() || undefined,
-          riskLevel: risk === "all" ? undefined : risk,
-          sortBy: sort,
-          sortOrder,
-          includeDetails: false,
-          maskSensitive: true,
-        });
-        setData(response.data || []);
-        setTotal(response.total || 0);
-        setLastUpdated(new Date());
-        setStatus((response.total || 0) > 0 ? "ready" : "empty");
-      } catch (error) {
-        const issue = toResourceIssue(error, suspiciousCopy.states.loadErrorTitle);
-        setMessage(issue.message);
-        setStatus(issue.kind);
-      }
-    },
-    [date, fetcher, page, risk, search, sort, sortOrder]
-  );
+      setData(response.data || []);
+      setTotal(response.total || 0);
+      setLastUpdated(new Date());
+      setStatus((response.total || 0) > 0 ? "ready" : "empty");
+    } catch (error) {
+      const issue = toResourceIssue(error, suspiciousCopy.states.loadErrorTitle);
+      setMessage(issue.message);
+      setStatus(issue.kind);
+    }
+  }, [date, fetcher, page, risk, search, sort, sortOrder]);
+
+  const loadDates = useEffectEvent(async () => {
+    try {
+      const result = await getAvailableDates();
+      setAvailableDates(result.dates || []);
+    } catch (error) {
+      setStatus("error");
+      setMessage(getErrorMessage(error, "Could not load the available dates."));
+    }
+  });
+
+  const loadData = useEffectEvent(async () => {
+    await executeLoadData(false);
+  });
 
   useEffect(() => {
-    void loadDates().catch((error) => {
-      setStatus("error");
-      setMessage(getErrorMessage(error, "日付の一覧を取得できませんでした。"));
-    });
-  }, [loadDates]);
+    void loadDates();
+  }, []);
 
   useEffect(() => {
     if (!date) return;
     void loadData();
-  }, [date, page, search, risk, sort, sortOrder, loadData]);
+  }, [date, page, risk, search, sort, sortOrder]);
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / SUSPICIOUS_LIST_PAGE_SIZE)), [total]);
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(total / SUSPICIOUS_LIST_PAGE_SIZE)),
+    [total]
+  );
   const resultRange = useMemo(() => {
     if (status === "loading" || status === "refreshing") return suspiciousCopy.states.loadingRange;
     if (total === 0) return suspiciousCopy.states.emptyRange;
@@ -126,6 +134,6 @@ export function useSuspiciousData({
     lastUpdated,
     resultRange,
     isRefreshing: status === "refreshing",
-    reload: () => loadData(true),
+    reload: () => void executeLoadData(true),
   };
 }

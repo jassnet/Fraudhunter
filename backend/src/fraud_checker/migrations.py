@@ -10,13 +10,16 @@ import sqlalchemy as sa
 
 from .db.session import normalize_database_url
 
-ALEMBIC_HEAD_REVISION = "0009_findings_search_idx"
+ALEMBIC_HEAD_REVISION = "0010_drop_click_findings"
 
 
 def infer_legacy_schema_revision(
     table_names: set[str],
     table_columns: Mapping[str, set[str]],
 ) -> str | None:
+    if "suspicious_conversion_findings" in table_names and "suspicious_click_findings" not in table_names:
+        if {"settings_versions", "findings_generations"}.issubset(table_names):
+            return "0010_drop_click_findings"
     if {
         "suspicious_click_findings",
         "suspicious_conversion_findings",

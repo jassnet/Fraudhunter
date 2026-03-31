@@ -15,7 +15,6 @@ export interface SummaryResponse {
       prev_total: number;
     };
     suspicious: {
-      click_based: number;
       conversion_based: number;
     };
   };
@@ -35,7 +34,6 @@ export interface SummaryResponse {
       findings_last_computed_at?: string | null;
       stale?: boolean;
       stale_reasons?: string[];
-      click_findings_last_computed_at?: string | null;
       conversion_findings_last_computed_at?: string | null;
     } | null;
     master_sync?: {
@@ -48,7 +46,6 @@ export interface DailyStatsItem {
   date: string;
   clicks: number;
   conversions: number;
-  suspicious_clicks: number;
   suspicious_conversions: number;
 }
 
@@ -163,20 +160,6 @@ export async function fetchDailyStats(
   return fetchJson(`${API_BASE_URL}/api/stats/daily?${params.toString()}`);
 }
 
-export async function fetchSuspiciousClicks(
-  date?: string,
-  limit = 500,
-  offset = 0,
-  options?: SuspiciousQueryOptions
-): Promise<SuspiciousResponse> {
-  const params = new URLSearchParams();
-  if (date) params.append("date", date);
-  params.append("limit", limit.toString());
-  params.append("offset", offset.toString());
-  appendSuspiciousParams(params, options);
-  return fetchJson(`${API_BASE_URL}/api/suspicious/clicks?${params}`);
-}
-
 export async function fetchSuspiciousConversions(
   date?: string,
   limit = 500,
@@ -189,12 +172,6 @@ export async function fetchSuspiciousConversions(
   params.append("offset", offset.toString());
   appendSuspiciousParams(params, options);
   return fetchJson(`${API_BASE_URL}/api/suspicious/conversions?${params}`);
-}
-
-export async function fetchSuspiciousClickDetail(
-  findingKey: string
-): Promise<SuspiciousItem> {
-  return fetchJson(`${API_BASE_URL}/api/suspicious/clicks/${findingKey}`);
 }
 
 export async function fetchSuspiciousConversionDetail(

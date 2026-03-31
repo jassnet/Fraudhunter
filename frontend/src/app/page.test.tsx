@@ -3,27 +3,26 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import DashboardPage from "@/app/page";
-import { dashboardCopy } from "@/copy/dashboard";
+import { dashboardCopy } from "@/features/dashboard/copy";
 import { API_BASE_URL } from "@/lib/api";
 import { ADMIN_REFRESH_LOOKBACK_HOURS } from "@/lib/api/admin-client";
 import { buildSummaryResponse } from "@/test/msw/handlers";
 import { server } from "@/test/msw/server";
 
-describe("ダッシュボード画面", () => {
-  it("最新の対象日と KPI を表示する", async () => {
+describe("Dashboard page", () => {
+  it("shows the latest target date and KPIs", async () => {
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: dashboardCopy.title });
-    await screen.findByText("対象日: 2026-01-21");
+    await screen.findByText(dashboardCopy.targetDateLabel("2026-01-21"));
 
     expect(screen.getByText(dashboardCopy.labels.clicks)).toBeInTheDocument();
-    expect(screen.getByText(dashboardCopy.labels.conversions)).toBeInTheDocument();
-    expect(screen.queryByText(dashboardCopy.labels.suspiciousClicks)).not.toBeInTheDocument();
-    expect(screen.getByText(dashboardCopy.labels.suspiciousConversions)).toBeInTheDocument();
+    expect(screen.getAllByText(dashboardCopy.labels.conversions)[0]).toBeInTheDocument();
+    expect(screen.getAllByText(dashboardCopy.labels.suspiciousConversions)[0]).toBeInTheDocument();
     expect(screen.getByText(dashboardCopy.labels.chart)).toBeInTheDocument();
   });
 
-  it("admin 権限がないと操作帯を表示しない", async () => {
+  it("hides admin actions when admin access is unavailable", async () => {
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: dashboardCopy.title });
@@ -34,12 +33,13 @@ describe("ダッシュボード画面", () => {
     expect(
       screen.queryByRole("button", { name: dashboardCopy.admin.actions.masterSync })
     ).not.toBeInTheDocument();
+
     await waitFor(() => {
       expect(screen.getByText(dashboardCopy.admin.unavailableShortHint)).toBeInTheDocument();
     });
   });
 
-  it("admin 権限があると再取得を enqueue して成功後に再読込する", async () => {
+  it("enqueues refresh for admin users and reloads the summary after success", async () => {
     let summaryCalls = 0;
     let statusCalls = 0;
     let refreshPayload: Record<string, unknown> | null = null;
@@ -55,6 +55,7 @@ describe("ダッシュボード画面", () => {
             result: null,
           });
         }
+
         if (statusCalls === 2) {
           return HttpResponse.json({
             status: "running",
@@ -63,6 +64,7 @@ describe("ダッシュボード画面", () => {
             result: null,
           });
         }
+
         return HttpResponse.json({
           status: "completed",
           message: "completed",
@@ -113,7 +115,7 @@ describe("ダッシュボード画面", () => {
     });
   });
 
-  it("admin 権限があるとマスタ同期を enqueue できる", async () => {
+  it("enqueues master sync for admin users", async () => {
     let statusCalls = 0;
     let masterSyncCalls = 0;
 
@@ -128,6 +130,7 @@ describe("ダッシュボード画面", () => {
             result: null,
           });
         }
+
         return HttpResponse.json({
           status: "completed",
           message: "completed",
@@ -159,17 +162,17 @@ describe("ダッシュボード画面", () => {
     expect(masterSyncCalls).toBe(1);
   });
 
-  it("一時的なエラー時に再読込で通常表示へ戻る", async () => {
+  it("returns to the normal view after a transient error and manual retry", async () => {
     let attemptCount = 0;
+    const transientMessage = "temporary summary failure";
+
     server.use(
       http.get(`${API_BASE_URL}/api/summary`, () => {
         attemptCount += 1;
         if (attemptCount <= 3) {
-          return HttpResponse.json(
-            { detail: "一時的な取得に失敗しました" },
-            { status: 500 }
-          );
+          return HttpResponse.json({ detail: transientMessage }, { status: 500 });
         }
+
         return HttpResponse.json(buildSummaryResponse("2026-01-21"));
       })
     );
@@ -178,31 +181,31 @@ describe("ダッシュボード画面", () => {
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: dashboardCopy.states.transientTitle }, { timeout: 4000 });
-    expect(screen.getByText("一時的な取得に失敗しました")).toBeInTheDocument();
+    expect(screen.getByText(transientMessage)).toBeInTheDocument();
 
     await user.click(screen.getAllByRole("button", { name: dashboardCopy.states.retry }).at(-1)!);
 
     await screen.findByRole("heading", { name: dashboardCopy.title });
     await waitFor(() => {
-      expect(screen.queryByText("一時的な取得に失敗しました")).not.toBeInTheDocument();
+      expect(screen.queryByText(transientMessage)).not.toBeInTheDocument();
     });
   });
 
-  it("対象日を切り替えると表示を更新する", async () => {
+  it("updates the dashboard when the target date changes", async () => {
     const user = userEvent.setup();
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: dashboardCopy.title });
-    await screen.findByText("対象日: 2026-01-21");
+    await screen.findByText(dashboardCopy.targetDateLabel("2026-01-21"));
 
-    await user.selectOptions(screen.getByLabelText("対象日"), "2026-01-20");
+    await user.selectOptions(screen.getByLabelText("Target date"), "2026-01-20");
 
     await waitFor(() => {
-      expect(screen.getByText("対象日: 2026-01-20")).toBeInTheDocument();
+      expect(screen.getByText(dashboardCopy.targetDateLabel("2026-01-20"))).toBeInTheDocument();
     });
   });
 
-  it("findings stale をヘッダーに表示する", async () => {
+  it("shows the stale findings warning in the header", async () => {
     server.use(
       http.get(`${API_BASE_URL}/api/summary`, ({ request }) => {
         const url = new URL(request.url);

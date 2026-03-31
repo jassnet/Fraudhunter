@@ -30,23 +30,6 @@ class AggregatedRow:
 
 
 @dataclass
-class IpUaRollup:
-    date: date
-    ipaddress: str
-    useragent: str
-    total_clicks: int
-    media_count: int
-    program_count: int
-    first_time: datetime
-    last_time: datetime
-
-
-@dataclass
-class SuspiciousFinding(IpUaRollup):
-    reasons: List[str]
-
-
-@dataclass
 class ConversionLog:
     """成果ログ（ポストバック経由）"""
     conversion_id: str  # action_log_raw.id

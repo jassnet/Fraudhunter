@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from fraud_checker import cli
-from fraud_checker.models import ClickLog, ConversionIpUaRollup, ConversionLog, IpUaRollup
+from fraud_checker.models import ClickLog, ConversionIpUaRollup, ConversionLog
 
 
 def _click(click_id: str, at: datetime) -> ClickLog:
@@ -152,31 +152,6 @@ def test_cmd_refresh_runs_ingestion_and_detection(monkeypatch, capsys):
                 "exclude_datacenter_ip": False,
             }
 
-        def fetch_suspicious_rollups(
-            self,
-            target_date: date,
-            *,
-            click_threshold: int,
-            media_threshold: int,
-            program_threshold: int,
-            burst_click_threshold: int,
-            browser_only: bool,
-            exclude_datacenter_ip: bool,
-        ):
-            start = datetime.combine(target_date, datetime.min.time())
-            return [
-                IpUaRollup(
-                    date=target_date,
-                    ipaddress="1.1.1.1",
-                    useragent="Mozilla/5.0",
-                    total_clicks=1,
-                    media_count=1,
-                    program_count=1,
-                    first_time=start,
-                    last_time=start + timedelta(seconds=10),
-                )
-            ]
-
         def fetch_suspicious_conversion_rollups(
             self,
             target_date: date,
@@ -223,7 +198,7 @@ def test_cmd_refresh_runs_ingestion_and_detection(monkeypatch, capsys):
         cli.findings_service,
         "recompute_findings_for_dates",
         lambda repo, dates: {
-            target_date.isoformat(): {"suspicious_clicks": 1, "suspicious_conversions": 1}
+            target_date.isoformat(): {"suspicious_conversions": 1}
             for target_date in dates
         },
     )
@@ -282,7 +257,10 @@ def test_cmd_refresh_conversions_only_skips_click_warning(monkeypatch, capsys):
     monkeypatch.setattr(
         cli.findings_service,
         "recompute_findings_for_dates",
-        lambda repo, dates: {target_date.isoformat(): {"suspicious_clicks": 0, "suspicious_conversions": 1} for target_date in dates},
+        lambda repo, dates: {
+            target_date.isoformat(): {"suspicious_conversions": 1}
+            for target_date in dates
+        },
     )
     args = argparse.Namespace(
         hours=1,
@@ -445,7 +423,7 @@ def test_cmd_purge_data_runs_lifecycle_service(monkeypatch, capsys):
             "counts": {
                 "raw": {"click_raw": 10},
                 "aggregates": {"click_ipua_daily": 20},
-                "findings": {"suspicious_click_findings": 5},
+                "findings": {"suspicious_conversion_findings": 5},
                 "job_runs": {"job_runs": 3},
             },
         },

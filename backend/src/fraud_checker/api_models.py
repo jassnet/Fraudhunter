@@ -14,7 +14,6 @@ class DailyStatsItem(BaseModel):
     date: str
     clicks: int
     conversions: int
-    suspicious_clicks: int = 0
     suspicious_conversions: int = 0
 
 

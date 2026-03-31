@@ -66,10 +66,6 @@ async function enqueueAdminJob(
   }
 }
 
-export async function getJobStatus(): Promise<JobStatusResponse> {
-  return fetchJson<JobStatusResponse>(`/api/job/status`);
-}
-
 export async function getAdminJobStatus(): Promise<JobStatusResponse> {
   return fetchAdminJson<JobStatusResponse>("/job-status");
 }

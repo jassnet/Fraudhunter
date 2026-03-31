@@ -18,21 +18,17 @@ def _build_findings_freshness(
     repo: ReportingRepository,
     target_date: date | None,
     *,
-    has_click_data: bool,
     has_conversion_data: bool,
 ) -> dict:
     if target_date is None:
         return {"findings_last_computed_at": None, "stale": False, "stale_reasons": []}
 
-    del has_click_data
     settings_updated_at = repo.get_settings_updated_at()
     latest_settings_version_id = repo.get_latest_settings_version_id()
     conversion_watermark = repo.get_conversion_data_watermark(target_date)
     conversion_lineage = repo.get_conversion_findings_lineage(target_date) or {}
 
     conversion_last = conversion_lineage.get("findings_last_computed_at")
-    last_computed = conversion_last
-
     stale_reasons: list[str] = []
     if has_conversion_data:
         if conversion_last is None:
@@ -42,14 +38,16 @@ def _build_findings_freshness(
         if latest_settings_version_id:
             if conversion_lineage.get("settings_version_id") != latest_settings_version_id:
                 stale_reasons.append("settings_changed_after_conversion_findings")
-        elif settings_updated_at and conversion_lineage.get("settings_updated_at_snapshot") != settings_updated_at:
+        elif (
+            settings_updated_at
+            and conversion_lineage.get("settings_updated_at_snapshot") != settings_updated_at
+        ):
             stale_reasons.append("settings_changed_after_conversion_findings")
 
     return {
-        "findings_last_computed_at": _iso(last_computed),
+        "findings_last_computed_at": _iso(conversion_last),
         "stale": bool(stale_reasons),
         "stale_reasons": stale_reasons,
-        "click_findings_last_computed_at": None,
         "conversion_findings_last_computed_at": _iso(conversion_last),
     }
 
@@ -114,9 +112,7 @@ def get_summary(
         {"resolved_date": resolved_date},
     )
 
-    prev_date = (
-        datetime.fromisoformat(resolved_date) - timedelta(days=1)
-    ).strftime("%Y-%m-%d")
+    prev_date = (datetime.fromisoformat(resolved_date) - timedelta(days=1)).strftime("%Y-%m-%d")
 
     prev_click = repo.fetch_one(
         "SELECT COALESCE(SUM(click_count), 0) as total FROM click_ipua_daily WHERE date = :prev_date",
@@ -133,18 +129,15 @@ def get_summary(
         target_date_obj = None
 
     if target_date_obj:
-        susp_click_count = 0
         susp_conv_count = repo.count_current_conversion_findings(target_date_obj)
         click_coverage = repo.get_click_ipua_coverage(target_date_obj)
         conversion_enrichment = repo.get_conversion_click_enrichment(target_date_obj)
         findings_freshness = _build_findings_freshness(
             repo,
             target_date_obj,
-            has_click_data=bool((click_row or {}).get("total_clicks")),
             has_conversion_data=bool((conv_row or {}).get("total_conversions")),
         )
     else:
-        susp_click_count = 0
         susp_conv_count = 0
         click_coverage = None
         conversion_enrichment = None
@@ -174,7 +167,6 @@ def get_summary(
                 "prev_total": prev_conv["total"] if prev_conv else 0,
             },
             "suspicious": {
-                "click_based": susp_click_count,
                 "conversion_based": susp_conv_count,
             },
         },
@@ -193,15 +185,20 @@ def get_summary(
 
 
 def get_daily_stats(
-    repo: ReportingRepository, limit: int, target_date: str | None = None
+    repo: ReportingRepository,
+    limit: int,
+    target_date: str | None = None,
 ) -> list[dict]:
     params = {"limit": limit}
     daily_where = ""
-    findings_where = ""
+    target_date_obj: date | None = None
     if target_date:
         params["target_date"] = target_date
         daily_where = "WHERE date <= :target_date"
-        findings_where = "WHERE date <= :target_date AND is_current = TRUE"
+        try:
+            target_date_obj = date.fromisoformat(target_date)
+        except ValueError:
+            target_date_obj = None
 
     click_rows = repo.fetch_all(
         """
@@ -223,7 +220,7 @@ def get_daily_stats(
         GROUP BY date
         ORDER BY date DESC
         LIMIT :limit
-        """,
+        """.format(daily_where=daily_where),
         params,
     )
 
@@ -234,7 +231,6 @@ def get_daily_stats(
             "date": row_date,
             "clicks": row["clicks"],
             "conversions": 0,
-            "suspicious_clicks": 0,
             "suspicious_conversions": 0,
         }
     for row in conv_rows:
@@ -246,44 +242,28 @@ def get_daily_stats(
                 "date": row_date,
                 "clicks": 0,
                 "conversions": row["conversions"],
-                "suspicious_clicks": 0,
                 "suspicious_conversions": 0,
             }
-    finding_rows = repo.fetch_all(
-        """
-        SELECT date, COUNT(*) as suspicious_conversions
-        FROM suspicious_conversion_findings
-        {findings_where}
-        GROUP BY date
-        ORDER BY date DESC
-        LIMIT :limit
-        """.format(findings_where=findings_where),
-        params,
-    )
-    for row in finding_rows:
-        row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
+
+    finding_counts = repo.get_daily_finding_counts(limit, target_date=target_date_obj)
+    for row_date, counts in finding_counts.items():
         merged.setdefault(
             row_date,
             {
                 "date": row_date,
                 "clicks": 0,
                 "conversions": 0,
-                "suspicious_clicks": 0,
                 "suspicious_conversions": 0,
             },
         )
-        merged[row_date]["suspicious_conversions"] = row.get("suspicious_conversions", 0)
+        merged[row_date]["suspicious_conversions"] = counts.get("suspicious_conversions", 0)
 
     return sorted(merged.values(), key=lambda item: item["date"])
 
 
 def get_available_dates(repo: ReportingRepository) -> list[str]:
-    click_dates = repo.fetch_all(
-        "SELECT DISTINCT date FROM click_ipua_daily ORDER BY date DESC"
-    )
-    conv_dates = repo.fetch_all(
-        "SELECT DISTINCT date FROM conversion_ipua_daily ORDER BY date DESC"
-    )
+    click_dates = repo.fetch_all("SELECT DISTINCT date FROM click_ipua_daily ORDER BY date DESC")
+    conv_dates = repo.fetch_all("SELECT DISTINCT date FROM conversion_ipua_daily ORDER BY date DESC")
 
     all_dates = {
         (row["date"].isoformat() if isinstance(row["date"], date) else row["date"])

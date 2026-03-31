@@ -48,68 +48,72 @@ export function buildSummaryResponse(targetDate: string) {
 
 function buildDailyStats(limit = 30, targetDate = DEFAULT_DATES[0]) {
   return {
-    data: Array.from({ length: limit }, (_, i) => {
+    data: Array.from({ length: limit }, (_, index) => {
       const date = new Date(`${targetDate}T00:00:00Z`);
-      date.setDate(date.getDate() - (limit - 1 - i));
+      date.setDate(date.getDate() - (limit - 1 - index));
       const isoDate = date.toISOString().slice(0, 10);
       return {
         date: isoDate,
-        clicks: 700 + i * 7,
-        conversions: 120 + i * 2,
+        clicks: 700 + index * 7,
+        conversions: 120 + index * 2,
         suspicious_clicks: 0,
-        suspicious_conversions: 8 + (i % 3),
+        suspicious_conversions: 8 + (index % 3),
       };
     }),
   };
 }
 
 function buildSuspiciousRows() {
-  return Array.from({ length: 120 }, (_, i) => {
-    const index = i + 1;
-    const ipaddress = `10.0.${Math.floor(i / 255)}.${(i % 255) + 1}`;
+  return Array.from({ length: 120 }, (_, index) => {
+    const rowIndex = index + 1;
+    const ipaddress = `10.0.${Math.floor(index / 255)}.${(index % 255) + 1}`;
     return {
       date: DEFAULT_DATES[0],
+      finding_key: `finding-${rowIndex}`,
       ipaddress,
-      useragent: `Mozilla/TestAgent-${index}`,
-      media_count: (index % 4) + 1,
-      program_count: (index % 3) + 1,
-      first_time: `${DEFAULT_DATES[0]}T00:00:${String(index % 60).padStart(2, "0")}Z`,
-      last_time: `${DEFAULT_DATES[0]}T01:00:${String(index % 60).padStart(2, "0")}Z`,
+      useragent: `Mozilla/TestAgent-${rowIndex}`,
+      ipaddress_masked: `10.0.*.${(index % 255) + 1}`,
+      useragent_masked: `Mozilla/Masked-${rowIndex}`,
+      sensitive_values_masked: true,
+      media_count: (rowIndex % 4) + 1,
+      program_count: (rowIndex % 3) + 1,
+      first_time: `${DEFAULT_DATES[0]}T00:00:${String(rowIndex % 60).padStart(2, "0")}Z`,
+      last_time: `${DEFAULT_DATES[0]}T01:00:${String(rowIndex % 60).padStart(2, "0")}Z`,
       reasons: ["ip_frequency_high"],
-      reasons_formatted: ["IP からのアクセス密度が高すぎます"],
+      reasons_formatted: ["IP frequency exceeds the threshold"],
       reason_summary: "Cross-campaign activity detected",
       reason_group_count: 2,
       reason_groups: ["Cross-campaign activity detected", "Burst activity detected"],
-      reason_cluster_key: `mock-pattern-${i % 3}`,
-      risk_level: index % 2 === 0 ? "high" : "medium",
-      risk_score: 70 + (index % 20),
-      risk_label: index % 2 === 0 ? "高リスク" : "中リスク",
-      media_names: [`媒体 ${index}`],
-      program_names: [`案件 ${index}`],
-      affiliate_names: [`アフィリエイター ${index}`],
+      reason_cluster_key: `mock-pattern-${index % 3}`,
+      risk_level: rowIndex % 2 === 0 ? "high" : "medium",
+      risk_score: 70 + (rowIndex % 20),
+      risk_label: rowIndex % 2 === 0 ? "High" : "Medium",
+      media_names: [`Media ${rowIndex}`],
+      program_names: [`Program ${rowIndex}`],
+      affiliate_names: [`Affiliate ${rowIndex}`],
       details: [
         {
-          media_id: `M-${index}`,
-          program_id: `P-${index}`,
-          media_name: `媒体 ${index}`,
-          program_name: `案件 ${index}`,
-          affiliate_name: `アフィリエイター ${index}`,
-          click_count: 100 - (index % 40),
-          conversion_count: 30 - (index % 20),
+          media_id: `M-${rowIndex}`,
+          program_id: `P-${rowIndex}`,
+          media_name: `Media ${rowIndex}`,
+          program_name: `Program ${rowIndex}`,
+          affiliate_name: `Affiliate ${rowIndex}`,
+          click_count: 100 - (rowIndex % 40),
+          conversion_count: 30 - (rowIndex % 20),
         },
       ],
-      total_conversions: 140 - i,
-      min_click_to_conv_seconds: 15 + (i % 10),
-      max_click_to_conv_seconds: 90 + (i % 25),
-      linked_click_count: 16 + (i % 4),
-      linked_clicks_per_conversion: 2.25 + ((i % 3) * 0.25),
-      extra_window_click_count: 12 + (i % 5),
-      extra_window_non_browser_ratio: 0.7 + ((i % 2) * 0.1),
+      total_conversions: 140 - index,
+      min_click_to_conv_seconds: 15 + (index % 10),
+      max_click_to_conv_seconds: 90 + (index % 25),
+      linked_click_count: 16 + (index % 4),
+      linked_clicks_per_conversion: 2.25 + ((index % 3) * 0.25),
+      extra_window_click_count: 12 + (index % 5),
+      extra_window_non_browser_ratio: 0.7 + ((index % 2) * 0.1),
     };
   });
 }
 
-function paginateBySearch<T extends { ipaddress: string; useragent: string }>(
+function paginateBySearch<T extends { ipaddress: string; useragent: string; media_names?: string[] }>(
   rows: T[],
   search: string | null,
   offset: number,
@@ -120,7 +124,8 @@ function paginateBySearch<T extends { ipaddress: string; useragent: string }>(
     ? rows.filter(
         (row) =>
           row.ipaddress.toLowerCase().includes(normalized) ||
-          row.useragent.toLowerCase().includes(normalized)
+          row.useragent.toLowerCase().includes(normalized) ||
+          (row.media_names || []).some((media) => media.toLowerCase().includes(normalized))
       )
     : rows;
   return {
@@ -149,13 +154,6 @@ export const handlers = [
     return HttpResponse.json(buildDailyStats(limit, targetDate));
   }),
 
-  http.get(`${API_BASE_URL}/api/suspicious/clicks`, () => {
-    return HttpResponse.json(
-      { detail: "Suspicious click findings are deprecated; use suspicious conversions." },
-      { status: 410 }
-    );
-  }),
-
   http.get(`${API_BASE_URL}/api/suspicious/conversions`, ({ request }) => {
     const url = new URL(request.url);
     const date = url.searchParams.get("date") || DEFAULT_DATES[0];
@@ -178,13 +176,12 @@ export const handlers = [
     });
   }),
 
-  http.get(`${API_BASE_URL}/api/job/status`, () => {
-    return HttpResponse.json({
-      status: "idle",
-      message: "ジョブはありません",
-      job_id: null,
-      result: null,
-    });
+  http.get(`${API_BASE_URL}/api/suspicious/conversions/:findingKey`, ({ params }) => {
+    const findingKey = String(params.findingKey);
+    const row = suspiciousConversionRows.find((item) => item.finding_key === findingKey);
+    return row
+      ? HttpResponse.json(row)
+      : HttpResponse.json({ detail: "not found" }, { status: 404 });
   }),
 
   http.get("*/api/admin/job-status", () => {

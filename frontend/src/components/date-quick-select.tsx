@@ -7,9 +7,9 @@ import { cn } from "@/lib/utils";
 type QuickDateOption = "latest" | "yesterday" | "today";
 
 const quickDateLabels: Record<QuickDateOption, string> = {
-  latest: "最新",
-  today: "今日",
-  yesterday: "昨日",
+  latest: "Latest",
+  today: "Today",
+  yesterday: "Yesterday",
 };
 
 interface DateQuickSelectProps {
@@ -30,9 +30,9 @@ const pickAvailableDate = (candidate: string, dates: string[]) => {
 const getQuickDate = (option: QuickDateOption, dates: string[]) => {
   if (option === "latest") return dates[0] || "";
   if (option === "today") return pickAvailableDate(formatDate(new Date()), dates);
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return pickAvailableDate(formatDate(d), dates);
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return pickAvailableDate(formatDate(date), dates);
 };
 
 export function DateQuickSelect({
@@ -73,11 +73,11 @@ export function DateQuickSelect({
         className="h-10 min-w-[9rem] rounded-[var(--radius)] border border-input bg-card px-3 text-[13px] text-foreground outline-none transition-[color,box-shadow,border-color] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/45 disabled:cursor-not-allowed disabled:opacity-40"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        aria-label="対象日"
+        aria-label="Target date"
       >
         {options.length === 0 ? (
           <option value="" disabled>
-            利用可能な日付がありません
+            No dates available
           </option>
         ) : (
           options.map((option) => (

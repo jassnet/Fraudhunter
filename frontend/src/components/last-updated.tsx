@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { dashboardCopy } from "@/copy/dashboard";
+import { dashboardCopy } from "@/features/dashboard/copy";
 import { cn } from "@/lib/utils";
 
 interface LastUpdatedProps {
@@ -10,12 +10,11 @@ interface LastUpdatedProps {
   onRefresh: () => void;
   isRefreshing?: boolean;
   className?: string;
-  /** true のとき再読み込みはアイコンのみ（一覧ヘッダー用） */
   compact?: boolean;
 }
 
 const formatTime = (date: Date) =>
-  date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
 export function LastUpdated({
   lastUpdated,
@@ -34,7 +33,7 @@ export function LastUpdated({
         className
       )}
     >
-      <span>最終更新 {timeLabel}</span>
+      <span>Last updated {timeLabel}</span>
       {compact ? (
         <Button
           type="button"
@@ -46,7 +45,7 @@ export function LastUpdated({
           className="h-8 w-8 shrink-0 text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <span className="text-[15px] leading-none" aria-hidden>
-            ↻
+            {"\u21BB"}
           </span>
         </Button>
       ) : (

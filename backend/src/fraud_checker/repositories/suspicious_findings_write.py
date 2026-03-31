@@ -11,20 +11,6 @@ from .base import RepositoryBase
 
 
 class SuspiciousFindingsWriteRepository(RepositoryBase):
-    def replace_click_findings(
-        self,
-        target_date: date,
-        rows: list[dict],
-        *,
-        generation_metadata: dict,
-    ) -> None:
-        self._replace_findings(
-            "suspicious_click_findings",
-            target_date,
-            rows,
-            generation_metadata=generation_metadata,
-        )
-
     def replace_conversion_findings(
         self,
         target_date: date,
@@ -32,27 +18,12 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
         *,
         generation_metadata: dict,
     ) -> None:
-        self._replace_findings(
-            "suspicious_conversion_findings",
-            target_date,
-            rows,
-            generation_metadata=generation_metadata,
-        )
-
-    def _replace_findings(
-        self,
-        table_name: str,
-        target_date: date,
-        rows: list[dict],
-        *,
-        generation_metadata: dict,
-    ) -> None:
-        table = Base.metadata.tables[table_name]
+        table = Base.metadata.tables["suspicious_conversion_findings"]
         with self._connect() as conn:
             conn.execute(
                 sa.text(
-                    f"""
-                    UPDATE {table_name}
+                    """
+                    UPDATE suspicious_conversion_findings
                     SET is_current = FALSE
                     WHERE date = :target_date
                       AND is_current = TRUE
@@ -80,6 +51,13 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
                     "reasons_json": sa.text("excluded.reasons_json"),
                     "reasons_formatted_json": sa.text("excluded.reasons_formatted_json"),
                     "metrics_json": sa.text("excluded.metrics_json"),
+                    "total_conversions": sa.text("excluded.total_conversions"),
+                    "media_count": sa.text("excluded.media_count"),
+                    "program_count": sa.text("excluded.program_count"),
+                    "min_click_to_conv_seconds": sa.text("excluded.min_click_to_conv_seconds"),
+                    "max_click_to_conv_seconds": sa.text("excluded.max_click_to_conv_seconds"),
+                    "first_time": sa.text("excluded.first_time"),
+                    "last_time": sa.text("excluded.last_time"),
                     "rule_version": sa.text("excluded.rule_version"),
                     "computed_at": sa.text("excluded.computed_at"),
                     "computed_by_job_id": sa.text("excluded.computed_by_job_id"),
@@ -89,23 +67,6 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
                     "generation_id": sa.text("excluded.generation_id"),
                     "is_current": sa.text("excluded.is_current"),
                     "search_text": sa.text("excluded.search_text"),
-                    "first_time": sa.text("excluded.first_time"),
-                    "last_time": sa.text("excluded.last_time"),
-                    "media_count": sa.text("excluded.media_count"),
-                    "program_count": sa.text("excluded.program_count"),
-                    **(
-                        {"total_clicks": sa.text("excluded.total_clicks")}
-                        if "total_clicks" in table.c
-                        else {"total_conversions": sa.text("excluded.total_conversions")}
-                    ),
-                    **(
-                        {
-                            "min_click_to_conv_seconds": sa.text("excluded.min_click_to_conv_seconds"),
-                            "max_click_to_conv_seconds": sa.text("excluded.max_click_to_conv_seconds"),
-                        }
-                        if "min_click_to_conv_seconds" in table.c
-                        else {}
-                    ),
                 },
             )
             conn.execute(stmt, rows)

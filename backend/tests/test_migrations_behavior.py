@@ -5,6 +5,26 @@ from pathlib import Path
 from fraud_checker.migrations import infer_legacy_schema_revision
 
 
+def test_infer_legacy_schema_revision_for_post_drop_click_schema() -> None:
+    revision = infer_legacy_schema_revision(
+        {
+            "click_ipua_daily",
+            "conversion_ipua_daily",
+            "job_runs",
+            "settings_versions",
+            "findings_generations",
+            "suspicious_conversion_findings",
+        },
+        {
+            "job_runs": {"id", "attempt_count", "next_retry_at", "concurrency_key"},
+            "findings_generations": {"generation_id", "settings_version_id"},
+            "settings_versions": {"id", "fingerprint"},
+        },
+    )
+
+    assert revision == "0010_drop_click_findings"
+
+
 def test_infer_legacy_schema_revision_for_persisted_findings_without_lineage() -> None:
     revision = infer_legacy_schema_revision(
         {
@@ -102,10 +122,10 @@ def test_infer_legacy_schema_revision_for_queue_concurrency_ready_schema() -> No
     assert revision == "0008_job_run_concurrency"
 
 
-def test_head_revision_advances_beyond_queue_concurrency_schema() -> None:
+def test_head_revision_advances_beyond_findings_search_indexes() -> None:
     from fraud_checker.migrations import ALEMBIC_HEAD_REVISION
 
-    assert ALEMBIC_HEAD_REVISION == "0009_findings_search_idx"
+    assert ALEMBIC_HEAD_REVISION == "0010_drop_click_findings"
 
 
 def test_head_revision_fits_alembic_version_column_limit() -> None:
@@ -126,3 +146,16 @@ def test_findings_search_index_migration_enables_pg_trgm_for_current_findings() 
     assert "idx_scf_search_text_trgm" in migration
     assert "idx_scof_search_text_trgm" in migration
     assert "WHERE is_current = TRUE" in migration
+
+
+def test_drop_click_findings_migration_removes_table_and_generation_rows() -> None:
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "0010_drop_click_findings.py"
+    ).read_text(encoding="utf-8")
+
+    assert "DELETE FROM findings_generations WHERE finding_type = 'click'" in migration
+    assert "op.drop_table(\"suspicious_click_findings\")" in migration
+    assert "DROP INDEX IF EXISTS idx_scf_search_text_trgm" in migration
