@@ -13,6 +13,11 @@ from .models import (
 )
 from .repository_pg import PostgresRepository
 
+CLICK_PADDING_EXTRA_WINDOW_SECONDS = 1800
+CLICK_PADDING_LINKED_RATIO_THRESHOLD = 2.0
+CLICK_PADDING_EXTRA_WINDOW_THRESHOLD = 10
+CLICK_PADDING_NON_BROWSER_RATIO_THRESHOLD = 0.7
+
 
 def _is_browser_useragent(ua: str) -> bool:
     """ブラウザ由来のUAかどうかを簡易判定（SQLフィルタと同等の条件）。"""
@@ -161,11 +166,42 @@ class ConversionSuspiciousDetector:
                 rollups.append(candidate)
                 rollup_map[key] = candidate
 
+        padding_stats = (
+            self.repository.fetch_conversion_click_padding_metrics(
+                target_date,
+                [(rollup.ipaddress, rollup.useragent) for rollup in rollups],
+                extra_window_seconds=CLICK_PADDING_EXTRA_WINDOW_SECONDS,
+            )
+            if rollups
+            else {}
+        )
+
         findings: List[SuspiciousConversionFinding] = []
         for rollup in rollups:
             gap_info = gap_stats.get((rollup.ipaddress, rollup.useragent))
-            reasons = self._reasons_for_rollup(rollup, gap_info)
+            padding_info = padding_stats.get((rollup.ipaddress, rollup.useragent))
+            reasons = self._reasons_for_rollup(rollup, gap_info, padding_info)
             if reasons:
+                linked_click_count = (
+                    int(padding_info["linked_click_count"])
+                    if padding_info and padding_info.get("linked_click_count") is not None
+                    else None
+                )
+                extra_window_click_count = (
+                    int(padding_info["extra_window_click_count"])
+                    if padding_info and padding_info.get("extra_window_click_count") is not None
+                    else None
+                )
+                linked_clicks_per_conversion = (
+                    linked_click_count / rollup.conversion_count
+                    if linked_click_count is not None and rollup.conversion_count > 0
+                    else None
+                )
+                extra_window_non_browser_ratio = (
+                    padding_info.get("extra_window_non_browser_ratio")
+                    if padding_info
+                    else None
+                )
                 findings.append(
                     SuspiciousConversionFinding(
                         date=rollup.date,
@@ -179,6 +215,10 @@ class ConversionSuspiciousDetector:
                         reasons=reasons,
                         min_click_to_conv_seconds=gap_info.get("min") if gap_info else None,
                         max_click_to_conv_seconds=gap_info.get("max") if gap_info else None,
+                        linked_click_count=linked_click_count,
+                        linked_clicks_per_conversion=linked_clicks_per_conversion,
+                        extra_window_click_count=extra_window_click_count,
+                        extra_window_non_browser_ratio=extra_window_non_browser_ratio,
                     )
                 )
         return findings
@@ -187,6 +227,7 @@ class ConversionSuspiciousDetector:
         self,
         rollup: ConversionIpUaRollup,
         gap_info: Optional[dict] = None,
+        padding_info: Optional[dict] = None,
     ) -> List[str]:
         reasons: List[str] = []
         if rollup.conversion_count >= self.rules.conversion_threshold:
@@ -230,6 +271,58 @@ class ConversionSuspiciousDetector:
                 reasons.append(
                     f"click_to_conversion_seconds >= {self.rules.max_click_to_conv_seconds}s "
                     f"(max={int(max_gap)}s)"
+                )
+
+        if padding_info:
+            linked_click_count = padding_info.get("linked_click_count")
+            linked_clicks_per_conversion = (
+                linked_click_count / rollup.conversion_count
+                if linked_click_count is not None and rollup.conversion_count > 0
+                else None
+            )
+            if (
+                linked_clicks_per_conversion is not None
+                and linked_clicks_per_conversion >= CLICK_PADDING_LINKED_RATIO_THRESHOLD
+            ):
+                reasons.append(
+                    "click_padding_linked_ratio >= "
+                    f"{CLICK_PADDING_LINKED_RATIO_THRESHOLD:.1f} "
+                    f"(actual={linked_clicks_per_conversion:.2f})"
+                )
+
+            extra_window_click_count = padding_info.get("extra_window_click_count")
+            if (
+                extra_window_click_count is not None
+                and extra_window_click_count >= CLICK_PADDING_EXTRA_WINDOW_THRESHOLD
+            ):
+                reasons.append(
+                    "click_padding_extra_window >= "
+                    f"{CLICK_PADDING_EXTRA_WINDOW_THRESHOLD} in 30m "
+                    f"(actual={int(extra_window_click_count)})"
+                )
+
+            extra_window_useragents = padding_info.get("extra_window_useragents") or []
+            if extra_window_useragents:
+                non_browser_count = sum(
+                    1 for useragent in extra_window_useragents if not _is_browser_useragent(useragent)
+                )
+                padding_info["extra_window_non_browser_ratio"] = (
+                    non_browser_count / len(extra_window_useragents)
+                )
+            else:
+                padding_info["extra_window_non_browser_ratio"] = None
+
+            non_browser_ratio = padding_info.get("extra_window_non_browser_ratio")
+            if (
+                extra_window_click_count is not None
+                and extra_window_click_count >= CLICK_PADDING_EXTRA_WINDOW_THRESHOLD
+                and non_browser_ratio is not None
+                and non_browser_ratio >= CLICK_PADDING_NON_BROWSER_RATIO_THRESHOLD
+            ):
+                reasons.append(
+                    "click_padding_non_browser_ratio >= "
+                    f"{CLICK_PADDING_NON_BROWSER_RATIO_THRESHOLD:.1f} "
+                    f"(actual={non_browser_ratio:.2f})"
                 )
         return reasons
 

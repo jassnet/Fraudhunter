@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Fraud Checker",
-  description: "不正監視モニタリングダッシュボード",
+  description: "不正検知結果のモニタリング用ダッシュボードです。",
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ja">
+    <html lang="ja" data-theme="dark" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <AppShell>{children}</AppShell>
       </body>

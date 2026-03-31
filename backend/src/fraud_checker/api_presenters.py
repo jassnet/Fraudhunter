@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Optional
 
@@ -14,6 +15,17 @@ RISK_LABELS = {
     "high": "高リスク",
     "medium": "中リスク",
     "low": "低リスク",
+}
+
+_REASON_PRIORITY = {
+    "spread_both": 0,
+    "spread_media": 0,
+    "spread_program": 0,
+    "click_padding": 1,
+    "burst": 2,
+    "timing_fast": 3,
+    "timing_slow": 3,
+    "volume": 4,
 }
 
 
@@ -42,13 +54,98 @@ def format_reasons(reasons: list[str]) -> list[str]:
         elif reason.startswith("click_to_conversion_seconds >="):
             threshold = reason.split(">=")[1].split("s")[0].strip()
             formatted.append(f"クリックから成果までの時間が長すぎます（{threshold}秒以上）")
+        elif reason.startswith("click_padding_linked_ratio >="):
+            threshold = reason.split(">=")[1].split("(")[0].strip()
+            formatted.append(
+                f"不審CVに紐づくクリック数が多すぎます（CVあたり{threshold}件以上）"
+            )
+        elif reason.startswith("click_padding_extra_window >="):
+            threshold = reason.split(">=")[1].split("in")[0].strip()
+            formatted.append(
+                f"不審CVの前後30分に追加クリックが集中しています（{threshold}件以上）"
+            )
+        elif reason.startswith("click_padding_non_browser_ratio >="):
+            threshold = reason.split(">=")[1].split("(")[0].strip()
+            formatted.append(
+                f"追加クリックの非ブラウザ比率が高すぎます（{threshold}以上）"
+            )
         else:
             formatted.append(reason)
     return formatted
 
 
+def _collect_reason_group_entries(reasons: list[str], *, is_conversion: bool) -> list[tuple[str, str]]:
+    grouped: list[tuple[str, str]] = []
+
+    has_media_spread = any(reason.startswith("media_count >=") for reason in reasons)
+    has_program_spread = any(reason.startswith("program_count >=") for reason in reasons)
+    if has_media_spread or has_program_spread:
+        if has_media_spread and has_program_spread:
+            grouped.append(("spread_both", "\u540c\u4e00 IP/UA \u3067\u8907\u6570\u5a92\u4f53\u30fb\u8907\u6570\u6848\u4ef6\u306b\u307e\u305f\u304c\u308b\u6210\u679c\u304c\u3042\u308a\u307e\u3059"))
+        elif has_media_spread:
+            grouped.append(("spread_media", "\u540c\u4e00 IP/UA \u3067\u8907\u6570\u5a92\u4f53\u306b\u307e\u305f\u304c\u308b\u6210\u679c\u304c\u3042\u308a\u307e\u3059"))
+        else:
+            grouped.append(("spread_program", "\u540c\u4e00 IP/UA \u3067\u8907\u6570\u6848\u4ef6\u306b\u307e\u305f\u304c\u308b\u6210\u679c\u304c\u3042\u308a\u307e\u3059"))
+
+    if any(reason.startswith("click_padding_") for reason in reasons):
+        grouped.append(("click_padding", "\u4e0d\u5be9CV\u3092\u96a0\u3059\u305f\u3081\u306e\u30af\u30ea\u30c3\u30af\u4e0a\u4e57\u305b\u304c\u7591\u308f\u308c\u307e\u3059"))
+
+    if any(reason.startswith("burst:") for reason in reasons):
+        grouped.append(
+            (
+                "burst",
+                "\u77ed\u6642\u9593\u306b\u6210\u679c\u304c\u96c6\u4e2d\u3057\u3066\u3044\u307e\u3059"
+                if is_conversion
+                else "\u77ed\u6642\u9593\u306b\u30af\u30ea\u30c3\u30af\u304c\u96c6\u4e2d\u3057\u3066\u3044\u307e\u3059",
+            )
+        )
+
+    if any(reason.startswith("click_to_conversion_seconds <=") for reason in reasons):
+        grouped.append(("timing_fast", "\u30af\u30ea\u30c3\u30af\u304b\u3089\u6210\u679c\u307e\u3067\u306e\u6642\u9593\u304c\u77ed\u3059\u304e\u307e\u3059"))
+    if any(reason.startswith("click_to_conversion_seconds >=") for reason in reasons):
+        grouped.append(("timing_slow", "\u30af\u30ea\u30c3\u30af\u304b\u3089\u6210\u679c\u307e\u3067\u306e\u6642\u9593\u304c\u9577\u3059\u304e\u307e\u3059"))
+
+    has_volume_reason = any(
+        reason.startswith("total_clicks >=") or reason.startswith("conversion_count >=")
+        for reason in reasons
+    )
+    if has_volume_reason:
+        grouped.append(
+            (
+                "volume",
+                "\u540c\u4e00 IP/UA \u304b\u3089\u6210\u679c\u304c\u96c6\u4e2d\u3057\u3066\u3044\u307e\u3059"
+                if is_conversion
+                else "\u540c\u4e00 IP/UA \u304b\u3089\u30af\u30ea\u30c3\u30af\u304c\u96c6\u4e2d\u3057\u3066\u3044\u307e\u3059",
+            )
+        )
+
+    grouped.sort(key=lambda item: _REASON_PRIORITY.get(item[0], 99))
+    return grouped
+
+
+def _reason_cluster_key_from_entries(grouped: list[tuple[str, str]], raw_reasons: list[str]) -> str:
+    if grouped:
+        ids = sorted({gid for gid, _ in grouped})
+        return "|".join(ids)
+    raw = "\n".join(sorted(raw_reasons))
+    digest = hashlib.sha256(raw.encode()).hexdigest()[:16]
+    return f"raw:{digest}"
+
+
+def build_reason_display(reasons: list[str], *, is_conversion: bool) -> dict:
+    grouped = _collect_reason_group_entries(reasons, is_conversion=is_conversion)
+    reason_groups = [label for _, label in grouped]
+    return {
+        "reason_summary": reason_groups[0] if reason_groups else None,
+        "reason_group_count": len(reason_groups),
+        "reason_groups": reason_groups,
+        "reason_cluster_key": _reason_cluster_key_from_entries(grouped, reasons),
+    }
+
+
 def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = False) -> dict:
     score = len(reasons) * 20
+    has_click_padding_reason = any(reason.startswith("click_padding_") for reason in reasons)
 
     for reason in reasons:
         if "burst" in reason.lower():
@@ -57,6 +154,8 @@ def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = F
             score += 25
         if "media_count" in reason or "program_count" in reason:
             score += 15
+    if has_click_padding_reason:
+        score += 25
 
     if is_conversion:
         if count >= 10:
@@ -200,6 +299,7 @@ def _evidence_fields(value: object) -> dict:
 
 def present_click_finding(finding, include_names: bool, details: list[dict] | None = None) -> dict:
     risk = calculate_risk_level(finding.reasons, finding.total_clicks, is_conversion=False)
+    reason_display = build_reason_display(finding.reasons, is_conversion=False)
     item = {
         "date": finding.date.isoformat(),
         "ipaddress": finding.ipaddress,
@@ -214,6 +314,7 @@ def present_click_finding(finding, include_names: bool, details: list[dict] | No
         "risk_level": risk["level"],
         "risk_score": risk["score"],
         "risk_label": risk["label"],
+        **reason_display,
         **_evidence_fields(finding.date),
     }
     if include_names:
@@ -223,6 +324,7 @@ def present_click_finding(finding, include_names: bool, details: list[dict] | No
 
 def present_conversion_finding(finding, include_names: bool, details: list[dict] | None = None) -> dict:
     risk = calculate_risk_level(finding.reasons, finding.conversion_count, is_conversion=True)
+    reason_display = build_reason_display(finding.reasons, is_conversion=True)
     item = {
         "date": finding.date.isoformat(),
         "ipaddress": finding.ipaddress,
@@ -236,9 +338,14 @@ def present_conversion_finding(finding, include_names: bool, details: list[dict]
         "reasons_formatted": format_reasons(finding.reasons),
         "min_click_to_conv_seconds": finding.min_click_to_conv_seconds,
         "max_click_to_conv_seconds": finding.max_click_to_conv_seconds,
+        "linked_click_count": finding.linked_click_count,
+        "linked_clicks_per_conversion": finding.linked_clicks_per_conversion,
+        "extra_window_click_count": finding.extra_window_click_count,
+        "extra_window_non_browser_ratio": finding.extra_window_non_browser_ratio,
         "risk_level": risk["level"],
         "risk_score": risk["score"],
         "risk_label": risk["label"],
+        **reason_display,
         **_evidence_fields(finding.date),
     }
     if include_names:
@@ -256,6 +363,7 @@ def present_click_finding_record(
     useragent = row["useragent"]
     masked_ip = mask_ipaddress(ipaddress)
     masked_ua = mask_useragent(useragent)
+    reason_display = build_reason_display(row["reasons_json"], is_conversion=False)
     item = {
         "finding_key": row["finding_key"],
         "date": row["date"].isoformat() if hasattr(row["date"], "isoformat") else row["date"],
@@ -274,6 +382,7 @@ def present_click_finding_record(
         "risk_level": row["risk_level"],
         "risk_score": row["risk_score"],
         "risk_label": RISK_LABELS.get(row["risk_level"], row["risk_level"]),
+        **reason_display,
         "media_names": row.get("media_names_json") or [],
         "program_names": row.get("program_names_json") or [],
         "affiliate_names": row.get("affiliate_names_json") or [],
@@ -294,6 +403,8 @@ def present_conversion_finding_record(
     useragent = row["useragent"]
     masked_ip = mask_ipaddress(ipaddress)
     masked_ua = mask_useragent(useragent)
+    reason_display = build_reason_display(row["reasons_json"], is_conversion=True)
+    metrics = row.get("metrics_json") or {}
     item = {
         "finding_key": row["finding_key"],
         "date": row["date"].isoformat() if hasattr(row["date"], "isoformat") else row["date"],
@@ -311,9 +422,14 @@ def present_conversion_finding_record(
         "reasons_formatted": row["reasons_formatted_json"],
         "min_click_to_conv_seconds": row.get("min_click_to_conv_seconds"),
         "max_click_to_conv_seconds": row.get("max_click_to_conv_seconds"),
+        "linked_click_count": metrics.get("linked_click_count"),
+        "linked_clicks_per_conversion": metrics.get("linked_clicks_per_conversion"),
+        "extra_window_click_count": metrics.get("extra_window_click_count"),
+        "extra_window_non_browser_ratio": metrics.get("extra_window_non_browser_ratio"),
         "risk_level": row["risk_level"],
         "risk_score": row["risk_score"],
         "risk_label": RISK_LABELS.get(row["risk_level"], row["risk_level"]),
+        **reason_display,
         "media_names": row.get("media_names_json") or [],
         "program_names": row.get("program_names_json") or [],
         "affiliate_names": row.get("affiliate_names_json") or [],

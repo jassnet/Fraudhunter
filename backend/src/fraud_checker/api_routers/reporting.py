@@ -25,9 +25,9 @@ def get_summary(target_date: Optional[str] = None):
 
 
 @router.get("/stats/daily", response_model=DailyStatsResponse)
-def get_daily_stats(limit: int = 30):
+def get_daily_stats(limit: int = 30, target_date: Optional[str] = None):
     try:
-        data = reporting.get_daily_stats(get_repository(), limit)
+        data = reporting.get_daily_stats(get_repository(), limit, target_date)
         return DailyStatsResponse(data=data)
     except Exception:
         logger.exception("Error getting daily stats")

@@ -13,18 +13,22 @@ export function PageHeader({ title, meta, actions, status, className }: PageHead
   return (
     <header
       className={cn(
-        "flex min-h-12 flex-wrap items-start gap-3 border-b border-border px-6 py-4 sm:px-8",
+        "flex min-h-12 flex-col gap-3 border-b border-border bg-card/40 px-4 py-3 backdrop-blur-sm sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-x-4 sm:px-6",
         className
       )}
     >
       <div className="min-w-0 space-y-1">
-        <h1 className="truncate text-[1.75rem] font-bold tracking-[-0.03em] text-foreground">
+        <h1 className="text-[1.375rem] font-bold leading-tight tracking-[-0.03em] text-foreground sm:text-[1.75rem]">
           {title}
         </h1>
-        {meta ? <div className="text-[13px] text-foreground/82">{meta}</div> : null}
-        {status ? <div>{status}</div> : null}
+        {meta ? <div className="text-[13px] text-muted-foreground">{meta}</div> : null}
+        {status ? <div className="pt-0.5">{status}</div> : null}
       </div>
-      {actions ? <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div> : null}
+      {actions ? (
+        <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:max-w-[min(100%,42rem)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+          {actions}
+        </div>
+      ) : null}
     </header>
   );
 }

@@ -19,7 +19,7 @@ export function buildSummaryResponse(targetDate: string) {
         prev_total: 190,
       },
       suspicious: {
-        click_based: 42,
+        click_based: 0,
         conversion_based: 17,
       },
     },
@@ -46,30 +46,28 @@ export function buildSummaryResponse(targetDate: string) {
   };
 }
 
-function buildDailyStats() {
+function buildDailyStats(limit = 30, targetDate = DEFAULT_DATES[0]) {
   return {
-    data: Array.from({ length: 30 }, (_, i) => {
-      const date = new Date("2026-01-21T00:00:00Z");
-      date.setDate(date.getDate() - (29 - i));
+    data: Array.from({ length: limit }, (_, i) => {
+      const date = new Date(`${targetDate}T00:00:00Z`);
+      date.setDate(date.getDate() - (limit - 1 - i));
       const isoDate = date.toISOString().slice(0, 10);
       return {
         date: isoDate,
         clicks: 700 + i * 7,
         conversions: 120 + i * 2,
-        suspicious_clicks: 20 + (i % 5),
+        suspicious_clicks: 0,
         suspicious_conversions: 8 + (i % 3),
       };
     }),
   };
 }
 
-type SuspiciousKind = "clicks" | "conversions";
-
-function buildSuspiciousRows(kind: SuspiciousKind) {
+function buildSuspiciousRows() {
   return Array.from({ length: 120 }, (_, i) => {
     const index = i + 1;
     const ipaddress = `10.0.${Math.floor(i / 255)}.${(i % 255) + 1}`;
-    const common = {
+    return {
       date: DEFAULT_DATES[0],
       ipaddress,
       useragent: `Mozilla/TestAgent-${index}`,
@@ -79,6 +77,10 @@ function buildSuspiciousRows(kind: SuspiciousKind) {
       last_time: `${DEFAULT_DATES[0]}T01:00:${String(index % 60).padStart(2, "0")}Z`,
       reasons: ["ip_frequency_high"],
       reasons_formatted: ["IP からのアクセス密度が高すぎます"],
+      reason_summary: "Cross-campaign activity detected",
+      reason_group_count: 2,
+      reason_groups: ["Cross-campaign activity detected", "Burst activity detected"],
+      reason_cluster_key: `mock-pattern-${i % 3}`,
       risk_level: index % 2 === 0 ? "high" : "medium",
       risk_score: 70 + (index % 20),
       risk_label: index % 2 === 0 ? "高リスク" : "中リスク",
@@ -96,20 +98,13 @@ function buildSuspiciousRows(kind: SuspiciousKind) {
           conversion_count: 30 - (index % 20),
         },
       ],
-    };
-
-    if (kind === "clicks") {
-      return {
-        ...common,
-        total_clicks: 220 - i,
-      };
-    }
-
-    return {
-      ...common,
       total_conversions: 140 - i,
       min_click_to_conv_seconds: 15 + (i % 10),
       max_click_to_conv_seconds: 90 + (i % 25),
+      linked_click_count: 16 + (i % 4),
+      linked_clicks_per_conversion: 2.25 + ((i % 3) * 0.25),
+      extra_window_click_count: 12 + (i % 5),
+      extra_window_non_browser_ratio: 0.7 + ((i % 2) * 0.1),
     };
   });
 }
@@ -134,8 +129,7 @@ function paginateBySearch<T extends { ipaddress: string; useragent: string }>(
   };
 }
 
-const suspiciousClickRows = buildSuspiciousRows("clicks");
-const suspiciousConversionRows = buildSuspiciousRows("conversions");
+const suspiciousConversionRows = buildSuspiciousRows();
 
 export const handlers = [
   http.get(`${API_BASE_URL}/api/dates`, () => {
@@ -148,30 +142,18 @@ export const handlers = [
     return HttpResponse.json(buildSummaryResponse(targetDate));
   }),
 
-  http.get(`${API_BASE_URL}/api/stats/daily`, () => {
-    return HttpResponse.json(buildDailyStats());
+  http.get(`${API_BASE_URL}/api/stats/daily`, ({ request }) => {
+    const url = new URL(request.url);
+    const limit = Number(url.searchParams.get("limit") || "30");
+    const targetDate = url.searchParams.get("target_date") || DEFAULT_DATES[0];
+    return HttpResponse.json(buildDailyStats(limit, targetDate));
   }),
 
-  http.get(`${API_BASE_URL}/api/suspicious/clicks`, ({ request }) => {
-    const url = new URL(request.url);
-    const date = url.searchParams.get("date") || DEFAULT_DATES[0];
-    const limit = Number(url.searchParams.get("limit") || "50");
-    const offset = Number(url.searchParams.get("offset") || "0");
-    const search = url.searchParams.get("search");
-    const { filtered, paginated } = paginateBySearch(
-      suspiciousClickRows,
-      search,
-      offset,
-      limit
+  http.get(`${API_BASE_URL}/api/suspicious/clicks`, () => {
+    return HttpResponse.json(
+      { detail: "Suspicious click findings are deprecated; use suspicious conversions." },
+      { status: 410 }
     );
-
-    return HttpResponse.json({
-      date,
-      data: paginated,
-      total: filtered.length,
-      limit,
-      offset,
-    });
   }),
 
   http.get(`${API_BASE_URL}/api/suspicious/conversions`, ({ request }) => {

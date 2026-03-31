@@ -146,6 +146,116 @@ h3 {
   letter-spacing: -0.01em;
 }
 
+/**
+ * 不審一覧の詳細ドロワー: メイン UI と反転（黒テーマ＝白ドロワー、白テーマ＝黒ドロワー）
+ */
+.fc-detail-drawer-backdrop {
+  background-color: rgb(0 0 0 / 0.82);
+}
+
+html[data-theme="light"] .fc-detail-drawer-backdrop {
+  background-color: rgb(15 23 42 / 0.72);
+}
+
+html[data-theme="dark"] .fc-detail-drawer-panel {
+  background-color: #ffffff;
+  border-left-color: rgb(226 232 240);
+  box-shadow:
+    -14px 0 48px rgb(0 0 0 / 0.28),
+    inset 1px 0 0 rgb(255 255 255);
+  color: rgb(15 23 42);
+  --foreground: 222 47% 11%;
+  --card-foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --muted-foreground: 215 16% 38%;
+  --border: 214 32% 82%;
+  --muted: 210 40% 96%;
+  --background: 0 0% 100%;
+}
+
+html[data-theme="dark"] .fc-detail-drawer-panel .fc-detail-drawer-panel-body {
+  background-color: #ffffff;
+  color: rgb(15 23 42);
+}
+
+html[data-theme="light"] .fc-detail-drawer-panel {
+  background-color: #0a0a0a;
+  border-left-color: rgb(51 65 85);
+  box-shadow:
+    -14px 0 48px rgb(0 0 0 / 0.45),
+    inset 1px 0 0 rgb(30 41 59);
+  color: rgb(248 250 252);
+  --foreground: 210 40% 98%;
+  --card-foreground: 210 40% 98%;
+  --card: 0 0% 6%;
+  --muted-foreground: 215 20% 65%;
+  --border: 217 19% 30%;
+  --muted: 0 0% 16%;
+  --background: 0 0% 7%;
+}
+
+html[data-theme="light"] .fc-detail-drawer-panel .fc-detail-drawer-panel-body {
+  background-color: #0a0a0a;
+  color: rgb(248 250 252);
+}
+
+.fc-mobile-nav-backdrop {
+  background-color: rgb(15 23 42 / 0.28);
+  backdrop-filter: blur(3px);
+}
+
+.fc-mobile-nav-panel {
+  border-right: 1px solid hsl(var(--border) / 0.82);
+  background-color: hsl(var(--card) / 0.96);
+  backdrop-filter: blur(18px);
+  box-shadow:
+    0 22px 60px rgb(15 23 42 / 0.24),
+    inset -1px 0 0 rgb(255 255 255 / 0.04);
+}
+
+.fc-mobile-nav-edge {
+  background: linear-gradient(to right, rgb(15 23 42 / 0.18), transparent);
+}
+
+html[data-theme="dark"] .fc-mobile-nav-backdrop {
+  background:
+    radial-gradient(circle at left center, rgb(255 255 255 / 0.06), transparent 42%),
+    rgb(2 6 23 / 0.34);
+  backdrop-filter: blur(5px);
+}
+
+html[data-theme="dark"] .fc-mobile-nav-panel {
+  border-right-color: rgb(203 213 225 / 0.22);
+  background:
+    linear-gradient(180deg, rgb(30 41 59 / 0.96), rgb(15 23 42 / 0.98));
+  box-shadow:
+    0 26px 80px rgb(2 6 23 / 0.5),
+    inset -1px 0 0 rgb(255 255 255 / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.05);
+}
+
+html[data-theme="dark"] .fc-mobile-nav-edge {
+  background: linear-gradient(to right, rgb(148 163 184 / 0.14), transparent);
+}
+
+html[data-theme="light"] .fc-mobile-nav-backdrop {
+  background: rgb(15 23 42 / 0.18);
+  backdrop-filter: blur(2px);
+}
+
+html[data-theme="light"] .fc-mobile-nav-panel {
+  border-right-color: rgb(148 163 184 / 0.35);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.98), rgb(248 250 252 / 0.98));
+  box-shadow:
+    0 22px 60px rgb(15 23 42 / 0.16),
+    inset -1px 0 0 rgb(255 255 255 / 0.8);
+}
+
+html[data-theme="light"] .fc-mobile-nav-edge {
+  background: linear-gradient(to right, rgb(15 23 42 / 0.1), transparent);
+}
+
 ::selection {
   background: var(--selection-bg);
   color: hsl(var(--foreground));

@@ -19,15 +19,20 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const baseClasses =
-  "inline-flex items-center justify-center border text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40";
+  "inline-flex shrink-0 items-center justify-center rounded-[var(--radius)] border text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40";
 
 const variantClasses: Record<ButtonVariant, string> = {
-  default: "border-white bg-white text-black hover:bg-neutral-200",
-  destructive: "border-destructive bg-destructive text-destructive-foreground hover:bg-[#ff5f55]",
-  outline: "border-input bg-transparent text-foreground hover:bg-white/[0.10]",
-  secondary: "border-transparent bg-secondary text-secondary-foreground hover:bg-white/[0.14]",
-  ghost: "border-transparent bg-transparent text-foreground hover:bg-white/[0.10]",
-  link: "border-transparent bg-transparent px-0 text-foreground underline-offset-4 hover:underline",
+  default:
+    "border-primary bg-primary text-primary-foreground hover:bg-primary/88 active:bg-primary/80",
+  destructive:
+    "border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/85",
+  outline:
+    "border-input bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/80",
+  secondary:
+    "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80 active:bg-secondary/70",
+  ghost:
+    "border-transparent bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/80",
+  link: "border-transparent bg-transparent px-0 text-foreground underline-offset-4 hover:underline focus-visible:ring-offset-0",
 };
 
 const sizeClasses: Record<ButtonSize, string> = {

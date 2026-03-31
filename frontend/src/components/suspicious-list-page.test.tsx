@@ -2,12 +2,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SuspiciousListPage from "@/components/suspicious-list-page";
+import { suspiciousCopy } from "@/copy/suspicious";
+import { SUSPICIOUS_LIST_PAGE_SIZE } from "@/features/suspicious-list/use-suspicious-data";
 import { ApiError } from "@/lib/api";
 import type { SuspiciousItem, SuspiciousQueryOptions, SuspiciousResponse } from "@/lib/api";
 
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
-  pathname: "/suspicious/clicks",
+  pathname: "/suspicious/conversions",
   searchParams: new URLSearchParams(),
 }));
 
@@ -53,7 +55,7 @@ function createFetcher(rows = buildRows()) {
   return vi.fn(
     async (
       date?: string,
-      limit = 50,
+      limit = SUSPICIOUS_LIST_PAGE_SIZE,
       offset = 0,
       options?: SuspiciousQueryOptions
     ): Promise<SuspiciousResponse> => {
@@ -124,8 +126,8 @@ function renderPage(
 ) {
   return render(
     <SuspiciousListPage
-      title="不審クリック"
-      countLabel="クリック数"
+      title={suspiciousCopy.conversionsTitle}
+      countLabel={suspiciousCopy.countLabelClicks}
       fetcher={fetcher}
       fetchDetail={detailFetcher}
       metricKey="total_clicks"
@@ -136,7 +138,7 @@ function renderPage(
 describe("不審一覧画面", () => {
   beforeEach(() => {
     navigation.replace.mockReset();
-    navigation.pathname = "/suspicious/clicks";
+    navigation.pathname = "/suspicious/conversions";
     navigation.searchParams = new URLSearchParams("date=2026-01-21");
   });
 
@@ -144,14 +146,13 @@ describe("不審一覧画面", () => {
     const fetcher = createFetcher();
     renderPage(fetcher);
 
-    await screen.findByRole("heading", { name: "不審クリック" });
-    expect(await screen.findAllByText("1-50件 / 全120件")).toHaveLength(2);
+    await screen.findByRole("heading", { name: suspiciousCopy.conversionsTitle });
+    expect(await screen.findByLabelText("表示件数")).toHaveTextContent(
+      `1〜${SUSPICIOUS_LIST_PAGE_SIZE}件（全120件）`
+    );
 
     expect(screen.getByText("10.0.*.1")).toBeInTheDocument();
     expect(screen.getAllByText("高リスク").length).toBeGreaterThan(0);
-    expect(
-      screen.getByText("一覧では機微情報をマスクしています。詳細な値は詳細画面でのみ確認できます。")
-    ).toBeInTheDocument();
   });
 
   it("検索語を URL durable state として反映する", async () => {
@@ -159,34 +160,36 @@ describe("不審一覧画面", () => {
     const user = userEvent.setup();
     renderPage(fetcher);
 
-    await screen.findAllByText("1-50件 / 全120件");
-    const input = screen.getByRole("searchbox", { name: "一覧を検索" });
+    await screen.findByLabelText("表示件数");
+    await user.click(screen.getByRole("button", { name: suspiciousCopy.labels.searchOpenButton }));
+    const input = screen.getByRole("searchbox", { name: suspiciousCopy.labels.search });
 
     await user.type(input, "10.0.0.120");
 
     await waitFor(() => {
       expect(navigation.replace).toHaveBeenLastCalledWith(
-        "/suspicious/clicks?date=2026-01-21&search=10.0.0.120",
+        "/suspicious/conversions?date=2026-01-21&search=10.0.0.120",
         { scroll: false }
       );
     });
   });
 
-  it("詳細展開時に lazy detail fetch を呼ぶ", async () => {
+  it("詳細展開時に lazy detail fetch を呼び、一覧を残したまま詳細を表示する", async () => {
     const fetcher = createFetcher();
     const detailFetcher = createDetailFetcher();
     const user = userEvent.setup();
     renderPage(fetcher, detailFetcher);
 
-    await screen.findAllByText("1-50件 / 全120件");
-    await user.click(screen.getAllByRole("button", { name: "詳細" })[0]);
+    await screen.findByLabelText("表示件数");
+    await user.click(screen.getAllByRole("button", { name: suspiciousCopy.labels.detail })[0]);
 
-    await screen.findByText("関連行");
+    await screen.findByText(suspiciousCopy.labels.detailBreadcrumb);
     expect(detailFetcher).toHaveBeenCalledWith("finding-1");
+    expect(screen.getByText("10.0.*.1")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "閉じる" }));
+    await user.click(screen.getByRole("button", { name: suspiciousCopy.labels.backToList }));
     await waitFor(() => {
-      expect(screen.queryByText("関連行")).not.toBeInTheDocument();
+      expect(screen.queryByText(suspiciousCopy.labels.detailBreadcrumb)).not.toBeInTheDocument();
     });
   });
 
@@ -195,12 +198,12 @@ describe("不審一覧画面", () => {
     const user = userEvent.setup();
     renderPage(fetcher);
 
-    await screen.findAllByText("1-50件 / 全120件");
-    await user.click(screen.getByRole("button", { name: "高" }));
+    await screen.findByLabelText("表示件数");
+    await user.selectOptions(screen.getByLabelText(suspiciousCopy.labels.riskFilter), "high");
 
     await waitFor(() => {
       expect(navigation.replace).toHaveBeenLastCalledWith(
-        "/suspicious/clicks?date=2026-01-21&risk=high",
+        "/suspicious/conversions?date=2026-01-21&risk=high",
         { scroll: false }
       );
     });
@@ -217,8 +220,8 @@ describe("不審一覧画面", () => {
     await waitFor(() => {
       expect(fetcher).toHaveBeenCalledWith(
         "2026-01-21",
-        50,
-        50,
+        SUSPICIOUS_LIST_PAGE_SIZE,
+        SUSPICIOUS_LIST_PAGE_SIZE,
         expect.objectContaining({
           search: "10.0.0",
           riskLevel: "high",
@@ -227,15 +230,15 @@ describe("不審一覧画面", () => {
       );
     });
 
-    expect(screen.getByRole("searchbox", { name: "一覧を検索" })).toHaveValue("10.0.0");
-    expect(screen.getByRole("combobox", { name: "並び順" })).toHaveValue("risk");
+    expect(screen.getByRole("searchbox", { name: suspiciousCopy.labels.search })).toHaveValue("10.0.0");
+    expect(screen.getByRole("combobox", { name: suspiciousCopy.labels.sort })).toHaveValue("risk");
 
     navigation.replace.mockClear();
-    await user.click(screen.getByRole("button", { name: "低" }));
+    await user.selectOptions(screen.getByLabelText(suspiciousCopy.labels.riskFilter), "low");
 
     await waitFor(() => {
       expect(navigation.replace).toHaveBeenLastCalledWith(
-        "/suspicious/clicks?date=2026-01-21&search=10.0.0&risk=low&sort=risk",
+        "/suspicious/conversions?date=2026-01-21&search=10.0.0&risk=low&sort=risk",
         { scroll: false }
       );
     });
@@ -243,14 +246,14 @@ describe("不審一覧画面", () => {
 
   it("forbidden 状態を state panel で表示する", async () => {
     const fetcher = vi.fn(async () => {
-      const error = new ApiError("この一覧を表示する権限がありません。");
+      const error = new ApiError(suspiciousCopy.states.forbiddenMessage);
       error.status = 403;
       throw error;
     });
 
     renderPage(fetcher as ReturnType<typeof createFetcher>);
 
-    await screen.findByRole("heading", { name: "表示権限がありません" });
-    expect(screen.getByText("この一覧を表示する権限がありません。")).toBeInTheDocument();
+    await screen.findByRole("heading", { name: suspiciousCopy.states.forbiddenTitle });
+    expect(screen.getByText(suspiciousCopy.states.forbiddenMessage)).toBeInTheDocument();
   });
 });

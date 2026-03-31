@@ -2,21 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { NAV_ITEMS } from "@/components/navigation-config";
 import { cn } from "@/lib/utils";
-
-const items = [
-  { title: "ダッシュボード", shortTitle: "DB", href: "/" },
-  { title: "不審クリック", shortTitle: "CL", href: "/suspicious/clicks" },
-  { title: "不審コンバージョン", shortTitle: "CV", href: "/suspicious/conversions" },
-];
 
 export function MainNav({ compact = false }: { compact?: boolean }) {
   const pathname = usePathname();
 
   return (
     <nav className="grid gap-1.5">
-      {items.map((item) => {
-        const isActive = pathname === item.href;
+      {NAV_ITEMS.map((item) => {
+        const isActive =
+          item.href === "/" ? pathname === item.href : pathname?.startsWith(item.href);
         return (
           <Link
             key={item.href}
@@ -24,10 +20,10 @@ export function MainNav({ compact = false }: { compact?: boolean }) {
             aria-current={isActive ? "page" : undefined}
             aria-label={item.title}
             className={cn(
-              "relative flex border-l border-transparent px-3 text-sm transition-colors",
+              "relative flex rounded-[var(--radius)] border-l-2 border-transparent px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               compact ? "h-12 items-center justify-center" : "h-11 items-center",
               isActive
-                ? "border-foreground bg-foreground/[0.04] text-foreground"
+                ? "border-foreground bg-foreground/[0.06] text-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-foreground"
             )}
           >

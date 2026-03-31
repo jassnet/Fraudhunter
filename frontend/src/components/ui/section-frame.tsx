@@ -19,7 +19,7 @@ export function SectionFrame({
   return (
     <section className={cn("border border-border bg-card", className)}>
       {title || actions ? (
-        <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border bg-white/[0.06] px-4 py-3">
+        <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border bg-muted/35 px-4 py-3">
           <h2 className="text-sm font-semibold tracking-[0.02em] text-foreground">{title}</h2>
           {actions}
         </div>

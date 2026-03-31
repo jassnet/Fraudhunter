@@ -31,14 +31,17 @@ const toneMap: Record<MetricTone, { label: string; value: string; border: string
 export function MetricStrip({
   children,
   className,
+  columns = 4,
 }: {
   children: ReactNode;
   className?: string;
+  columns?: 2 | 3 | 4;
 }) {
   return (
     <section
       className={cn(
-        "grid border border-border bg-card md:grid-cols-2 xl:grid-cols-4",
+        "grid border border-border bg-card md:grid-cols-2",
+        columns === 2 ? "xl:grid-cols-2" : columns === 3 ? "xl:grid-cols-3" : "xl:grid-cols-4",
         className
       )}
     >
@@ -56,6 +59,8 @@ interface MetricBlockProps {
   href?: string;
   ariaLabel?: string;
   valueClassName?: string;
+  /** ダッシュボードなど、縦スペースを抑えたいとき */
+  compact?: boolean;
 }
 
 export function MetricBlock({
@@ -67,6 +72,7 @@ export function MetricBlock({
   href,
   ariaLabel,
   valueClassName,
+  compact = false,
 }: MetricBlockProps) {
   const toneClasses = toneMap[tone];
   const emphasisClasses =
@@ -79,19 +85,20 @@ export function MetricBlock({
       : emphasis === "alert"
         ? {
             label: "text-[12px]",
-            value: "text-[2.8rem]",
-            meta: "text-[13px] leading-5 text-foreground/82",
+            value: compact ? "text-[2.1rem]" : "text-[2.8rem]",
+            meta: compact ? "text-[12px] leading-snug text-foreground/82" : "text-[13px] leading-5 text-foreground/82",
           }
         : {
             label: "text-[12px]",
-            value: "text-[2.65rem]",
-            meta: "text-[13px] leading-5 text-foreground/80",
+            value: compact ? "text-[2rem]" : "text-[2.65rem]",
+            meta: compact ? "text-[12px] leading-snug text-foreground/80" : "text-[13px] leading-5 text-foreground/80",
           };
 
   const content = (
     <div
       className={cn(
-        "relative flex min-h-[152px] flex-col justify-between border-t border-border p-4 first:border-t-0 md:first:border-t md:odd:border-r xl:border-t-0 xl:border-r xl:last:border-r-0",
+        "relative flex flex-col justify-between border-t border-border first:border-t-0 md:first:border-t md:odd:border-r xl:border-t-0 xl:border-r xl:last:border-r-0",
+        compact ? "min-h-[100px] p-3 xl:min-h-[108px]" : "min-h-[152px] p-4",
         "before:absolute before:left-0 before:top-0 before:h-full before:w-px",
         toneClasses.border
       )}

@@ -11,7 +11,7 @@ test.describe("dashboard e2e", () => {
     await page.goto("/");
 
     await expect(page.getByRole("heading", { name: dashboardCopy.title })).toBeVisible();
-    await expect(page.getByText("対象日 2026-01-21")).toBeVisible();
+    await expect(page.getByText("対象日: 2026-01-21")).toBeVisible();
     await expect(
       page.locator("section").filter({ has: page.getByText(dashboardCopy.labels.clicks) }).first()
     ).toContainText("3,300");
@@ -19,30 +19,25 @@ test.describe("dashboard e2e", () => {
       page.locator("section").filter({ has: page.getByText(dashboardCopy.labels.conversions) }).first()
     ).toContainText("6");
 
-    const suspiciousClicksBlock = page
-      .locator("section")
-      .filter({ has: page.getByText(dashboardCopy.labels.suspiciousClicks) })
-      .first();
     const suspiciousConversionsBlock = page
       .locator("section")
       .filter({ has: page.getByText(dashboardCopy.labels.suspiciousConversions) })
       .first();
-    await expect(suspiciousClicksBlock).toContainText("55");
     await expect(suspiciousConversionsBlock).toContainText("1");
   });
 
   test("switches dashboard date using the date selector", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByText("対象日 2026-01-21")).toBeVisible();
+    await expect(page.getByText("対象日: 2026-01-21")).toBeVisible();
 
     await page.getByLabel("対象日").selectOption("2026-01-20");
 
-    await expect(page.getByText("対象日 2026-01-20")).toBeVisible();
+    await expect(page.getByText("対象日: 2026-01-20")).toBeVisible();
     await expect(
       page.locator("section").filter({ has: page.getByText(dashboardCopy.labels.clicks) }).first()
     ).toContainText("22");
     await expect(
-      page.locator("section").filter({ has: page.getByText(dashboardCopy.labels.suspiciousClicks) }).first()
+      page.locator("section").filter({ has: page.getByText(dashboardCopy.labels.suspiciousConversions) }).first()
     ).toContainText("0");
   });
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { suspiciousCopy } from "@/copy/suspicious";
 
 interface SuspiciousListPaginationProps {
   page: number;
@@ -19,40 +20,53 @@ export function SuspiciousListPagination({
   const canNext = page < totalPages;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3 text-[13px] text-foreground/78">
-      <div aria-label="件数範囲" aria-live="polite">
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1 text-[12px] text-foreground/78">
+      <div aria-label="表示件数" aria-live="polite" className="tabular-nums text-foreground/86">
         {resultRange}
       </div>
-      <div className="flex items-center gap-2">
-        <Button size="sm" variant="outline" onClick={() => onPageChange(1)} disabled={!canPrev}>
-          最初
+      <div className="flex items-center gap-1">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2 text-[12px]"
+          onClick={() => onPageChange(1)}
+          disabled={!canPrev}
+        >
+          {suspiciousCopy.pagination.first}
         </Button>
         <Button
+          type="button"
           size="sm"
-          variant="outline"
+          variant="ghost"
+          className="h-7 px-2 text-[12px]"
           onClick={() => onPageChange(Math.max(1, page - 1))}
           disabled={!canPrev}
         >
-          前へ
+          {suspiciousCopy.pagination.prev}
         </Button>
-        <span className="tabular-nums text-foreground/86">
+        <span className="min-w-[3.5rem] text-center tabular-nums text-[12px] font-medium text-foreground/90">
           {page} / {totalPages}
         </span>
         <Button
+          type="button"
           size="sm"
-          variant="outline"
+          variant="ghost"
+          className="h-7 px-2 text-[12px]"
           onClick={() => onPageChange(Math.min(totalPages, page + 1))}
           disabled={!canNext}
         >
-          次へ
+          {suspiciousCopy.pagination.next}
         </Button>
         <Button
+          type="button"
           size="sm"
-          variant="outline"
+          variant="ghost"
+          className="h-7 px-2 text-[12px]"
           onClick={() => onPageChange(totalPages)}
           disabled={!canNext}
         >
-          最後
+          {suspiciousCopy.pagination.last}
         </Button>
       </div>
     </div>

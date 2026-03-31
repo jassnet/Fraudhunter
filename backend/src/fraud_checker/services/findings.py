@@ -10,7 +10,7 @@ from pathlib import Path
 from ..api_presenters import calculate_risk_level, format_reasons
 from ..logging_utils import log_event, log_timed
 from ..service_protocols import FindingsRepository
-from ..suspicious import ConversionSuspiciousDetector, SuspiciousDetector
+from ..suspicious import ConversionSuspiciousDetector
 from ..time_utils import now_local
 from . import settings as settings_service
 
@@ -57,7 +57,7 @@ def recompute_findings_for_dates(
         return {}
 
     settings = settings_service.get_settings(repo)
-    click_rules, conversion_rules = settings_service.build_rule_sets(repo)
+    _, conversion_rules = settings_service.build_rule_sets(repo)
     rule_version = _rule_version(settings)
     settings_fingerprint = settings_service.settings_fingerprint(settings)
     settings_version_id = repo.ensure_settings_version(settings, settings_fingerprint)
@@ -67,80 +67,15 @@ def recompute_findings_for_dates(
     settings_updated_at_snapshot = repo.get_settings_updated_at()
     results: dict[str, dict[str, int]] = {}
 
-    click_detector = SuspiciousDetector(repo, click_rules)
     conversion_detector = ConversionSuspiciousDetector(repo, conversion_rules)
 
     for target_date in sorted(set(target_dates)):
         with log_timed(logger, "recompute_findings", target_date=target_date):
             source_click_watermark = repo.get_click_data_watermark(target_date)
             source_conversion_watermark = repo.get_conversion_data_watermark(target_date)
-            click_findings = click_detector.find_for_date(target_date)
-            click_details = repo.get_suspicious_click_details_bulk(
-                target_date,
-                [(finding.ipaddress, finding.useragent) for finding in click_findings],
-            )
-            click_rows = []
-            for finding in click_findings:
-                details = click_details.get((finding.ipaddress, finding.useragent), [])
-                media_ids = _unique([detail["media_id"] for detail in details])
-                program_ids = _unique([detail["program_id"] for detail in details])
-                media_names = _unique([detail["media_name"] for detail in details])
-                program_names = _unique([detail["program_name"] for detail in details])
-                affiliate_names = _unique([detail.get("affiliate_name") for detail in details if detail.get("affiliate_name")])
-                reasons_formatted = format_reasons(finding.reasons)
-                risk = calculate_risk_level(finding.reasons, finding.total_clicks, is_conversion=False)
-                metrics = {
-                    "total_clicks": finding.total_clicks,
-                    "media_count": finding.media_count,
-                    "program_count": finding.program_count,
-                    "first_time": finding.first_time.isoformat(),
-                    "last_time": finding.last_time.isoformat(),
-                }
-                click_rows.append(
-                    {
-                        "finding_key": _hash_text(
-                            f"click|{target_date.isoformat()}|{finding.ipaddress}|{finding.useragent}|{rule_version}"
-                        ),
-                        "date": target_date,
-                        "ipaddress": finding.ipaddress,
-                        "useragent": finding.useragent,
-                        "ua_hash": _hash_text(finding.useragent),
-                        "media_ids_json": json.dumps(media_ids, ensure_ascii=False),
-                        "program_ids_json": json.dumps(program_ids, ensure_ascii=False),
-                        "media_names_json": json.dumps(media_names, ensure_ascii=False),
-                        "program_names_json": json.dumps(program_names, ensure_ascii=False),
-                        "affiliate_names_json": json.dumps(affiliate_names, ensure_ascii=False),
-                        "risk_level": risk["level"],
-                        "risk_score": risk["score"],
-                        "reasons_json": json.dumps(finding.reasons, ensure_ascii=False),
-                        "reasons_formatted_json": json.dumps(reasons_formatted, ensure_ascii=False),
-                        "metrics_json": json.dumps(metrics, ensure_ascii=False),
-                        "total_clicks": finding.total_clicks,
-                        "media_count": finding.media_count,
-                        "program_count": finding.program_count,
-                        "first_time": finding.first_time,
-                        "last_time": finding.last_time,
-                        "rule_version": rule_version,
-                        "computed_at": computed_at,
-                        "computed_by_job_id": computed_by_job_id,
-                        "settings_updated_at_snapshot": settings_updated_at_snapshot,
-                        "source_click_watermark": source_click_watermark,
-                        "source_conversion_watermark": source_conversion_watermark,
-                        "generation_id": generation_id,
-                        "is_current": True,
-                        "search_text": _search_text(
-                            finding.ipaddress,
-                            finding.useragent,
-                            *media_names,
-                            *program_names,
-                            *affiliate_names,
-                            *reasons_formatted,
-                        ),
-                    }
-                )
             repo.replace_click_findings(
                 target_date,
-                click_rows,
+                [],
                 generation_metadata={
                     "generation_id": generation_id,
                     "finding_type": "click",
@@ -151,7 +86,7 @@ def recompute_findings_for_dates(
                     "detector_code_version": detector_code_version,
                     "source_click_watermark": source_click_watermark,
                     "source_conversion_watermark": source_conversion_watermark,
-                    "row_count": len(click_rows),
+                    "row_count": 0,
                     "created_at": computed_at,
                 },
             )
@@ -177,6 +112,10 @@ def recompute_findings_for_dates(
                     "program_count": finding.program_count,
                     "min_click_to_conv_seconds": finding.min_click_to_conv_seconds,
                     "max_click_to_conv_seconds": finding.max_click_to_conv_seconds,
+                    "linked_click_count": finding.linked_click_count,
+                    "linked_clicks_per_conversion": finding.linked_clicks_per_conversion,
+                    "extra_window_click_count": finding.extra_window_click_count,
+                    "extra_window_non_browser_ratio": finding.extra_window_non_browser_ratio,
                     "first_time": finding.first_conversion_time.isoformat(),
                     "last_time": finding.last_conversion_time.isoformat(),
                 }
@@ -243,14 +182,14 @@ def recompute_findings_for_dates(
             )
 
             results[target_date.isoformat()] = {
-                "suspicious_clicks": len(click_rows),
+                "suspicious_clicks": 0,
                 "suspicious_conversions": len(conversion_rows),
             }
             log_event(
                 logger,
                 "findings_recomputed",
                 target_date=target_date,
-                suspicious_clicks=len(click_rows),
+                suspicious_clicks=0,
                 suspicious_conversions=len(conversion_rows),
                 rule_version=rule_version,
                 settings_version_id=settings_version_id,

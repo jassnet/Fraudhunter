@@ -13,6 +13,7 @@ from ..services import lifecycle, reporting, suspicious as suspicious_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/suspicious", tags=["suspicious"], dependencies=[Depends(require_analyst_access)])
+CLICK_FINDINGS_DEPRECATED_DETAIL = "Suspicious click findings are deprecated; use suspicious conversions."
 
 
 @router.get("/clicks", response_model=SuspiciousResponse)
@@ -28,26 +29,7 @@ def get_suspicious_clicks(
     sort_by: str = Query("count", pattern="^(count|risk|latest)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
 ):
-    try:
-        payload = suspicious_service.get_click_findings(
-            get_repository(),
-            target_date=target_date,
-            limit=limit,
-            offset=offset,
-            search=search,
-            risk_level=risk_level,
-            sort_by=sort_by,
-            sort_order=sort_order,
-            include_names=include_names,
-            include_details=include_details,
-            mask_sensitive=mask_sensitive,
-        )
-        return SuspiciousResponse(**payload)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error getting suspicious clicks")
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+    raise HTTPException(status_code=410, detail=CLICK_FINDINGS_DEPRECATED_DETAIL)
 
 
 @router.get("/conversions", response_model=SuspiciousResponse)
@@ -92,33 +74,7 @@ def get_suspicious_click_detail(
     include_details: bool = Query(True, description="詳細行を含める"),
     access_context: AccessContext = Depends(get_analyst_access_context),
 ):
-    try:
-        result = suspicious_service.get_click_detail(
-            get_repository(),
-            finding_key=finding_key,
-            include_names=include_names,
-            include_details=include_details,
-        )
-        if result is None:
-            raise HTTPException(status_code=404, detail="Finding not found")
-        log_event(
-            logger,
-            "sensitive_detail_access",
-            finding_key=finding_key,
-            finding_type="click",
-            access_level=access_context.level,
-            token_source=access_context.token_source,
-            include_names=include_names,
-            include_details=include_details,
-            evidence_status=result.evidence_status,
-            unmasked_access=result.unmasked_access,
-        )
-        return result.payload
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error getting suspicious click detail")
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+    raise HTTPException(status_code=410, detail=CLICK_FINDINGS_DEPRECATED_DETAIL)
 
 
 @router.get("/conversions/{finding_key}")

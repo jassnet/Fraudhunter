@@ -95,3 +95,7 @@ class SuspiciousConversionFinding(ConversionIpUaRollup):
     # クリック→成果までの経過秒（最小・最大）。click_timeがない場合はNone。
     min_click_to_conv_seconds: Optional[float] = None
     max_click_to_conv_seconds: Optional[float] = None
+    linked_click_count: Optional[int] = None
+    linked_clicks_per_conversion: Optional[float] = None
+    extra_window_click_count: Optional[int] = None
+    extra_window_non_browser_ratio: Optional[float] = None

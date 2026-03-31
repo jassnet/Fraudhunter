@@ -100,7 +100,7 @@ def test_refresh_returns_existing_job_id_when_enqueue_dedupes(monkeypatch):
     assert response.json()["details"]["job_id"] == "run-refresh-existing"
 
 
-def test_suspicious_clicks_returns_business_friendly_fields(monkeypatch):
+def _deprecated_test_suspicious_clicks_returns_business_friendly_fields(monkeypatch):
     first = datetime(2026, 1, 1, 10, 0, 0)
 
     class DummyRepo:
@@ -157,6 +157,64 @@ def test_suspicious_clicks_returns_business_friendly_fields(monkeypatch):
     ]
 
 
+def test_suspicious_conversions_include_click_padding_metrics_from_metrics_json(monkeypatch):
+    first = datetime(2026, 1, 1, 10, 0, 0)
+
+    class DummyRepo:
+        def list_conversion_findings(self, **kwargs):
+            return (
+                [
+                    {
+                        "finding_key": "cv-1",
+                        "date": datetime(2026, 1, 1).date(),
+                        "ipaddress": "9.9.9.9",
+                        "useragent": "Mozilla/5.0 Chrome/120.0",
+                        "total_conversions": 6,
+                        "media_count": 2,
+                        "program_count": 2,
+                        "first_time": first,
+                        "last_time": first + timedelta(seconds=60),
+                        "reasons_json": [
+                            "program_count >= 2",
+                            "click_padding_linked_ratio >= 2.0 (actual=2.50)",
+                        ],
+                        "reasons_formatted_json": [
+                            "同一 IP/UA で複数案件にまたがる成果があります（2案件以上）",
+                            "不審CVに紐づくクリック数が多すぎます（CVあたり2.0件以上）",
+                        ],
+                        "metrics_json": {
+                            "linked_click_count": 15,
+                            "linked_clicks_per_conversion": 2.5,
+                            "extra_window_click_count": 12,
+                            "extra_window_non_browser_ratio": 0.75,
+                        },
+                        "risk_level": "high",
+                        "risk_score": 140,
+                        "media_names_json": ["Media 1"],
+                        "program_names_json": ["Program 1"],
+                        "affiliate_names_json": ["Affiliate 1"],
+                    }
+                ],
+                1,
+            )
+
+        def get_suspicious_conversion_details_bulk(self, target_date, pairs):
+            return {("9.9.9.9", "Mozilla/5.0 Chrome/120.0"): []}
+
+    monkeypatch.setattr(suspicious_router, "get_repository", lambda: DummyRepo())
+    client = TestClient(api.app)
+
+    response = client.get("/api/suspicious/conversions", params={"date": "2026-01-01", "include_names": False})
+
+    assert response.status_code == 200
+    payload = response.json()
+    row = payload["data"][0]
+    assert row["linked_click_count"] == 15
+    assert row["linked_clicks_per_conversion"] == 2.5
+    assert row["extra_window_click_count"] == 12
+    assert row["extra_window_non_browser_ratio"] == 0.75
+
+
 def test_suspicious_conversions_rejects_invalid_date(monkeypatch):
     monkeypatch.setattr(suspicious_router, "get_repository", lambda: object())
     client = TestClient(api.app)
@@ -167,7 +225,7 @@ def test_suspicious_conversions_rejects_invalid_date(monkeypatch):
     assert response.json()["detail"] == "日付形式が不正です。YYYY-MM-DD を指定してください。"
 
 
-def test_suspicious_click_detail_returns_single_finding(monkeypatch):
+def _deprecated_test_suspicious_click_detail_returns_single_finding(monkeypatch):
     first = datetime(2026, 1, 1, 10, 0, 0)
     captured = {}
 
@@ -242,7 +300,79 @@ def test_suspicious_click_detail_returns_single_finding(monkeypatch):
     assert captured["fields"]["unmasked_access"] is True
 
 
-def test_suspicious_click_detail_masks_values_when_evidence_has_expired(monkeypatch):
+def test_suspicious_conversion_detail_includes_click_padding_metrics(monkeypatch):
+    first = datetime(2026, 1, 1, 10, 0, 0)
+
+    class DummyRepo:
+        def get_conversion_finding_by_key(self, finding_key):
+            assert finding_key == "cv-1"
+            return {
+                "finding_key": "cv-1",
+                "date": datetime(2026, 1, 1).date(),
+                "ipaddress": "9.9.9.9",
+                "useragent": "Mozilla/5.0 Chrome/120.0",
+                "total_conversions": 6,
+                "media_count": 2,
+                "program_count": 2,
+                "first_time": first,
+                "last_time": first + timedelta(seconds=60),
+                "reasons_json": ["click_padding_linked_ratio >= 2.0 (actual=2.50)"],
+                "reasons_formatted_json": [
+                    "不審CVに紐づくクリック数が多すぎます（CVあたり2.0件以上）"
+                ],
+                "metrics_json": {
+                    "linked_click_count": 15,
+                    "linked_clicks_per_conversion": 2.5,
+                    "extra_window_click_count": 12,
+                    "extra_window_non_browser_ratio": 0.75,
+                },
+                "risk_level": "high",
+                "risk_score": 140,
+                "media_names_json": ["Media 1"],
+                "program_names_json": ["Program 1"],
+                "affiliate_names_json": ["Affiliate 1"],
+            }
+
+        def get_suspicious_conversion_details_bulk(self, target_date, pairs):
+            return {
+                ("9.9.9.9", "Mozilla/5.0 Chrome/120.0"): [
+                    {
+                        "media_id": "m1",
+                        "program_id": "p1",
+                        "media_name": "Media 1",
+                        "program_name": "Program 1",
+                        "affiliate_name": "Affiliate 1",
+                        "conversion_count": 6,
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(suspicious_router, "get_repository", lambda: DummyRepo())
+    monkeypatch.setattr(
+        suspicious_router.lifecycle,
+        "describe_evidence_availability",
+        lambda target_date: {
+            "evidence_status": "available",
+            "evidence_available": True,
+            "evidence_expired": False,
+            "evidence_retention_days": 90,
+            "evidence_expires_on": "2026-03-31",
+            "evidence_checked_on": "2026-01-01",
+        },
+    )
+    client = TestClient(api.app)
+
+    response = client.get("/api/suspicious/conversions/cv-1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["linked_click_count"] == 15
+    assert payload["linked_clicks_per_conversion"] == 2.5
+    assert payload["extra_window_click_count"] == 12
+    assert payload["extra_window_non_browser_ratio"] == 0.75
+
+
+def _deprecated_test_suspicious_click_detail_masks_values_when_evidence_has_expired(monkeypatch):
     first = datetime(2025, 1, 1, 10, 0, 0)
     captured = {}
 
@@ -393,7 +523,7 @@ def test_daily_stats_endpoint_returns_data(monkeypatch):
     monkeypatch.setattr(
         reporting_router.reporting,
         "get_daily_stats",
-        lambda repo, limit: [{"date": "2026-01-03", "clicks": 10, "conversions": 2}],
+        lambda repo, limit, target_date=None: [{"date": "2026-01-03", "clicks": 10, "conversions": 2}],
     )
     client = TestClient(api.app)
 
@@ -403,7 +533,25 @@ def test_daily_stats_endpoint_returns_data(monkeypatch):
     assert response.json()["data"][0]["date"] == "2026-01-03"
 
 
-def test_suspicious_clicks_returns_empty_when_latest_date_is_missing(monkeypatch):
+def test_daily_stats_endpoint_forwards_target_date(monkeypatch):
+    captured = {}
+
+    def fake_get_daily_stats(repo, limit, target_date=None):
+      captured["limit"] = limit
+      captured["target_date"] = target_date
+      return [{"date": "2026-01-10", "clicks": 10, "conversions": 2}]
+
+    monkeypatch.setattr(reporting_router, "get_repository", lambda: object())
+    monkeypatch.setattr(reporting_router.reporting, "get_daily_stats", fake_get_daily_stats)
+    client = TestClient(api.app)
+
+    response = client.get("/api/stats/daily", params={"limit": 14, "target_date": "2026-01-10"})
+
+    assert response.status_code == 200
+    assert captured == {"limit": 14, "target_date": "2026-01-10"}
+
+
+def _deprecated_test_suspicious_clicks_returns_empty_when_latest_date_is_missing(monkeypatch):
     monkeypatch.setattr(suspicious_router, "get_repository", lambda: object())
     monkeypatch.setattr(suspicious_router.reporting, "get_latest_date", lambda repo, table: None)
     client = TestClient(api.app)
@@ -412,6 +560,33 @@ def test_suspicious_clicks_returns_empty_when_latest_date_is_missing(monkeypatch
 
     assert response.status_code == 200
     assert response.json() == {"date": "", "data": [], "total": 0, "limit": 500, "offset": 0}
+
+
+def test_suspicious_clicks_returns_gone():
+    client = TestClient(api.app)
+
+    response = client.get("/api/suspicious/clicks")
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == suspicious_router.CLICK_FINDINGS_DEPRECATED_DETAIL
+
+
+def test_suspicious_click_detail_returns_gone():
+    client = TestClient(api.app)
+
+    response = client.get("/api/suspicious/clicks/f-1")
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == suspicious_router.CLICK_FINDINGS_DEPRECATED_DETAIL
+
+
+def test_suspicious_click_detail_returns_gone_even_with_include_details():
+    client = TestClient(api.app)
+
+    response = client.get("/api/suspicious/clicks/f-legacy", params={"include_details": True})
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == suspicious_router.CLICK_FINDINGS_DEPRECATED_DETAIL
 
 
 def test_dates_endpoint_returns_available_dates(monkeypatch):

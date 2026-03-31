@@ -227,7 +227,6 @@ def test_cmd_refresh_runs_ingestion_and_detection(monkeypatch, capsys):
             for target_date in dates
         },
     )
-    cli.settings_service._settings_cache = None
     args = argparse.Namespace(
         hours=1,
         clicks_only=False,
@@ -245,8 +244,8 @@ def test_cmd_refresh_runs_ingestion_and_detection(monkeypatch, capsys):
     assert captured["store_raw_arg"] is True
     assert "Clicks: 1 new, 0 skipped" in output
     assert "Conversions: 1 new, 0 skipped" in output
-    assert "Suspicious clicks: 1" in output
     assert "Suspicious conversions: 1" in output
+    assert "Suspicious clicks" not in output
 
 
 def test_cmd_refresh_conversions_only_skips_click_warning(monkeypatch, capsys):

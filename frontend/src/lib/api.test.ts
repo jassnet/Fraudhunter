@@ -41,7 +41,41 @@ describe("API helper", () => {
     expect(attemptCount).toBe(3);
   });
 
-  it("不審クリック API に filter/sort query を付けて取得する", async () => {
+  it("deprecated suspicious clicks API の 410 detail をそのまま返す", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/suspicious/clicks`, () =>
+        HttpResponse.json(
+          { detail: "Suspicious click findings are deprecated; use suspicious conversions." },
+          { status: 410 }
+        )
+      )
+    );
+
+    await expect(fetchSuspiciousClicks("2026-01-21", 50, 0)).rejects.toMatchObject({
+      status: 410,
+      detail: "Suspicious click findings are deprecated; use suspicious conversions.",
+      message: "Suspicious click findings are deprecated; use suspicious conversions.",
+    });
+  });
+
+  it("deprecated suspicious click detail API の 410 detail をそのまま返す", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/suspicious/clicks/:findingKey`, () =>
+        HttpResponse.json(
+          { detail: "Suspicious click findings are deprecated; use suspicious conversions." },
+          { status: 410 }
+        )
+      )
+    );
+
+    await expect(fetchSuspiciousClickDetail("broken-key")).rejects.toMatchObject({
+      status: 410,
+      detail: "Suspicious click findings are deprecated; use suspicious conversions.",
+      message: "Suspicious click findings are deprecated; use suspicious conversions.",
+    });
+  });
+
+  it("deprecated API でも query builder 自体は壊れていない", async () => {
     server.use(
       http.get(`${API_BASE_URL}/api/suspicious/clicks`, ({ request }) => {
         const url = new URL(request.url);
@@ -52,43 +86,28 @@ describe("API helper", () => {
         expect(url.searchParams.get("sort_order")).toBe("asc");
         expect(url.searchParams.get("include_details")).toBe("false");
         expect(url.searchParams.get("mask_sensitive")).toBe("true");
-        return HttpResponse.json({
-          date: "2026-01-21",
-          data: [],
-          total: 0,
-          limit: 50,
-          offset: 0,
-        });
+        return HttpResponse.json(
+          { detail: "Suspicious click findings are deprecated; use suspicious conversions." },
+          { status: 410 }
+        );
       })
     );
 
-    const result = await fetchSuspiciousClicks("2026-01-21", 50, 0, {
-      search: "Media Alpha",
-      riskLevel: "high",
-      sortBy: "risk",
-      sortOrder: "asc",
-      includeDetails: false,
-      maskSensitive: true,
-    });
-
-    expect(result.total).toBe(0);
-  });
-
-  it("不審クリック detail API の 400 detail をそのまま返す", async () => {
-    server.use(
-      http.get(`${API_BASE_URL}/api/suspicious/clicks/:findingKey`, () =>
-        HttpResponse.json({ detail: "不正な finding_key です" }, { status: 400 })
-      )
-    );
-
-    await expect(fetchSuspiciousClickDetail("broken-key")).rejects.toMatchObject({
-      status: 400,
-      detail: "不正な finding_key です",
-      message: "不正な finding_key です",
+    await expect(
+      fetchSuspiciousClicks("2026-01-21", 50, 0, {
+        search: "Media Alpha",
+        riskLevel: "high",
+        sortBy: "risk",
+        sortOrder: "asc",
+        includeDetails: false,
+        maskSensitive: true,
+      })
+    ).rejects.toMatchObject({
+      status: 410,
     });
   });
 
-  it("admin refresh enqueue は conflict payload の job_id を吸収する", async () => {
+  it("admin refresh enqueue は conflict payload の job_id を返す", async () => {
     server.use(
       http.post("*/api/admin/refresh", () =>
         HttpResponse.json(
@@ -106,7 +125,7 @@ describe("API helper", () => {
     });
   });
 
-  it("admin master sync enqueue は conflict payload の job_id を吸収する", async () => {
+  it("admin master sync enqueue は conflict payload の job_id を返す", async () => {
     server.use(
       http.post("*/api/admin/master-sync", () =>
         HttpResponse.json(

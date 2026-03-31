@@ -9,7 +9,7 @@ describe("最終更新表示", () => {
     expect(screen.getByText("最終更新 -")).toBeInTheDocument();
   });
 
-  it("更新中は再読込を無効化して状態を表示する", () => {
+  it("更新中は再読み込みを無効化して状態を表示する", () => {
     render(
       <LastUpdated
         lastUpdated={new Date("2026-01-21T03:30:00Z")}
@@ -18,11 +18,11 @@ describe("最終更新表示", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "再読込" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
     expect(screen.getByText("更新中")).toBeInTheDocument();
   });
 
-  it("再読込押下で callback を呼ぶ", async () => {
+  it("再読み込み押下で callback を呼ぶ", async () => {
     const onRefresh = vi.fn();
     const user = userEvent.setup();
     render(
@@ -32,7 +32,7 @@ describe("最終更新表示", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "再読込" }));
+    await user.click(screen.getByRole("button", { name: "更新" }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 });

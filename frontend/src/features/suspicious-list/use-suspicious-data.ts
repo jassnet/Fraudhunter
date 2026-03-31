@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { suspiciousCopy } from "@/copy/suspicious";
+import { formatSuspiciousResultRange, suspiciousCopy } from "@/copy/suspicious";
 import {
   type SuspiciousQueryOptions,
   type SuspiciousResponse,
@@ -15,7 +15,8 @@ import type {
   SuspiciousSortValue,
 } from "./url-state";
 
-const PAGE_SIZE = 50;
+/** 一覧の行数（慣習的なページサイズに寄せて認知負荷を下げる） */
+export const SUSPICIOUS_LIST_PAGE_SIZE = 10;
 
 type SuspiciousFetcher = (
   date?: string,
@@ -72,8 +73,8 @@ export function useSuspiciousData({
       setMessage(null);
 
       try {
-        const offset = (page - 1) * PAGE_SIZE;
-        const response = await fetcher(date || undefined, PAGE_SIZE, offset, {
+        const offset = (page - 1) * SUSPICIOUS_LIST_PAGE_SIZE;
+        const response = await fetcher(date || undefined, SUSPICIOUS_LIST_PAGE_SIZE, offset, {
           search: search.trim() || undefined,
           riskLevel: risk === "all" ? undefined : risk,
           sortBy: sort,
@@ -97,7 +98,7 @@ export function useSuspiciousData({
   useEffect(() => {
     void loadDates().catch((error) => {
       setStatus("error");
-      setMessage(getErrorMessage(error, "対象日の取得に失敗しました。"));
+      setMessage(getErrorMessage(error, "日付の一覧を取得できませんでした。"));
     });
   }, [loadDates]);
 
@@ -106,13 +107,13 @@ export function useSuspiciousData({
     void loadData();
   }, [date, page, search, risk, sort, sortOrder, loadData]);
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / SUSPICIOUS_LIST_PAGE_SIZE)), [total]);
   const resultRange = useMemo(() => {
     if (status === "loading" || status === "refreshing") return suspiciousCopy.states.loadingRange;
     if (total === 0) return suspiciousCopy.states.emptyRange;
-    const start = (page - 1) * PAGE_SIZE + 1;
+    const start = (page - 1) * SUSPICIOUS_LIST_PAGE_SIZE + 1;
     const end = Math.min(start + data.length - 1, total);
-    return `${start}-${end}件 / 全${total.toLocaleString()}件`;
+    return formatSuspiciousResultRange(start, end, total);
   }, [data.length, page, status, total]);
 
   return {

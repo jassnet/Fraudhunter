@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 from fraud_checker.models import ConversionIpUaRollup, IpUaRollup
@@ -19,6 +19,7 @@ class _StubRepo:
     conversion_rollups: list[ConversionIpUaRollup]
     all_conversion_rollups: list[ConversionIpUaRollup]
     gap_stats: dict[tuple[str, str], dict[str, float]]
+    padding_stats: dict[tuple[str, str], dict[str, object]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.click_call_args: dict | None = None
@@ -75,6 +76,19 @@ class _StubRepo:
 
     def fetch_conversion_rollups(self, target_date: date) -> list[ConversionIpUaRollup]:
         return self.all_conversion_rollups
+
+    def fetch_conversion_click_padding_metrics(
+        self,
+        target_date: date,
+        ip_ua_pairs: list[tuple[str, str]],
+        *,
+        extra_window_seconds: int,
+    ) -> dict[tuple[str, str], dict[str, object]]:
+        return {
+            key: self.padding_stats[key]
+            for key in ip_ua_pairs
+            if key in self.padding_stats
+        }
 
 
 def _click_rollup(
@@ -324,3 +338,134 @@ def test_conversion_detector_adds_max_gap_reason():
         reason.startswith("click_to_conversion_seconds >=")
         for reason in findings[0].reasons
     )
+
+
+def test_conversion_detector_adds_click_padding_linked_ratio_reason():
+    candidate = _conversion_rollup(
+        conversion_count=5,
+        media_count=1,
+        program_count=1,
+        ipaddress="4.4.4.4",
+        useragent="Mozilla/5.0 Chrome/121.0",
+    )
+    repo = _StubRepo(
+        click_rollups=[],
+        conversion_rollups=[candidate],
+        all_conversion_rollups=[],
+        gap_stats={},
+        padding_stats={
+            ("4.4.4.4", "Mozilla/5.0 Chrome/121.0"): {
+                "linked_click_count": 12,
+                "extra_window_click_count": 0,
+                "extra_window_useragents": [],
+            }
+        },
+    )
+    rules = ConversionSuspiciousRuleSet(
+        conversion_threshold=5,
+        media_threshold=99,
+        program_threshold=99,
+        burst_conversion_threshold=99,
+    )
+    detector = ConversionSuspiciousDetector(repo, rules)
+
+    findings = detector.find_for_date(date(2026, 1, 1))
+
+    assert len(findings) == 1
+    assert any(
+        reason.startswith("click_padding_linked_ratio >=")
+        for reason in findings[0].reasons
+    )
+    assert findings[0].linked_click_count == 12
+    assert findings[0].linked_clicks_per_conversion == 12 / 5
+
+
+def test_conversion_detector_adds_extra_window_and_non_browser_padding_reasons():
+    candidate = _conversion_rollup(
+        conversion_count=5,
+        media_count=1,
+        program_count=1,
+        ipaddress="5.5.5.5",
+        useragent="Mozilla/5.0 Chrome/121.0",
+    )
+    repo = _StubRepo(
+        click_rollups=[],
+        conversion_rollups=[candidate],
+        all_conversion_rollups=[],
+        gap_stats={},
+        padding_stats={
+            ("5.5.5.5", "Mozilla/5.0 Chrome/121.0"): {
+                "linked_click_count": 5,
+                "extra_window_click_count": 12,
+                "extra_window_useragents": [
+                    "leafworks/1.0",
+                    "leafworks/1.0",
+                    "Kickback/1.0",
+                    "Kickback/1.0",
+                    "tracking system(at-m.net/sf-a.jp)",
+                    "tracking system(at-m.net/sf-a.jp)",
+                    "admage",
+                    "admage",
+                    "Mozilla/5.0 Chrome/121.0",
+                    "Mozilla/5.0 Safari/605.1",
+                ],
+            }
+        },
+    )
+    rules = ConversionSuspiciousRuleSet(
+        conversion_threshold=5,
+        media_threshold=99,
+        program_threshold=99,
+        burst_conversion_threshold=99,
+    )
+    detector = ConversionSuspiciousDetector(repo, rules)
+
+    findings = detector.find_for_date(date(2026, 1, 1))
+
+    assert len(findings) == 1
+    assert any(
+        reason.startswith("click_padding_extra_window >=")
+        for reason in findings[0].reasons
+    )
+    assert any(
+        reason.startswith("click_padding_non_browser_ratio >=")
+        for reason in findings[0].reasons
+    )
+    assert findings[0].extra_window_click_count == 12
+    assert findings[0].extra_window_non_browser_ratio == 0.8
+
+
+def test_conversion_detector_does_not_create_padding_only_findings():
+    candidate = _conversion_rollup(
+        conversion_count=1,
+        media_count=1,
+        program_count=1,
+        ipaddress="6.6.6.6",
+        useragent="Mozilla/5.0 Chrome/121.0",
+    )
+    repo = _StubRepo(
+        click_rollups=[],
+        conversion_rollups=[],
+        all_conversion_rollups=[candidate],
+        gap_stats={},
+        padding_stats={
+            ("6.6.6.6", "Mozilla/5.0 Chrome/121.0"): {
+                "linked_click_count": 5,
+                "extra_window_click_count": 12,
+                "extra_window_useragents": ["leafworks/1.0"] * 12,
+            }
+        },
+    )
+    rules = ConversionSuspiciousRuleSet(
+        conversion_threshold=5,
+        media_threshold=99,
+        program_threshold=99,
+        burst_conversion_threshold=99,
+        min_click_to_conv_seconds=None,
+        max_click_to_conv_seconds=None,
+    )
+    detector = ConversionSuspiciousDetector(repo, rules)
+
+    findings = detector.find_for_date(date(2026, 1, 1))
+
+    assert findings == []

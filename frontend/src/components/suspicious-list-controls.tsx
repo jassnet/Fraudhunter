@@ -1,84 +1,59 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
 import { ControlBar } from "@/components/ui/control-bar";
-import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { suspiciousCopy } from "@/copy/suspicious";
-import type {
-  SuspiciousRiskFilter,
-  SuspiciousSortValue,
-} from "@/features/suspicious-list/url-state";
+import type { SuspiciousRiskFilter, SuspiciousSortValue } from "@/features/suspicious-list/url-state";
 
-const riskButtons: { key: SuspiciousRiskFilter; label: string }[] = [
-  { key: "all", label: suspiciousCopy.labels.all },
-  { key: "high", label: suspiciousCopy.labels.high },
-  { key: "medium", label: suspiciousCopy.labels.medium },
-  { key: "low", label: suspiciousCopy.labels.low },
-];
+const selectClass =
+  "h-8 min-w-[6.5rem] rounded-md border border-input bg-background px-2 text-[12px] text-foreground outline-none transition-[color,box-shadow,border-color] focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/40";
 
 interface SuspiciousListControlsProps {
-  searchDraft: string;
-  resultRange: string;
   risk: SuspiciousRiskFilter;
   sort: SuspiciousSortValue;
-  onSearchChange: (value: string) => void;
   onRiskChange: (risk: SuspiciousRiskFilter) => void;
   onSortChange: (sort: SuspiciousSortValue) => void;
 }
 
 export function SuspiciousListControls({
-  searchDraft,
-  resultRange,
   risk,
   sort,
-  onSearchChange,
   onRiskChange,
   onSortChange,
 }: SuspiciousListControlsProps) {
   return (
-    <ControlBar>
-      <div className="min-w-0 flex-1">
-        <Input
-          name="search"
-          type="search"
-          placeholder={suspiciousCopy.labels.searchPlaceholder}
-          aria-label={suspiciousCopy.labels.search}
-          value={searchDraft}
-          onChange={(event) => onSearchChange(event.target.value)}
-          autoComplete="off"
-        />
+    <ControlBar className="flex-col gap-3 border-border bg-card/70 px-3 py-3 shadow-none sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          {suspiciousCopy.labels.listFiltersLegend}
+        </span>
+        <select
+          className={selectClass}
+          value={risk}
+          onChange={(event) => onRiskChange(event.target.value as SuspiciousRiskFilter)}
+          aria-label={suspiciousCopy.labels.riskFilter}
+        >
+          <option value="all">{suspiciousCopy.labels.all}</option>
+          <option value="high">{suspiciousCopy.labels.high}</option>
+          <option value="medium">{suspiciousCopy.labels.medium}</option>
+          <option value="low">{suspiciousCopy.labels.low}</option>
+        </select>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {riskButtons.map((button) => (
-          <Button
-            key={button.key}
-            type="button"
-            size="sm"
-            variant={risk === button.key ? "default" : "outline"}
-            onClick={() => onRiskChange(button.key)}
-          >
-            {button.label}
-          </Button>
-        ))}
-      </div>
-
-      <select
-        className="h-10 border border-input bg-card px-3 text-[13px] text-foreground outline-none transition-colors focus:border-white"
-        value={sort}
-        onChange={(event) => onSortChange(event.target.value as SuspiciousSortValue)}
-        aria-label={suspiciousCopy.labels.sort}
-      >
-        <option value="count">{suspiciousCopy.labels.sortCount}</option>
-        <option value="risk">{suspiciousCopy.labels.sortRisk}</option>
-        <option value="latest">{suspiciousCopy.labels.sortLatest}</option>
-      </select>
-
-      <div
-        aria-label="一覧の件数範囲"
-        className="w-full text-[13px] text-foreground/78 sm:ml-auto sm:w-auto"
-      >
-        {resultRange}
+      <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-border/70 pt-3 sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0">
+        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          {suspiciousCopy.labels.sort}
+        </span>
+        <select
+          className={cn(selectClass, "min-w-[9.5rem] sm:min-w-[10.5rem]")}
+          value={sort}
+          onChange={(event) => onSortChange(event.target.value as SuspiciousSortValue)}
+          aria-label={suspiciousCopy.labels.sort}
+        >
+          <option value="count">{suspiciousCopy.labels.sortCount}</option>
+          <option value="risk">{suspiciousCopy.labels.sortRisk}</option>
+          <option value="latest">{suspiciousCopy.labels.sortLatest}</option>
+        </select>
       </div>
     </ControlBar>
   );

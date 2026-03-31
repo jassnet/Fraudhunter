@@ -11,8 +11,7 @@ from .env import load_env
 from .ingestion import ClickLogIngestor, ConversionIngestor
 from .job_status_pg import JobStatusStorePG
 from .repository_pg import PostgresRepository
-from .suspicious import CombinedSuspiciousDetector
-from .services import findings as findings_service, lifecycle, settings as settings_service
+from .services import findings as findings_service, lifecycle
 from .services.jobs import (
     enqueue_master_sync_job,
     enqueue_refresh_job,
@@ -213,24 +212,13 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
     persisted = findings_service.recompute_findings_for_dates(repository, sorted(dates_to_recompute))
 
     if args.detect:
-        click_rules, conversion_rules = settings_service.build_rule_sets(repository)
-
         print("\n--- Suspicious Detection ---")
         for target_date in sorted(dates_to_recompute):
-            combined = CombinedSuspiciousDetector(
-                repository=repository,
-                click_rules=click_rules,
-                conversion_rules=conversion_rules,
-            )
-            _, _, high_risk = combined.find_for_date(target_date)
             counts = persisted.get(target_date.isoformat(), {})
-            click_count = counts.get("suspicious_clicks", 0)
             conv_count = counts.get("suspicious_conversions", 0)
-            if click_count or conv_count or high_risk:
+            if conv_count:
                 print(f"\n{target_date.isoformat()}:")
-                print(f"  Suspicious clicks: {click_count}")
                 print(f"  Suspicious conversions: {conv_count}")
-                print(f"  HIGH RISK (both): {len(high_risk)}")
 
     print("\n=== Refresh Complete ===")
     print(

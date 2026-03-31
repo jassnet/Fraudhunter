@@ -24,28 +24,16 @@ def _build_findings_freshness(
     if target_date is None:
         return {"findings_last_computed_at": None, "stale": False, "stale_reasons": []}
 
+    del has_click_data
     settings_updated_at = repo.get_settings_updated_at()
     latest_settings_version_id = repo.get_latest_settings_version_id()
-    click_watermark = repo.get_click_data_watermark(target_date)
     conversion_watermark = repo.get_conversion_data_watermark(target_date)
-    click_lineage = repo.get_click_findings_lineage(target_date) or {}
     conversion_lineage = repo.get_conversion_findings_lineage(target_date) or {}
 
-    click_last = click_lineage.get("findings_last_computed_at")
     conversion_last = conversion_lineage.get("findings_last_computed_at")
-    last_computed = max([value for value in (click_last, conversion_last) if value is not None], default=None)
+    last_computed = conversion_last
 
     stale_reasons: list[str] = []
-    if has_click_data:
-        if click_last is None:
-            stale_reasons.append("click_findings_missing")
-        if click_lineage.get("source_click_watermark") != click_watermark:
-            stale_reasons.append("click_source_advanced")
-        if latest_settings_version_id:
-            if click_lineage.get("settings_version_id") != latest_settings_version_id:
-                stale_reasons.append("settings_changed_after_click_findings")
-        elif settings_updated_at and click_lineage.get("settings_updated_at_snapshot") != settings_updated_at:
-            stale_reasons.append("settings_changed_after_click_findings")
     if has_conversion_data:
         if conversion_last is None:
             stale_reasons.append("conversion_findings_missing")
@@ -61,7 +49,7 @@ def _build_findings_freshness(
         "findings_last_computed_at": _iso(last_computed),
         "stale": bool(stale_reasons),
         "stale_reasons": stale_reasons,
-        "click_findings_last_computed_at": _iso(click_last),
+        "click_findings_last_computed_at": None,
         "conversion_findings_last_computed_at": _iso(conversion_last),
     }
 
@@ -145,7 +133,7 @@ def get_summary(
         target_date_obj = None
 
     if target_date_obj:
-        susp_click_count = repo.count_current_click_findings(target_date_obj)
+        susp_click_count = 0
         susp_conv_count = repo.count_current_conversion_findings(target_date_obj)
         click_coverage = repo.get_click_ipua_coverage(target_date_obj)
         conversion_enrichment = repo.get_conversion_click_enrichment(target_date_obj)
@@ -204,27 +192,39 @@ def get_summary(
     }
 
 
-def get_daily_stats(repo: ReportingRepository, limit: int) -> list[dict]:
+def get_daily_stats(
+    repo: ReportingRepository, limit: int, target_date: str | None = None
+) -> list[dict]:
+    params = {"limit": limit}
+    daily_where = ""
+    findings_where = ""
+    if target_date:
+        params["target_date"] = target_date
+        daily_where = "WHERE date <= :target_date"
+        findings_where = "WHERE date <= :target_date AND is_current = TRUE"
+
     click_rows = repo.fetch_all(
         """
         SELECT date, SUM(click_count) as clicks
         FROM click_ipua_daily
+        {daily_where}
         GROUP BY date
         ORDER BY date DESC
         LIMIT :limit
-        """,
-        {"limit": limit},
+        """.format(daily_where=daily_where),
+        params,
     )
 
     conv_rows = repo.fetch_all(
         """
         SELECT date, SUM(conversion_count) as conversions
         FROM conversion_ipua_daily
+        {daily_where}
         GROUP BY date
         ORDER BY date DESC
         LIMIT :limit
         """,
-        {"limit": limit},
+        params,
     )
 
     merged: dict[str, dict] = {}
@@ -249,8 +249,19 @@ def get_daily_stats(repo: ReportingRepository, limit: int) -> list[dict]:
                 "suspicious_clicks": 0,
                 "suspicious_conversions": 0,
             }
-    finding_counts = repo.get_daily_finding_counts(limit)
-    for row_date, counts in finding_counts.items():
+    finding_rows = repo.fetch_all(
+        """
+        SELECT date, COUNT(*) as suspicious_conversions
+        FROM suspicious_conversion_findings
+        {findings_where}
+        GROUP BY date
+        ORDER BY date DESC
+        LIMIT :limit
+        """.format(findings_where=findings_where),
+        params,
+    )
+    for row in finding_rows:
+        row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
         merged.setdefault(
             row_date,
             {
@@ -261,8 +272,7 @@ def get_daily_stats(repo: ReportingRepository, limit: int) -> list[dict]:
                 "suspicious_conversions": 0,
             },
         )
-        merged[row_date]["suspicious_clicks"] = counts.get("suspicious_clicks", 0)
-        merged[row_date]["suspicious_conversions"] = counts.get("suspicious_conversions", 0)
+        merged[row_date]["suspicious_conversions"] = row.get("suspicious_conversions", 0)
 
     return sorted(merged.values(), key=lambda item: item["date"])
 

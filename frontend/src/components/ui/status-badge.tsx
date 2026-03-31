@@ -7,7 +7,7 @@ const toneClasses: Record<StatusTone, string> = {
   high: "border-destructive bg-destructive/25 text-destructive",
   medium: "border-[hsl(var(--warning))] bg-[hsl(var(--warning))]/25 text-[hsl(var(--warning))]",
   low: "border-[hsl(var(--success))]/85 bg-[hsl(var(--success))]/25 text-[hsl(var(--success))]",
-  neutral: "border-border bg-white/[0.07] text-foreground/90",
+  neutral: "border-border bg-muted text-foreground",
 };
 
 const dotClasses: Record<StatusTone, string> = {

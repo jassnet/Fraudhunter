@@ -52,11 +52,11 @@ export function useDashboardData() {
     setMessage(null);
     setStatus(refresh ? "refreshing" : "loading");
 
-    try {
-      const [summaryData, dailyData] = await Promise.all([
-        fetchSummary(targetDate),
-        fetchDailyStats(),
-      ]);
+      try {
+        const [summaryData, dailyData] = await Promise.all([
+          fetchSummary(targetDate),
+          fetchDailyStats(14, targetDate),
+        ]);
       setSummary(summaryData);
       setDailyStats(dailyData.data || []);
       setLastUpdated(new Date());
@@ -93,7 +93,7 @@ export function useDashboardData() {
       } catch (error) {
         if (!cancelled) {
           setStatus("error");
-          setMessage(getErrorMessage(error, "対象日の取得に失敗しました。"));
+          setMessage(getErrorMessage(error, "日付の一覧を取得できませんでした。"));
         }
       }
 

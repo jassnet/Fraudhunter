@@ -14,13 +14,13 @@ describe("ダッシュボード画面", () => {
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: dashboardCopy.title });
-    await screen.findByText("対象日 2026-01-21");
+    await screen.findByText("対象日: 2026-01-21");
 
     expect(screen.getByText(dashboardCopy.labels.clicks)).toBeInTheDocument();
     expect(screen.getByText(dashboardCopy.labels.conversions)).toBeInTheDocument();
-    expect(screen.getAllByText(dashboardCopy.labels.suspiciousClicks).length).toBeGreaterThan(0);
+    expect(screen.queryByText(dashboardCopy.labels.suspiciousClicks)).not.toBeInTheDocument();
     expect(screen.getByText(dashboardCopy.labels.suspiciousConversions)).toBeInTheDocument();
-    expect(screen.getByText(dashboardCopy.labels.diagnostics)).toBeInTheDocument();
+    expect(screen.getByText(dashboardCopy.labels.chart)).toBeInTheDocument();
   });
 
   it("admin 権限がないと操作帯を表示しない", async () => {
@@ -35,7 +35,7 @@ describe("ダッシュボード画面", () => {
       screen.queryByRole("button", { name: dashboardCopy.admin.actions.masterSync })
     ).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText(/FC_ADMIN_API_KEY/)).toBeInTheDocument();
+      expect(screen.getByText(dashboardCopy.admin.unavailableShortHint)).toBeInTheDocument();
     });
   });
 
@@ -193,12 +193,12 @@ describe("ダッシュボード画面", () => {
     render(<DashboardPage />);
 
     await screen.findByRole("heading", { name: dashboardCopy.title });
-    await screen.findByText("対象日 2026-01-21");
+    await screen.findByText("対象日: 2026-01-21");
 
     await user.selectOptions(screen.getByLabelText("対象日"), "2026-01-20");
 
     await waitFor(() => {
-      expect(screen.getByText("対象日 2026-01-20")).toBeInTheDocument();
+      expect(screen.getByText("対象日: 2026-01-20")).toBeInTheDocument();
     });
   });
 

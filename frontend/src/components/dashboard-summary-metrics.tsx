@@ -15,10 +15,12 @@ const formatDelta = (current: number, previous?: number | null) => {
 
 interface DashboardSummaryMetricsProps {
   summary: SummaryResponse;
+  compact?: boolean;
 }
 
 export function DashboardSummaryMetrics({
   summary,
+  compact = false,
 }: DashboardSummaryMetricsProps) {
   const clickDelta = formatDelta(summary.stats.clicks.total, summary.stats.clicks.prev_total);
   const conversionDelta = formatDelta(
@@ -27,36 +29,35 @@ export function DashboardSummaryMetrics({
   );
 
   return (
-    <MetricStrip>
+    <MetricStrip columns={3}>
       <MetricBlock
         label={dashboardCopy.labels.clicks}
         value={summary.stats.clicks.total.toLocaleString()}
         meta={`ユニークIP ${summary.stats.clicks.unique_ips.toLocaleString()}${clickDelta ? ` / ${clickDelta}` : ""}`}
         emphasis="primary"
+        compact={compact}
       />
       <MetricBlock
         label={dashboardCopy.labels.conversions}
         value={summary.stats.conversions.total.toLocaleString()}
         meta={`ユニークIP ${summary.stats.conversions.unique_ips.toLocaleString()}${conversionDelta ? ` / ${conversionDelta}` : ""}`}
         emphasis="primary"
-      />
-      <MetricBlock
-        label={dashboardCopy.labels.suspiciousClicks}
-        value={summary.stats.suspicious.click_based.toLocaleString()}
-        meta="一覧を表示"
-        tone="warning"
-        emphasis="alert"
-        href="/suspicious/clicks"
-        ariaLabel={`不審クリック ${summary.stats.suspicious.click_based} 件を表示`}
+        compact={compact}
       />
       <MetricBlock
         label={dashboardCopy.labels.suspiciousConversions}
         value={summary.stats.suspicious.conversion_based.toLocaleString()}
-        meta="一覧を表示"
+        meta={
+          <span className="inline-flex items-center gap-1 font-medium text-foreground">
+            一覧を見る
+            <span aria-hidden>→</span>
+          </span>
+        }
         tone="danger"
         emphasis="alert"
         href="/suspicious/conversions"
-        ariaLabel={`不審コンバージョン ${summary.stats.suspicious.conversion_based} 件を表示`}
+        ariaLabel={`不審コンバージョン ${summary.stats.suspicious.conversion_based} 件の一覧を見る`}
+        compact={compact}
       />
     </MetricStrip>
   );

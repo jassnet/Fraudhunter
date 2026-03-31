@@ -142,7 +142,7 @@ def test_get_summary_returns_business_facing_totals(monkeypatch):
     assert payload["date"] == "2026-01-03"
     assert payload["stats"]["clicks"]["total"] == 120
     assert payload["stats"]["conversions"]["total"] == 8
-    assert payload["stats"]["suspicious"]["click_based"] == 2
+    assert payload["stats"]["suspicious"]["click_based"] == 0
     assert payload["stats"]["suspicious"]["conversion_based"] == 1
     assert payload["quality"]["last_successful_ingest_at"] == "2026-01-03T09:00:00"
     assert payload["quality"]["click_ip_ua_coverage"]["missing_rate"] == 0.04
@@ -179,7 +179,7 @@ def test_get_daily_stats_merges_click_and_conversion_rows(monkeypatch):
     by_date = {row["date"]: row for row in rows}
     assert by_date["2026-01-02"]["clicks"] == 30
     assert by_date["2026-01-02"]["conversions"] == 5
-    assert by_date["2026-01-02"]["suspicious_clicks"] == 1
+    assert by_date["2026-01-02"]["suspicious_clicks"] == 0
     assert by_date["2026-01-02"]["suspicious_conversions"] == 2
     assert by_date["2025-12-31"]["clicks"] == 0
 
@@ -251,7 +251,120 @@ def test_get_summary_handles_datetime_style_resolved_date(monkeypatch):
     assert payload["stats"]["suspicious"]["conversion_based"] == 0
 
 
-def test_get_summary_marks_findings_stale_when_source_watermark_advances(monkeypatch):
+def test_get_summary_marks_findings_stale_when_conversion_source_advances(monkeypatch):
+    class DummyRepo:
+        database_url = "postgresql://example/db"
+
+        def fetch_one(self, query, params=None):
+            if "total_clicks" in query:
+                return {"total_clicks": 120, "unique_ips": 12, "active_media": 3}
+            if "total_conversions" in query:
+                return {"total_conversions": 8, "conversion_ips": 5}
+            if "click_ipua_daily" in query and "prev_date" in query:
+                return {"total": 100}
+            if "conversion_ipua_daily" in query and "prev_date" in query:
+                return {"total": 6}
+            raise AssertionError(f"Unexpected query: {query}")
+
+        def get_click_ipua_coverage(self, target_date):
+            return None
+
+        def get_conversion_click_enrichment(self, target_date):
+            return None
+
+        def get_all_masters(self):
+            return {"last_synced_at": None}
+
+        def get_settings_updated_at(self):
+            return datetime(2026, 1, 3, 7, 30, 0)
+
+        def get_latest_settings_version_id(self):
+            return "settings-ver-3"
+
+        def get_conversion_data_watermark(self, target_date):
+            return datetime(2026, 1, 3, 9, 30, 0)
+
+        def get_conversion_findings_lineage(self, target_date):
+            return {
+                "findings_last_computed_at": datetime(2026, 1, 3, 9, 12, 0),
+                "settings_version_id": "settings-ver-2",
+                "source_conversion_watermark": datetime(2026, 1, 3, 9, 5, 0),
+            }
+
+        def count_current_conversion_findings(self, target_date):
+            return 1
+
+    monkeypatch.setattr(reporting, "resolve_summary_date", lambda repo, target_date: "2026-01-03")
+    monkeypatch.setattr(
+        reporting.JobStatusStorePG,
+        "get_latest_successful_finished_at",
+        lambda self, job_types: datetime(2026, 1, 3, 9, 0, 0),
+    )
+
+    payload = reporting.get_summary(DummyRepo(), target_date=None)
+
+    assert payload["quality"]["findings"]["stale"] is True
+    assert "conversion_source_advanced" in payload["quality"]["findings"]["stale_reasons"]
+    assert "settings_changed_after_conversion_findings" in payload["quality"]["findings"]["stale_reasons"]
+
+
+def test_get_summary_uses_legacy_settings_timestamp_for_conversion_findings(monkeypatch):
+    class DummyRepo:
+        database_url = "postgresql://example/db"
+
+        def fetch_one(self, query, params=None):
+            if "total_clicks" in query:
+                return {"total_clicks": 120, "unique_ips": 12, "active_media": 3}
+            if "total_conversions" in query:
+                return {"total_conversions": 2, "conversion_ips": 1}
+            if "click_ipua_daily" in query and "prev_date" in query:
+                return {"total": 100}
+            if "conversion_ipua_daily" in query and "prev_date" in query:
+                return {"total": 1}
+            raise AssertionError(f"Unexpected query: {query}")
+
+        def get_click_ipua_coverage(self, target_date):
+            return None
+
+        def get_conversion_click_enrichment(self, target_date):
+            return None
+
+        def get_all_masters(self):
+            return {"last_synced_at": None}
+
+        def get_settings_updated_at(self):
+            return datetime(2026, 1, 3, 7, 30, 0)
+
+        def get_latest_settings_version_id(self):
+            return None
+
+        def get_conversion_data_watermark(self, target_date):
+            return datetime(2026, 1, 3, 9, 0, 0)
+
+        def get_conversion_findings_lineage(self, target_date):
+            return {
+                "findings_last_computed_at": datetime(2026, 1, 3, 9, 10, 0),
+                "settings_updated_at_snapshot": datetime(2026, 1, 3, 7, 0, 0),
+                "source_conversion_watermark": datetime(2026, 1, 3, 9, 0, 0),
+            }
+
+        def count_current_conversion_findings(self, target_date):
+            return 0
+
+    monkeypatch.setattr(reporting, "resolve_summary_date", lambda repo, target_date: "2026-01-03")
+    monkeypatch.setattr(
+        reporting.JobStatusStorePG,
+        "get_latest_successful_finished_at",
+        lambda self, job_types: datetime(2026, 1, 3, 9, 0, 0),
+    )
+
+    payload = reporting.get_summary(DummyRepo(), target_date=None)
+
+    assert payload["quality"]["findings"]["stale"] is True
+    assert "settings_changed_after_conversion_findings" in payload["quality"]["findings"]["stale_reasons"]
+
+
+def _deprecated_test_get_summary_marks_findings_stale_when_source_watermark_advances(monkeypatch):
     class DummyRepo:
         database_url = "postgresql://example/db"
 
@@ -319,7 +432,7 @@ def test_get_summary_marks_findings_stale_when_source_watermark_advances(monkeyp
     assert "settings_changed_after_click_findings" in payload["quality"]["findings"]["stale_reasons"]
 
 
-def test_get_summary_uses_legacy_settings_timestamp_when_version_id_is_unavailable(monkeypatch):
+def _deprecated_test_get_summary_uses_legacy_settings_timestamp_when_version_id_is_unavailable(monkeypatch):
     class DummyRepo:
         database_url = "postgresql://example/db"
 

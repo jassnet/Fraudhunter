@@ -72,8 +72,17 @@ export interface SuspiciousItem {
   last_time: string;
   reasons: string[];
   reasons_formatted: string[];
+  reason_summary?: string | null;
+  reason_group_count?: number;
+  reason_groups?: string[];
+  /** 同一検知パターン（理由カテゴリの組み合わせ）で一覧を束ねるためのキー */
+  reason_cluster_key?: string;
   min_click_to_conv_seconds?: number | null;
   max_click_to_conv_seconds?: number | null;
+  linked_click_count?: number | null;
+  linked_clicks_per_conversion?: number | null;
+  extra_window_click_count?: number | null;
+  extra_window_non_browser_ratio?: number | null;
   media_names?: string[];
   program_names?: string[];
   affiliate_names?: string[];
@@ -144,8 +153,14 @@ export async function fetchSummary(date?: string): Promise<SummaryResponse> {
   return fetchJson<SummaryResponse>(url);
 }
 
-export async function fetchDailyStats(limit = 30): Promise<{ data: DailyStatsItem[] }> {
-  return fetchJson(`${API_BASE_URL}/api/stats/daily?limit=${limit}`);
+export async function fetchDailyStats(
+  limit = 30,
+  targetDate?: string
+): Promise<{ data: DailyStatsItem[] }> {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  if (targetDate) params.set("target_date", targetDate);
+  return fetchJson(`${API_BASE_URL}/api/stats/daily?${params.toString()}`);
 }
 
 export async function fetchSuspiciousClicks(
