@@ -10,6 +10,7 @@ import { SUSPICIOUS_LIST_PAGE_SIZE } from "@/features/suspicious-list/use-suspic
 import { ApiError } from "@/lib/api";
 import type { SuspiciousItem, SuspiciousQueryOptions, SuspiciousResponse } from "@/lib/api";
 
+const GROUP_BY_REASON_STORAGE_KEY = "suspicious:list:group-by-reason";
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
   pathname: "/suspicious/conversions",
@@ -43,6 +44,7 @@ function buildRows(count = 120): SuspiciousItem[] {
       last_time: `2026-01-21T01:00:${String(index % 60).padStart(2, "0")}Z`,
       reasons: ["total_conversions >= 50"],
       reasons_formatted: ["Conversions exceed threshold (50+)"],
+      reason_cluster_key: `cluster-${Math.floor(i / 2)}`,
       risk_level: riskLevel,
       risk_score: riskLevel === "high" ? 90 : riskLevel === "medium" ? 60 : 20,
       risk_label: riskLevel === "high" ? "High" : riskLevel === "medium" ? "Medium" : "Low",
@@ -99,7 +101,7 @@ function createDetailFetcher() {
     last_time: "2026-01-21T01:00:01Z",
     reasons: ["total_conversions >= 50"],
     reasons_formatted: ["Conversions exceed threshold (50+)"],
-    risk_level: "high",
+    risk_level: "high" as const,
     risk_score: 90,
     risk_label: "High",
     media_names: ["Media 1"],
@@ -147,6 +149,7 @@ import {
 
 describe("Suspicious list page", () => {
   beforeEach(() => {
+    localStorage.setItem(GROUP_BY_REASON_STORAGE_KEY, "0");
     navigation.replace.mockReset();
     navigation.pathname = "/suspicious/conversions";
     navigation.searchParams = new URLSearchParams("date=2026-01-21");
@@ -165,6 +168,27 @@ describe("Suspicious list page", () => {
 
     expect(screen.getByText("10.0.*.1")).toBeInTheDocument();
     expect(screen.getAllByText("High").length).toBeGreaterThan(0);
+  });
+
+  it("groups duplicate patterns by default and paginates by grouped rows", async () => {
+    localStorage.removeItem(GROUP_BY_REASON_STORAGE_KEY);
+    const fetcher = createFetcher(buildRows(20));
+    renderPage(fetcher);
+
+    await screen.findByRole("heading", { name: suspiciousCopy.conversionsTitle });
+    expect(await screen.findByLabelText(suspiciousCopy.labels.resultRange)).toHaveTextContent(
+      formatSuspiciousResultRange(1, SUSPICIOUS_LIST_PAGE_SIZE, 10)
+    );
+    expect(screen.getByRole("checkbox", { name: suspiciousCopy.labels.groupByReasonPattern })).toBeChecked();
+    expect(fetcher).toHaveBeenCalledWith(
+      "2026-01-21",
+      10000,
+      0,
+      expect.objectContaining({
+        includeDetails: false,
+        maskSensitive: true,
+      })
+    );
   });
 
   it("writes search text into the URL durable state", async () => {

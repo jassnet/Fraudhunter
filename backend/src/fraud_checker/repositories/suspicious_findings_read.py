@@ -146,8 +146,7 @@ class SuspiciousFindingsReadRepository(RepositoryBase):
         *,
         target_date: date | None = None,
     ) -> dict[str, dict[str, int]]:
-        if not self._table_exists("suspicious_conversion_findings"):
-            return {}
+        merged: dict[str, dict[str, int]] = {}
 
         params: dict[str, object] = {"limit": limit}
         where_parts = ["f.is_current = TRUE"]
@@ -157,31 +156,47 @@ class SuspiciousFindingsReadRepository(RepositoryBase):
             where_parts.append("f.date <= :target_date")
             legacy_where_parts.append("date <= :target_date")
 
-        if not self._table_exists("findings_generations"):
-            return self._get_daily_finding_counts_legacy(" AND ".join(legacy_where_parts), params)
+        if self._table_exists("suspicious_conversion_findings"):
+            if not self._table_exists("findings_generations"):
+                merged.update(self._get_daily_finding_counts_legacy(" AND ".join(legacy_where_parts), params))
+            else:
+                rows = self.fetch_all(
+                    f"""
+                    SELECT f.date, COUNT(*) AS suspicious_conversions
+                    FROM suspicious_conversion_findings f
+                    JOIN findings_generations fg
+                      ON fg.generation_id = f.generation_id
+                     AND fg.target_date = f.date
+                     AND fg.finding_type = 'conversion'
+                     AND fg.is_current = TRUE
+                    WHERE {" AND ".join(where_parts)}
+                    GROUP BY f.date
+                    ORDER BY f.date DESC
+                    LIMIT :limit
+                    """,
+                    params,
+                )
+                for row in rows:
+                    row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
+                    merged.setdefault(row_date, {})["suspicious_conversions"] = int(
+                        row["suspicious_conversions"] or 0
+                    )
 
-        rows = self.fetch_all(
-            f"""
-            SELECT f.date, COUNT(*) AS suspicious_conversions
-            FROM suspicious_conversion_findings f
-            JOIN findings_generations fg
-              ON fg.generation_id = f.generation_id
-             AND fg.target_date = f.date
-             AND fg.finding_type = 'conversion'
-             AND fg.is_current = TRUE
-            WHERE {" AND ".join(where_parts)}
-            GROUP BY f.date
-            ORDER BY f.date DESC
-            LIMIT :limit
-            """,
-            params,
-        )
-        merged: dict[str, dict[str, int]] = {}
-        for row in rows:
-            row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
-            merged.setdefault(row_date, {})["suspicious_conversions"] = int(
-                row["suspicious_conversions"] or 0
+        if self._table_exists("fraud_findings"):
+            fraud_rows = self.fetch_all(
+                f"""
+                SELECT date, COUNT(*) AS fraud_findings
+                FROM fraud_findings
+                WHERE {" AND ".join(legacy_where_parts)}
+                GROUP BY date
+                ORDER BY date DESC
+                LIMIT :limit
+                """,
+                params,
             )
+            for row in fraud_rows:
+                row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
+                merged.setdefault(row_date, {})["fraud_findings"] = int(row["fraud_findings"] or 0)
         return merged
 
     def count_current_conversion_findings(self, target_date: date) -> int:
@@ -206,17 +221,19 @@ class SuspiciousFindingsReadRepository(RepositoryBase):
         return int(row["cnt"] if row else 0)
 
     def purge_findings_before(self, cutoff: date, *, execute: bool) -> dict[str, int]:
-        table_name = "suspicious_conversion_findings"
-        if not self._table_exists(table_name):
-            return {table_name: 0}
         params = {"cutoff": cutoff}
         where_sql = "date < :cutoff"
-        count = (
-            self.delete_rows(table_name, where_sql, params)
-            if execute
-            else self.count_rows(table_name, where_sql, params)
-        )
-        return {table_name: count}
+        counts: dict[str, int] = {}
+        for table_name in ("suspicious_conversion_findings", "fraud_findings"):
+            if not self._table_exists(table_name):
+                counts[table_name] = 0
+                continue
+            counts[table_name] = (
+                self.delete_rows(table_name, where_sql, params)
+                if execute
+                else self.count_rows(table_name, where_sql, params)
+            )
+        return counts
 
     def _get_daily_finding_counts_legacy(
         self,

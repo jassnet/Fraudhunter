@@ -18,7 +18,10 @@ import {
   type SuspiciousSortValue,
   useSuspiciousListUrlState,
 } from "@/features/suspicious-list/url-state";
-import { useSuspiciousData } from "@/features/suspicious-list/use-suspicious-data";
+import {
+  SUSPICIOUS_LIST_PAGE_SIZE,
+  useSuspiciousData,
+} from "@/features/suspicious-list/use-suspicious-data";
 import { useSuspiciousDetails } from "@/features/suspicious-list/use-suspicious-details";
 import {
   fetchSuspiciousConversionDetail,
@@ -33,9 +36,10 @@ export default function SuspiciousListPage() {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [groupByReason, setGroupByReason] = useState(() => {
     try {
-      return localStorage.getItem(GROUP_BY_REASON_STORAGE_KEY) === "1";
+      const stored = localStorage.getItem(GROUP_BY_REASON_STORAGE_KEY);
+      return stored === null ? true : stored === "1";
     } catch {
-      return false;
+      return true;
     }
   });
   const [searchDraft, setSearchDraft] = useState(() => state.search);
@@ -71,6 +75,7 @@ export default function SuspiciousListPage() {
     fetcher: fetchSuspiciousConversions,
     date: state.date,
     page: state.page,
+    groupByReason,
     search: state.search,
     risk: state.risk,
     sort: state.sort,
@@ -130,12 +135,18 @@ export default function SuspiciousListPage() {
   };
 
   const closeDetail = () => setExpandedRow(null);
+  const handleGroupByReasonChange = (checked: boolean) => {
+    setGroupByReason(checked);
+    if (state.page !== 1) {
+      setPage(1);
+    }
+  };
 
   const renderBody = () => {
     if (status === "loading" || status === "refreshing") {
       return (
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-1 py-2 sm:px-2">
-          {[...Array(8)].map((_, index) => (
+          {[...Array(SUSPICIOUS_LIST_PAGE_SIZE)].map((_, index) => (
             <Skeleton key={index} className="h-10 w-full shrink-0" />
           ))}
         </div>
@@ -213,7 +224,7 @@ export default function SuspiciousListPage() {
               type="checkbox"
               className="h-3.5 w-3.5 shrink-0 rounded border-input accent-primary"
               checked={groupByReason}
-              onChange={(event) => setGroupByReason(event.target.checked)}
+              onChange={(event) => handleGroupByReasonChange(event.target.checked)}
             />
             <span className="whitespace-nowrap">
               {suspiciousCopy.labels.groupByReasonPattern}

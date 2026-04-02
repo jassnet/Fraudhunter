@@ -26,9 +26,12 @@ def _build_findings_freshness(
     settings_updated_at = repo.get_settings_updated_at()
     latest_settings_version_id = repo.get_latest_settings_version_id()
     conversion_watermark = repo.get_conversion_data_watermark(target_date)
+    fraud_watermark = repo.get_fraud_data_watermark(target_date)
     conversion_lineage = repo.get_conversion_findings_lineage(target_date) or {}
+    fraud_lineage = repo.get_fraud_findings_lineage(target_date) or {}
 
     conversion_last = conversion_lineage.get("findings_last_computed_at")
+    fraud_last = fraud_lineage.get("findings_last_computed_at")
     stale_reasons: list[str] = []
     if has_conversion_data:
         if conversion_last is None:
@@ -43,12 +46,20 @@ def _build_findings_freshness(
             and conversion_lineage.get("settings_updated_at_snapshot") != settings_updated_at
         ):
             stale_reasons.append("settings_changed_after_conversion_findings")
+        if fraud_last is None:
+            stale_reasons.append("fraud_findings_missing")
+        if fraud_lineage.get("source_conversion_watermark") != fraud_watermark:
+            stale_reasons.append("fraud_source_advanced")
+        if latest_settings_version_id:
+            if fraud_lineage.get("settings_version_id") != latest_settings_version_id:
+                stale_reasons.append("settings_changed_after_fraud_findings")
 
     return {
-        "findings_last_computed_at": _iso(conversion_last),
+        "findings_last_computed_at": _iso(fraud_last or conversion_last),
         "stale": bool(stale_reasons),
         "stale_reasons": stale_reasons,
         "conversion_findings_last_computed_at": _iso(conversion_last),
+        "fraud_findings_last_computed_at": _iso(fraud_last),
     }
 
 
@@ -130,6 +141,7 @@ def get_summary(
 
     if target_date_obj:
         susp_conv_count = repo.count_current_conversion_findings(target_date_obj)
+        fraud_count = repo.count_current_fraud_findings(target_date_obj)
         click_coverage = repo.get_click_ipua_coverage(target_date_obj)
         conversion_enrichment = repo.get_conversion_click_enrichment(target_date_obj)
         findings_freshness = _build_findings_freshness(
@@ -139,6 +151,7 @@ def get_summary(
         )
     else:
         susp_conv_count = 0
+        fraud_count = 0
         click_coverage = None
         conversion_enrichment = None
         findings_freshness = {"findings_last_computed_at": None, "stale": False, "stale_reasons": []}
@@ -167,6 +180,7 @@ def get_summary(
                 "prev_total": prev_conv["total"] if prev_conv else 0,
             },
             "suspicious": {
+                "fraud_findings": fraud_count,
                 "conversion_based": susp_conv_count,
             },
         },
@@ -228,11 +242,12 @@ def get_daily_stats(
     for row in click_rows:
         row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
         merged[row_date] = {
-            "date": row_date,
-            "clicks": row["clicks"],
-            "conversions": 0,
-            "suspicious_conversions": 0,
-        }
+                "date": row_date,
+                "clicks": row["clicks"],
+                "conversions": 0,
+                "suspicious_conversions": 0,
+                "fraud_findings": 0,
+            }
     for row in conv_rows:
         row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
         if row_date in merged:
@@ -243,6 +258,7 @@ def get_daily_stats(
                 "clicks": 0,
                 "conversions": row["conversions"],
                 "suspicious_conversions": 0,
+                "fraud_findings": 0,
             }
 
     finding_counts = repo.get_daily_finding_counts(limit, target_date=target_date_obj)
@@ -254,9 +270,11 @@ def get_daily_stats(
                 "clicks": 0,
                 "conversions": 0,
                 "suspicious_conversions": 0,
+                "fraud_findings": 0,
             },
         )
         merged[row_date]["suspicious_conversions"] = counts.get("suspicious_conversions", 0)
+        merged[row_date]["fraud_findings"] = counts.get("fraud_findings", counts.get("suspicious_conversions", 0))
 
     return sorted(merged.values(), key=lambda item: item["date"])
 

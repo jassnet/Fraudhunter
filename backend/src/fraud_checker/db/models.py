@@ -100,6 +100,98 @@ class ConversionIpuaDaily(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
+class CheckRaw(Base):
+    __tablename__ = "check_raw"
+    __table_args__ = (
+        Index("idx_check_raw_time", "regist_time"),
+        Index("idx_check_raw_user", "affiliate_user_id", "regist_time"),
+        Index("idx_check_raw_state", "state", "regist_time"),
+        Index("idx_check_raw_plid", "plid"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    affiliate_user_id: Mapped[str | None] = mapped_column(Text)
+    plid: Mapped[str | None] = mapped_column(Text)
+    state: Mapped[int | None] = mapped_column(Integer)
+    regist_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    raw_payload: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class TrackRaw(Base):
+    __tablename__ = "track_raw"
+    __table_args__ = (
+        Index("idx_track_raw_time", "regist_time"),
+        Index("idx_track_raw_action", "action_log_raw_id"),
+        Index("idx_track_raw_auth_type", "auth_type", "regist_time"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    action_log_raw_id: Mapped[str | None] = mapped_column(Text)
+    auth_type: Mapped[str | None] = mapped_column(Text)
+    auth_get_type: Mapped[str | None] = mapped_column(Text)
+    state: Mapped[int | None] = mapped_column(Integer)
+    regist_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    raw_payload: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class ClickSumDaily(Base):
+    __tablename__ = "click_sum_daily"
+    __table_args__ = (
+        Index("idx_click_sum_daily_date", "date"),
+        Index("idx_click_sum_daily_user", "date", "user_id"),
+        Index("idx_click_sum_daily_media", "date", "media_id"),
+        Index("idx_click_sum_daily_promotion", "date", "promotion_id"),
+    )
+
+    date: Mapped[date] = mapped_column(Date, primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    media_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    promotion_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    click_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class AccessSumDaily(Base):
+    __tablename__ = "access_sum_daily"
+    __table_args__ = (
+        Index("idx_access_sum_daily_date", "date"),
+        Index("idx_access_sum_daily_user", "date", "user_id"),
+        Index("idx_access_sum_daily_media", "date", "media_id"),
+        Index("idx_access_sum_daily_promotion", "date", "promotion_id"),
+    )
+
+    date: Mapped[date] = mapped_column(Date, primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    media_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    promotion_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    access_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class ImpSumDaily(Base):
+    __tablename__ = "imp_sum_daily"
+    __table_args__ = (
+        Index("idx_imp_sum_daily_date", "date"),
+        Index("idx_imp_sum_daily_user", "date", "user_id"),
+        Index("idx_imp_sum_daily_media", "date", "media_id"),
+        Index("idx_imp_sum_daily_promotion", "date", "promotion_id"),
+    )
+
+    date: Mapped[date] = mapped_column(Date, primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    media_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    promotion_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    imp_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
 class MasterMedia(Base):
     __tablename__ = "master_media"
 
@@ -116,6 +208,8 @@ class MasterPromotion(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     state: Mapped[str | None] = mapped_column(Text)
+    action_double_state: Mapped[int | None] = mapped_column(Integer)
+    action_double_type_json: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
@@ -248,6 +342,42 @@ class SuspiciousConversionFindingRecord(Base):
     max_click_to_conv_seconds: Mapped[int | None] = mapped_column(Integer)
     first_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     last_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    rule_version: Mapped[str] = mapped_column(Text, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    computed_by_job_id: Mapped[str | None] = mapped_column(Text)
+    settings_updated_at_snapshot: Mapped[datetime | None] = mapped_column(DateTime)
+    source_click_watermark: Mapped[datetime | None] = mapped_column(DateTime)
+    source_conversion_watermark: Mapped[datetime | None] = mapped_column(DateTime)
+    generation_id: Mapped[str | None] = mapped_column(Text)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    search_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class FraudFindingRecord(Base):
+    __tablename__ = "fraud_findings"
+    __table_args__ = (
+        Index("idx_ff_date_current", "date", "is_current"),
+        Index("idx_ff_date_current_risk", "date", "is_current", "risk_level"),
+        Index("idx_ff_date_current_entity", "date", "is_current", "user_id", "media_id", "promotion_id"),
+        Index("idx_ff_date_current_computed", "date", "is_current", "computed_at"),
+    )
+
+    finding_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    media_id: Mapped[str] = mapped_column(Text, nullable=False)
+    promotion_id: Mapped[str] = mapped_column(Text, nullable=False)
+    user_name: Mapped[str | None] = mapped_column(Text)
+    media_name: Mapped[str | None] = mapped_column(Text)
+    promotion_name: Mapped[str | None] = mapped_column(Text)
+    risk_level: Mapped[str] = mapped_column(Text, nullable=False)
+    risk_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    reasons_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reasons_formatted_json: Mapped[str] = mapped_column(Text, nullable=False)
+    metrics_json: Mapped[str] = mapped_column(Text, nullable=False)
+    primary_metric: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_time: Mapped[datetime | None] = mapped_column(DateTime)
+    last_time: Mapped[datetime | None] = mapped_column(DateTime)
     rule_version: Mapped[str] = mapped_column(Text, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     computed_by_job_id: Mapped[str | None] = mapped_column(Text)

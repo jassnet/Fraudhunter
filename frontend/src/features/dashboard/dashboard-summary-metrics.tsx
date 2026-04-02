@@ -6,18 +6,13 @@ import { cn } from "@/lib/utils";
 
 const formatDelta = (current: number, previous?: number | null) => {
   if (previous === undefined || previous === null) return null;
-
   const delta = current - previous;
   const sign = delta > 0 ? "+" : "";
-  const deltaLabel = `${sign}${delta.toLocaleString("en-US")}`;
-
-  if (previous <= 0) {
-    return `Day over day ${deltaLabel}`;
-  }
-
+  const deltaLabel = `${sign}${delta.toLocaleString("ja-JP")}`;
+  if (previous <= 0) return `前日比 ${deltaLabel}`;
   const pct = Math.round((delta / previous) * 1000) / 10;
   const pctSign = pct > 0 ? "+" : "";
-  return `Day over day ${deltaLabel} (${pctSign}${pct}%)`;
+  return `前日比 ${deltaLabel} / ${pctSign}${pct}%`;
 };
 
 interface DashboardSummaryMetricsProps {
@@ -79,10 +74,7 @@ function SummaryMetric({
     </div>
   );
 
-  if (!href) {
-    return content;
-  }
-
+  if (!href) return content;
   return (
     <Link
       href={href}
@@ -103,34 +95,37 @@ export function DashboardSummaryMetrics({
     summary.stats.conversions.total,
     summary.stats.conversions.prev_total
   );
+  const fraudHref = summary.date
+    ? `/suspicious/fraud?date=${encodeURIComponent(summary.date)}`
+    : "/suspicious/fraud";
 
   return (
     <section className="grid border border-border bg-card md:grid-cols-2 xl:grid-cols-3">
       <SummaryMetric
         label={dashboardCopy.labels.clicks}
-        value={summary.stats.clicks.total.toLocaleString("en-US")}
-        meta={`Unique IPs ${summary.stats.clicks.unique_ips.toLocaleString("en-US")}${clickDelta ? ` / ${clickDelta}` : ""}`}
+        value={summary.stats.clicks.total.toLocaleString("ja-JP")}
+        meta={`ユニークIP ${summary.stats.clicks.unique_ips.toLocaleString("ja-JP")}${clickDelta ? ` / ${clickDelta}` : ""}`}
         compact={compact}
       />
       <SummaryMetric
         label={dashboardCopy.labels.conversions}
-        value={summary.stats.conversions.total.toLocaleString("en-US")}
-        meta={`Unique IPs ${summary.stats.conversions.unique_ips.toLocaleString("en-US")}${conversionDelta ? ` / ${conversionDelta}` : ""}`}
+        value={summary.stats.conversions.total.toLocaleString("ja-JP")}
+        meta={`ユニークIP ${summary.stats.conversions.unique_ips.toLocaleString("ja-JP")}${conversionDelta ? ` / ${conversionDelta}` : ""}`}
         compact={compact}
       />
       <SummaryMetric
         label={dashboardCopy.labels.suspiciousConversions}
-        value={summary.stats.suspicious.conversion_based.toLocaleString("en-US")}
+        value={summary.stats.suspicious.fraud_findings.toLocaleString("ja-JP")}
         meta={
           <span className="inline-flex items-center gap-1 font-medium text-foreground">
-            Open findings
+            不正判定一覧
             <span aria-hidden>/</span>
-            <span>Drill down</span>
+            <span>詳細へ</span>
           </span>
         }
         tone="danger"
-        href="/suspicious/conversions"
-        ariaLabel={`Open ${summary.stats.suspicious.conversion_based.toLocaleString("en-US")} suspicious conversion findings`}
+        href={fraudHref}
+        ariaLabel={`不正判定 ${summary.stats.suspicious.fraud_findings.toLocaleString("ja-JP")}件の一覧を表示`}
         compact={compact}
       />
     </section>

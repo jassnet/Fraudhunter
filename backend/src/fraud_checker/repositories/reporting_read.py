@@ -44,6 +44,33 @@ class ReportingReadRepository(RepositoryBase):
             return None
         return self._max_timestamp_for_date("conversion_ipua_daily", target_date)
 
+    def get_fraud_data_watermark(self, target_date: date):
+        tables = [
+            ("check_raw", "regist_time"),
+            ("track_raw", "regist_time"),
+            ("conversion_raw", "conversion_time"),
+            ("click_sum_daily", "date"),
+            ("access_sum_daily", "date"),
+            ("imp_sum_daily", "date"),
+        ]
+        watermarks: list[object] = []
+        for table_name, date_column in tables:
+            if not self._table_exists(table_name):
+                continue
+            if date_column == "date":
+                row = self.fetch_one(
+                    f"SELECT MAX(updated_at) AS watermark FROM {table_name} WHERE date = :target_date",
+                    {"target_date": target_date},
+                )
+            else:
+                row = self.fetch_one(
+                    f"SELECT MAX(updated_at) AS watermark FROM {table_name} WHERE CAST({date_column} AS date) = :target_date",
+                    {"target_date": target_date},
+                )
+            if row and row.get("watermark") is not None:
+                watermarks.append(row["watermark"])
+        return max(watermarks) if watermarks else None
+
     def get_conversion_findings_lineage(self, target_date: date) -> dict | None:
         if self._table_exists("findings_generations"):
             return self.fetch_one(
@@ -82,6 +109,83 @@ class ReportingReadRepository(RepositoryBase):
             """,
             {"target_date": target_date},
         )
+
+    def get_fraud_findings_lineage(self, target_date: date) -> dict | None:
+        if not self._table_exists("findings_generations"):
+            return None
+        return self.fetch_one(
+            """
+            SELECT
+                created_at AS findings_last_computed_at,
+                settings_version_id,
+                settings_fingerprint,
+                detector_code_version,
+                source_click_watermark,
+                source_conversion_watermark,
+                row_count,
+                generation_id,
+                computed_by_job_id
+            FROM findings_generations
+            WHERE finding_type = 'fraud'
+              AND target_date = :target_date
+              AND is_current = TRUE
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"target_date": target_date},
+        )
+
+    def list_fraud_metric_rows(self, target_date: date) -> dict[str, list[dict]]:
+        data = {
+            "checks": [],
+            "tracks": [],
+            "conversions": [],
+            "click_metrics": [],
+            "access_metrics": [],
+            "imp_metrics": [],
+        }
+        if self._table_exists("check_raw"):
+            data["checks"] = self.fetch_all(
+                """
+                SELECT id, affiliate_user_id, plid, state, regist_time
+                FROM check_raw
+                WHERE CAST(regist_time AS date) = :target_date
+                """,
+                {"target_date": target_date},
+            )
+        if self._table_exists("track_raw"):
+            data["tracks"] = self.fetch_all(
+                """
+                SELECT id, action_log_raw_id, auth_type, auth_get_type, state, regist_time
+                FROM track_raw
+                WHERE CAST(regist_time AS date) = :target_date
+                """,
+                {"target_date": target_date},
+            )
+        if self._table_exists("conversion_raw"):
+            data["conversions"] = self.fetch_all(
+                """
+                SELECT id, cid, conversion_time, click_time, media_id, program_id, user_id, state
+                FROM conversion_raw
+                WHERE CAST(conversion_time AS date) = :target_date
+                """,
+                {"target_date": target_date},
+            )
+        for key, table_name, value_column in (
+            ("click_metrics", "click_sum_daily", "click_count"),
+            ("access_metrics", "access_sum_daily", "access_count"),
+            ("imp_metrics", "imp_sum_daily", "imp_count"),
+        ):
+            if self._table_exists(table_name):
+                data[key] = self.fetch_all(
+                    f"""
+                    SELECT date, user_id, media_id, promotion_id, {value_column} AS metric_value
+                    FROM {table_name}
+                    WHERE date = :target_date
+                    """,
+                    {"target_date": target_date},
+                )
+        return data
 
     def fetch_aggregates(self, target_date: date) -> list[AggregatedRow]:
         with self._connect() as conn:

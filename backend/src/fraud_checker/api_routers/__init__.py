@@ -1,3 +1,4 @@
+from .fraud import router as fraud_router
 from .health import router as health_router
 from .jobs import router as jobs_router
 from .masters import router as masters_router
@@ -8,6 +9,7 @@ from .testdata import router as testdata_router
 
 __all__ = [
     "health_router",
+    "fraud_router",
     "jobs_router",
     "masters_router",
     "reporting_router",

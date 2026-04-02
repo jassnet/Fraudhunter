@@ -14,7 +14,7 @@ interface LastUpdatedProps {
 }
 
 const formatTime = (date: Date) =>
-  date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 
 export function LastUpdated({
   lastUpdated,
@@ -33,7 +33,7 @@ export function LastUpdated({
         className
       )}
     >
-      <span>Last updated {timeLabel}</span>
+      <span>最終更新 {timeLabel}</span>
       {compact ? (
         <Button
           type="button"

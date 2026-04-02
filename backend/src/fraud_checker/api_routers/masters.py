@@ -18,7 +18,7 @@ def sync_masters(background_tasks: BackgroundTasks):
     try:
         job = enqueue_master_sync_job(background_tasks=background_tasks)
     except JobConflictError:
-        raise HTTPException(status_code=409, detail="Another job is already running") from None
+        raise HTTPException(status_code=409, detail="別のジョブが実行中です") from None
     return IngestResponse(
         success=True,
         message="マスタ同期ジョブを登録しました",
@@ -32,4 +32,4 @@ def get_masters_status():
         return get_repository().get_all_masters()
     except Exception:
         logger.exception("Error getting master status")
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        raise HTTPException(status_code=500, detail="サーバー内部エラー") from None

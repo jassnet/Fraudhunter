@@ -1,17 +1,19 @@
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, List, Optional
+from typing import Any
 
 
 @dataclass
 class ClickLog:
-    click_id: Optional[str]
+    click_id: str | None
     click_time: datetime
     media_id: str
     program_id: str
     ipaddress: str
     useragent: str
-    referrer: Optional[str]
+    referrer: str | None
     raw_payload: Any
 
 
@@ -31,27 +33,25 @@ class AggregatedRow:
 
 @dataclass
 class ConversionLog:
-    """成果ログ（ポストバック経由）"""
-    conversion_id: str  # action_log_raw.id
-    cid: Optional[str]  # check_log_raw（クリックID）
-    conversion_time: datetime  # 成果発生日時
-    click_time: Optional[datetime]  # クリック日時（あれば）
+    conversion_id: str
+    cid: str | None
+    conversion_time: datetime
+    click_time: datetime | None
     media_id: str
     program_id: str
-    user_id: Optional[str]  # アフィリエイターID
-    # ポストバック経由のため、以下はポストバックサーバーのIP/UAになる
-    postback_ipaddress: Optional[str]
-    postback_useragent: Optional[str]
-    # エントリー時（実ユーザー）のIP/UA - 成果ログから直接取得
-    entry_ipaddress: Optional[str] = None
-    entry_useragent: Optional[str] = None
-    state: Optional[str] = None  # ステータス（承認/否認等）
+    user_id: str | None
+    postback_ipaddress: str | None
+    postback_useragent: str | None
+    entry_ipaddress: str | None = None
+    entry_useragent: str | None = None
+    click_ipaddress: str | None = None
+    click_useragent: str | None = None
+    state: str | None = None
     raw_payload: Any = None
 
 
 @dataclass
 class ConversionWithClickInfo:
-    """クリック情報を突合した成果ログ（将来のクリックベース検知用に残置）"""
     conversion: ConversionLog
     click_ipaddress: str
     click_useragent: str
@@ -60,11 +60,10 @@ class ConversionWithClickInfo:
 
 @dataclass
 class ConversionIpUaRollup:
-    """成果ログのIP/UA別ロールアップ（エントリー時のIP/UAベース）"""
     date: date
-    ipaddress: str  # エントリー時（実ユーザー）のIP
-    useragent: str  # エントリー時（実ユーザー）のUA
-    conversion_count: int  # 成果件数
+    ipaddress: str
+    useragent: str
+    conversion_count: int
     media_count: int
     program_count: int
     first_conversion_time: datetime
@@ -73,12 +72,58 @@ class ConversionIpUaRollup:
 
 @dataclass
 class SuspiciousConversionFinding(ConversionIpUaRollup):
-    """疑わしい成果のIP/UA"""
-    reasons: List[str]
-    # クリック→成果までの経過秒（最小・最大）。click_timeがない場合はNone。
-    min_click_to_conv_seconds: Optional[float] = None
-    max_click_to_conv_seconds: Optional[float] = None
-    linked_click_count: Optional[int] = None
-    linked_clicks_per_conversion: Optional[float] = None
-    extra_window_click_count: Optional[int] = None
-    extra_window_non_browser_ratio: Optional[float] = None
+    reasons: list[str]
+    min_click_to_conv_seconds: float | None = None
+    max_click_to_conv_seconds: float | None = None
+    linked_click_count: int | None = None
+    linked_clicks_per_conversion: float | None = None
+    extra_window_click_count: int | None = None
+    extra_window_non_browser_ratio: float | None = None
+
+
+@dataclass
+class CheckLog:
+    check_id: str
+    affiliate_user_id: str | None
+    plid: str | None
+    state: int | None
+    regist_time: datetime
+    raw_payload: Any = None
+
+
+@dataclass
+class TrackLog:
+    track_id: str
+    action_log_raw_id: str | None
+    auth_type: str | None
+    auth_get_type: str | None
+    state: int | None
+    regist_time: datetime
+    raw_payload: Any = None
+
+
+@dataclass
+class EntityDailyMetric:
+    metric_id: str
+    metric_date: date
+    user_id: str | None
+    media_id: str | None
+    promotion_id: str | None
+    count: int
+    raw_payload: Any = None
+
+
+@dataclass
+class FraudFinding:
+    date: date
+    user_id: str
+    media_id: str
+    promotion_id: str
+    user_name: str | None
+    media_name: str | None
+    promotion_name: str | None
+    primary_metric: int
+    reasons: list[str]
+    metrics: dict[str, Any] = field(default_factory=dict)
+    first_event_time: datetime | None = None
+    last_event_time: datetime | None = None

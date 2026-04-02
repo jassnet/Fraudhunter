@@ -26,7 +26,7 @@ def reset_test_data():
         raise
     except Exception:
         logger.exception("Error resetting E2E test data")
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        raise HTTPException(status_code=500, detail="サーバー内部エラー") from None
 
 
 @router.post("/seed/baseline", response_model=TestDataResponse, dependencies=[Depends(require_test_key)])
@@ -42,4 +42,4 @@ def seed_test_baseline():
         raise
     except Exception:
         logger.exception("Error seeding E2E baseline data")
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        raise HTTPException(status_code=500, detail="サーバー内部エラー") from None

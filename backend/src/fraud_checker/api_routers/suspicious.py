@@ -47,7 +47,7 @@ def get_suspicious_conversions(
         raise
     except Exception:
         logger.exception("Error getting suspicious conversions")
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        raise HTTPException(status_code=500, detail="サーバー内部エラー") from None
 
 
 @router.get("/conversions/{finding_key}")
@@ -65,7 +65,7 @@ def get_suspicious_conversion_detail(
             include_details=include_details,
         )
         if result is None:
-            raise HTTPException(status_code=404, detail="Finding not found")
+            raise HTTPException(status_code=404, detail="検出結果が見つかりません")
         log_event(
             logger,
             "sensitive_detail_access",
@@ -83,4 +83,4 @@ def get_suspicious_conversion_detail(
         raise
     except Exception:
         logger.exception("Error getting suspicious conversion detail")
-        raise HTTPException(status_code=500, detail="Internal server error") from None
+        raise HTTPException(status_code=500, detail="サーバー内部エラー") from None

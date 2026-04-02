@@ -9,16 +9,15 @@ import type { SuspiciousItem } from "@/lib/api";
 
 function item(partial: Partial<SuspiciousItem> & { finding_key: string }): SuspiciousItem {
   return {
-    finding_key: partial.finding_key,
     date: "2026-01-01",
-    ipaddress: partial.ipaddress ?? "1.1.1.1",
-    useragent: partial.useragent ?? "UA",
+    ipaddress: "1.1.1.1",
+    useragent: "UA",
     media_count: 1,
     program_count: 1,
     first_time: "2026-01-01T00:00:00Z",
     last_time: "2026-01-01T01:00:00Z",
-    reasons: partial.reasons ?? [],
-    reasons_formatted: partial.reasons_formatted ?? [],
+    reasons: [],
+    reasons_formatted: [],
     ...partial,
   };
 }

@@ -15,6 +15,7 @@ export interface SummaryResponse {
       prev_total: number;
     };
     suspicious: {
+      fraud_findings: number;
       conversion_based: number;
     };
   };
@@ -47,6 +48,7 @@ export interface DailyStatsItem {
   clicks: number;
   conversions: number;
   suspicious_conversions: number;
+  fraud_findings: number;
 }
 
 export type SuspiciousRiskLevel = "high" | "medium" | "low";
@@ -106,6 +108,39 @@ export interface SuspiciousItem {
 export interface SuspiciousResponse {
   date: string;
   data: SuspiciousItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface FraudFindingItem {
+  finding_key?: string;
+  date: string;
+  user_id: string;
+  media_id: string;
+  promotion_id: string;
+  user_name: string;
+  media_name: string;
+  promotion_name: string;
+  primary_metric: number;
+  reasons: string[];
+  reasons_formatted: string[];
+  reason_summary?: string | null;
+  reason_group_count?: number;
+  reason_groups?: string[];
+  reason_cluster_key?: string;
+  risk_level?: SuspiciousRiskLevel;
+  risk_score?: number;
+  risk_label?: string;
+  first_time?: string | null;
+  last_time?: string | null;
+  details?: Record<string, unknown>;
+  evidence_status?: "available" | "expired" | "unknown";
+}
+
+export interface FraudFindingsResponse {
+  date: string;
+  data: FraudFindingItem[];
   total: number;
   limit: number;
   offset: number;
@@ -178,6 +213,26 @@ export async function fetchSuspiciousConversionDetail(
   findingKey: string
 ): Promise<SuspiciousItem> {
   return fetchJson(`${API_BASE_URL}/api/suspicious/conversions/${findingKey}`);
+}
+
+export async function fetchFraudFindings(
+  date?: string,
+  limit = 500,
+  offset = 0,
+  options?: SuspiciousQueryOptions
+): Promise<FraudFindingsResponse> {
+  const params = new URLSearchParams();
+  if (date) params.append("date", date);
+  params.append("limit", limit.toString());
+  params.append("offset", offset.toString());
+  appendSuspiciousParams(params, options);
+  return fetchJson(`${API_BASE_URL}/api/fraud/findings?${params}`);
+}
+
+export async function fetchFraudFindingDetail(
+  findingKey: string
+): Promise<FraudFindingItem> {
+  return fetchJson(`${API_BASE_URL}/api/fraud/findings/${findingKey}`);
 }
 
 export async function getAvailableDates(): Promise<AvailableDatesResponse> {

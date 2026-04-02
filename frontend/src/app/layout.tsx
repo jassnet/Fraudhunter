@@ -3,7 +3,7 @@ import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fraud Checker",
+  title: "不正検知チェッカー",
   description: "不正検知結果のモニタリング用ダッシュボードです。",
 };
 

@@ -23,16 +23,16 @@ const formatSeconds = (value?: number | null) => {
 };
 
 const formatCount = (value?: number | null) =>
-  typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("en-US") : "-";
+  typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("ja-JP") : "-";
 
 const formatDecimal = (value?: number | null) =>
   typeof value === "number" && Number.isFinite(value)
-    ? value.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+    ? value.toLocaleString("ja-JP", { minimumFractionDigits: 0, maximumFractionDigits: 2 })
     : "-";
 
 const formatPercent = (value?: number | null) =>
   typeof value === "number" && Number.isFinite(value)
-    ? value.toLocaleString("en-US", {
+    ? value.toLocaleString("ja-JP", {
         style: "percent",
         minimumFractionDigits: 0,
         maximumFractionDigits: 0,
@@ -429,7 +429,7 @@ export function SuspiciousRowDetails({
           {breakdownTable}
           {details.length > visibleDetails.length ? (
             <div className="mt-2 text-xs text-muted-foreground">
-              {visibleDetails.length} shown / {details.length} total
+              {visibleDetails.length}件表示 / 全{details.length}件
             </div>
           ) : null}
         </div>

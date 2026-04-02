@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 from .db.session import normalize_database_url
 
-ALEMBIC_HEAD_REVISION = "0010_drop_click_findings"
+ALEMBIC_HEAD_REVISION = "0011_add_acs_native_fraud"
 
 
 def infer_legacy_schema_revision(
@@ -18,6 +18,15 @@ def infer_legacy_schema_revision(
     table_columns: Mapping[str, set[str]],
 ) -> str | None:
     if "suspicious_conversion_findings" in table_names and "suspicious_click_findings" not in table_names:
+        if {
+            "fraud_findings",
+            "check_raw",
+            "track_raw",
+            "click_sum_daily",
+            "access_sum_daily",
+            "imp_sum_daily",
+        }.issubset(table_names):
+            return "0011_add_acs_native_fraud"
         if {"settings_versions", "findings_generations"}.issubset(table_names):
             return "0010_drop_click_findings"
     if {

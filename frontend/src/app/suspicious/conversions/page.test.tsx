@@ -1,11 +1,13 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import SuspiciousConversionsPage from "@/app/suspicious/conversions/page";
 import {
   formatSuspiciousResultRange,
   suspiciousCopy,
 } from "@/features/suspicious-list/copy";
 import { SUSPICIOUS_LIST_PAGE_SIZE } from "@/features/suspicious-list/use-suspicious-data";
+
+const GROUP_BY_REASON_STORAGE_KEY = "suspicious:list:group-by-reason";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn() }),
@@ -14,6 +16,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("Suspicious conversions page", () => {
+  beforeEach(() => {
+    localStorage.setItem(GROUP_BY_REASON_STORAGE_KEY, "0");
+  });
+
   it("shows the page title and conversion count column", async () => {
     render(<SuspiciousConversionsPage />);
 

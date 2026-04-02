@@ -7,7 +7,8 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from ..api_presenters import calculate_risk_level, format_reasons
+from ..api_presenters import calculate_fraud_risk_level, calculate_risk_level, format_fraud_reasons, format_reasons
+from ..fraud_detector import AcsNativeFraudDetector
 from ..logging_utils import log_event, log_timed
 from ..service_protocols import FindingsRepository
 from ..suspicious import ConversionSuspiciousDetector
@@ -28,7 +29,11 @@ def _rule_version(settings: dict) -> str:
 
 def _detector_code_version() -> str:
     suspicious_path = Path(__file__).resolve().parent.parent / "suspicious.py"
-    return _hash_text(suspicious_path.read_text(encoding="utf-8", errors="ignore"))[:16]
+    fraud_path = Path(__file__).resolve().parent.parent / "fraud_detector.py"
+    return _hash_text(
+        suspicious_path.read_text(encoding="utf-8", errors="ignore")
+        + fraud_path.read_text(encoding="utf-8", errors="ignore")
+    )[:16]
 
 
 def _search_text(*parts: str) -> str:
@@ -68,12 +73,15 @@ def recompute_findings_for_dates(
     results: dict[str, dict[str, int]] = {}
 
     conversion_detector = ConversionSuspiciousDetector(repo, conversion_rules)
+    fraud_detector = AcsNativeFraudDetector(repo, settings)
 
     for target_date in sorted(set(target_dates)):
         with log_timed(logger, "recompute_findings", target_date=target_date):
             source_click_watermark = repo.get_click_data_watermark(target_date)
             source_conversion_watermark = repo.get_conversion_data_watermark(target_date)
+            source_fraud_watermark = repo.get_fraud_data_watermark(target_date)
             conversion_findings = conversion_detector.find_for_date(target_date)
+            fraud_findings = fraud_detector.find_for_date(target_date)
             conversion_details = repo.get_suspicious_conversion_details_bulk(
                 target_date,
                 [(finding.ipaddress, finding.useragent) for finding in conversion_findings],
@@ -132,7 +140,7 @@ def recompute_findings_for_dates(
                         "computed_by_job_id": computed_by_job_id,
                         "settings_updated_at_snapshot": settings_updated_at_snapshot,
                         "source_click_watermark": source_click_watermark,
-                        "source_conversion_watermark": source_conversion_watermark,
+                        "source_conversion_watermark": source_fraud_watermark,
                         "generation_id": generation_id,
                         "is_current": True,
                         "search_text": _search_text(
@@ -162,15 +170,77 @@ def recompute_findings_for_dates(
                     "created_at": computed_at,
                 },
             )
+            fraud_rows = []
+            for finding in fraud_findings:
+                reasons_formatted = format_fraud_reasons(finding["reasons"])
+                risk = calculate_fraud_risk_level(finding["reasons"], finding["primary_metric"])
+                fraud_rows.append(
+                    {
+                        "finding_key": _hash_text(
+                            f"fraud|{target_date.isoformat()}|{finding['user_id']}|{finding['media_id']}|{finding['promotion_id']}|{rule_version}"
+                        ),
+                        "date": target_date,
+                        "user_id": finding["user_id"],
+                        "media_id": finding["media_id"],
+                        "promotion_id": finding["promotion_id"],
+                        "user_name": finding.get("user_name"),
+                        "media_name": finding.get("media_name"),
+                        "promotion_name": finding.get("promotion_name"),
+                        "risk_level": risk["level"],
+                        "risk_score": risk["score"],
+                        "reasons_json": json.dumps(finding["reasons"], ensure_ascii=False),
+                        "reasons_formatted_json": json.dumps(reasons_formatted, ensure_ascii=False),
+                        "metrics_json": json.dumps(finding["metrics"], ensure_ascii=False, default=str),
+                        "primary_metric": finding["primary_metric"],
+                        "first_time": finding.get("first_event_time"),
+                        "last_time": finding.get("last_event_time"),
+                        "rule_version": rule_version,
+                        "computed_at": computed_at,
+                        "computed_by_job_id": computed_by_job_id,
+                        "settings_updated_at_snapshot": settings_updated_at_snapshot,
+                        "source_click_watermark": source_click_watermark,
+                        "source_conversion_watermark": source_conversion_watermark,
+                        "generation_id": generation_id,
+                        "is_current": True,
+                        "search_text": _search_text(
+                            finding["user_id"],
+                            finding["media_id"],
+                            finding["promotion_id"],
+                            finding.get("user_name") or "",
+                            finding.get("media_name") or "",
+                            finding.get("promotion_name") or "",
+                            *reasons_formatted,
+                        ),
+                    }
+                )
+            repo.replace_fraud_findings(
+                target_date,
+                fraud_rows,
+                generation_metadata={
+                    "generation_id": generation_id,
+                    "finding_type": "fraud",
+                    "target_date": target_date,
+                    "computed_by_job_id": computed_by_job_id,
+                    "settings_version_id": settings_version_id,
+                    "settings_fingerprint": settings_fingerprint,
+                    "detector_code_version": detector_code_version,
+                    "source_click_watermark": source_click_watermark,
+                    "source_conversion_watermark": source_fraud_watermark,
+                    "row_count": len(fraud_rows),
+                    "created_at": computed_at,
+                },
+            )
 
             results[target_date.isoformat()] = {
                 "suspicious_conversions": len(conversion_rows),
+                "fraud_findings": len(fraud_rows),
             }
             log_event(
                 logger,
                 "findings_recomputed",
                 target_date=target_date,
                 suspicious_conversions=len(conversion_rows),
+                fraud_findings=len(fraud_rows),
                 rule_version=rule_version,
                 settings_version_id=settings_version_id,
                 detector_code_version=detector_code_version,

@@ -22,6 +22,16 @@ describe("Dashboard page", () => {
     expect(screen.getByText(dashboardCopy.labels.chart)).toBeInTheDocument();
   });
 
+  it("preserves the selected date in the suspicious conversions link", async () => {
+    render(<DashboardPage />);
+
+    const suspiciousLink = await screen.findByRole("link", {
+      name: /不審コンバージョン .*件の検出結果を表示/,
+    });
+
+    expect(suspiciousLink).toHaveAttribute("href", "/suspicious/conversions?date=2026-01-21");
+  });
+
   it("hides admin actions when admin access is unavailable", async () => {
     render(<DashboardPage />);
 
@@ -198,7 +208,7 @@ describe("Dashboard page", () => {
     await screen.findByRole("heading", { name: dashboardCopy.title });
     await screen.findByText(dashboardCopy.targetDateLabel("2026-01-21"));
 
-    await user.selectOptions(screen.getByLabelText("Target date"), "2026-01-20");
+    await user.selectOptions(screen.getByLabelText("対象日"), "2026-01-20");
 
     await waitFor(() => {
       expect(screen.getByText(dashboardCopy.targetDateLabel("2026-01-20"))).toBeInTheDocument();

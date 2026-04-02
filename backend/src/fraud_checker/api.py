@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api_routers import (
+    fraud_router,
     health_router,
     jobs_router,
     masters_router,
@@ -77,6 +78,7 @@ async def log_request_timing(request, call_next):
 
 for router in (
     health_router,
+    fraud_router,
     reporting_router,
     suspicious_router,
     jobs_router,

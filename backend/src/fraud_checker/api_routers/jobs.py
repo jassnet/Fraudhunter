@@ -23,7 +23,7 @@ def ingest_clicks(request: IngestRequest, background_tasks: BackgroundTasks):
     try:
         job = enqueue_click_ingestion_job(target_date, background_tasks=background_tasks)
     except JobConflictError:
-        raise HTTPException(status_code=409, detail="Another job is already running") from None
+        raise HTTPException(status_code=409, detail="別のジョブが実行中です") from None
     return IngestResponse(
         success=True,
         message=f"クリック取り込みジョブを登録しました（{request.date}）",
@@ -37,7 +37,7 @@ def ingest_conversions(request: IngestRequest, background_tasks: BackgroundTasks
     try:
         job = enqueue_conversion_ingestion_job(target_date, background_tasks=background_tasks)
     except JobConflictError:
-        raise HTTPException(status_code=409, detail="Another job is already running") from None
+        raise HTTPException(status_code=409, detail="別のジョブが実行中です") from None
     return IngestResponse(
         success=True,
         message=f"成果取り込みジョブを登録しました（{request.date}）",
@@ -56,7 +56,7 @@ def refresh_data(request: RefreshRequest, background_tasks: BackgroundTasks):
             detect=request.detect,
         )
     except JobConflictError:
-        raise HTTPException(status_code=409, detail="Another job is already running") from None
+        raise HTTPException(status_code=409, detail="別のジョブが実行中です") from None
     return IngestResponse(
         success=True,
         message=f"直近{request.hours}時間の再取得ジョブを登録しました",

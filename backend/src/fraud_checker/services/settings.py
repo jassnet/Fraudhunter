@@ -17,6 +17,21 @@ from ..config import (
     DEFAULT_CONV_MEDIA_THRESHOLD,
     DEFAULT_CONV_PROGRAM_THRESHOLD,
     DEFAULT_EXCLUDE_DATACENTER_IP,
+    DEFAULT_FRAUD_ACTION_CANCEL_RATE,
+    DEFAULT_FRAUD_ACTION_FIXED_GAP_MAX_UNIQUE,
+    DEFAULT_FRAUD_ACTION_FIXED_GAP_MIN_COUNT,
+    DEFAULT_FRAUD_ACTION_MIN_TOTAL,
+    DEFAULT_FRAUD_ACTION_SHORT_GAP_COUNT,
+    DEFAULT_FRAUD_ACTION_SHORT_GAP_SECONDS,
+    DEFAULT_FRAUD_CHECK_DUPLICATE_PLID_COUNT,
+    DEFAULT_FRAUD_CHECK_DUPLICATE_PLID_RATE,
+    DEFAULT_FRAUD_CHECK_INVALID_RATE,
+    DEFAULT_FRAUD_CHECK_MIN_TOTAL,
+    DEFAULT_FRAUD_SPIKE_LOOKBACK_DAYS,
+    DEFAULT_FRAUD_SPIKE_MULTIPLIER,
+    DEFAULT_FRAUD_TRACK_AUTH_ERROR_RATE,
+    DEFAULT_FRAUD_TRACK_AUTH_IP_UA_RATE,
+    DEFAULT_FRAUD_TRACK_MIN_TOTAL,
     DEFAULT_MAX_CLICK_TO_CONV_SECONDS,
     DEFAULT_MEDIA_THRESHOLD,
     DEFAULT_MIN_CLICK_TO_CONV_SECONDS,
@@ -66,6 +81,51 @@ def _load_settings_from_env() -> dict:
         ),
         "max_click_to_conv_seconds": _env_int(
             "FRAUD_MAX_CLICK_TO_CONV_SECONDS", DEFAULT_MAX_CLICK_TO_CONV_SECONDS
+        ),
+        "fraud_check_min_total": _env_int(
+            "FRAUD_CHECK_MIN_TOTAL", DEFAULT_FRAUD_CHECK_MIN_TOTAL
+        ),
+        "fraud_check_invalid_rate": _env_int(
+            "FRAUD_CHECK_INVALID_RATE", DEFAULT_FRAUD_CHECK_INVALID_RATE
+        ),
+        "fraud_check_duplicate_plid_count": _env_int(
+            "FRAUD_CHECK_DUPLICATE_PLID_COUNT", DEFAULT_FRAUD_CHECK_DUPLICATE_PLID_COUNT
+        ),
+        "fraud_check_duplicate_plid_rate": _env_int(
+            "FRAUD_CHECK_DUPLICATE_PLID_RATE", DEFAULT_FRAUD_CHECK_DUPLICATE_PLID_RATE
+        ),
+        "fraud_track_min_total": _env_int(
+            "FRAUD_TRACK_MIN_TOTAL", DEFAULT_FRAUD_TRACK_MIN_TOTAL
+        ),
+        "fraud_track_auth_error_rate": _env_int(
+            "FRAUD_TRACK_AUTH_ERROR_RATE", DEFAULT_FRAUD_TRACK_AUTH_ERROR_RATE
+        ),
+        "fraud_track_auth_ip_ua_rate": _env_int(
+            "FRAUD_TRACK_AUTH_IP_UA_RATE", DEFAULT_FRAUD_TRACK_AUTH_IP_UA_RATE
+        ),
+        "fraud_action_min_total": _env_int(
+            "FRAUD_ACTION_MIN_TOTAL", DEFAULT_FRAUD_ACTION_MIN_TOTAL
+        ),
+        "fraud_action_short_gap_seconds": _env_int(
+            "FRAUD_ACTION_SHORT_GAP_SECONDS", DEFAULT_FRAUD_ACTION_SHORT_GAP_SECONDS
+        ),
+        "fraud_action_short_gap_count": _env_int(
+            "FRAUD_ACTION_SHORT_GAP_COUNT", DEFAULT_FRAUD_ACTION_SHORT_GAP_COUNT
+        ),
+        "fraud_action_cancel_rate": _env_int(
+            "FRAUD_ACTION_CANCEL_RATE", DEFAULT_FRAUD_ACTION_CANCEL_RATE
+        ),
+        "fraud_action_fixed_gap_min_count": _env_int(
+            "FRAUD_ACTION_FIXED_GAP_MIN_COUNT", DEFAULT_FRAUD_ACTION_FIXED_GAP_MIN_COUNT
+        ),
+        "fraud_action_fixed_gap_max_unique": _env_int(
+            "FRAUD_ACTION_FIXED_GAP_MAX_UNIQUE", DEFAULT_FRAUD_ACTION_FIXED_GAP_MAX_UNIQUE
+        ),
+        "fraud_spike_multiplier": _env_int(
+            "FRAUD_SPIKE_MULTIPLIER", DEFAULT_FRAUD_SPIKE_MULTIPLIER
+        ),
+        "fraud_spike_lookback_days": _env_int(
+            "FRAUD_SPIKE_LOOKBACK_DAYS", DEFAULT_FRAUD_SPIKE_LOOKBACK_DAYS
         ),
         "browser_only": _env_bool("FRAUD_BROWSER_ONLY", DEFAULT_BROWSER_ONLY),
         "exclude_datacenter_ip": _env_bool(

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import json
+
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -39,17 +41,37 @@ class MasterRepository(RepositoryBase):
         with self._connect() as conn:
             conn.execute(stmt)
 
-    def upsert_promotion(self, promotion_id: str, name: str, state: str | None = None) -> None:
+    def upsert_promotion(
+        self,
+        promotion_id: str,
+        name: str,
+        state: str | None = None,
+        action_double_state: int | None = None,
+        action_double_type_json: str | list[str] | None = None,
+    ) -> None:
         table = Base.metadata.tables["master_promotion"]
         now = now_local()
+        action_double_type_value = (
+            json.dumps(action_double_type_json, ensure_ascii=False)
+            if isinstance(action_double_type_json, list)
+            else action_double_type_json
+        )
         stmt = pg_insert(table).values(
             id=promotion_id,
             name=name,
             state=state,
+            action_double_state=action_double_state,
+            action_double_type_json=action_double_type_value,
             updated_at=now,
         ).on_conflict_do_update(
             index_elements=["id"],
-            set_={"name": name, "state": state, "updated_at": now},
+            set_={
+                "name": name,
+                "state": state,
+                "action_double_state": action_double_state,
+                "action_double_type_json": action_double_type_value,
+                "updated_at": now,
+            },
         )
         with self._connect() as conn:
             conn.execute(stmt)
@@ -110,6 +132,12 @@ class MasterRepository(RepositoryBase):
                 "id": p.get("id"),
                 "name": p.get("name", ""),
                 "state": p.get("state"),
+                "action_double_state": p.get("action_double_state"),
+                "action_double_type_json": (
+                    json.dumps(p.get("action_double_type_json"), ensure_ascii=False)
+                    if isinstance(p.get("action_double_type_json"), list)
+                    else p.get("action_double_type_json")
+                ),
                 "updated_at": now,
             }
             for p in promo_list
@@ -119,6 +147,8 @@ class MasterRepository(RepositoryBase):
             set_={
                 "name": sa.text("excluded.name"),
                 "state": sa.text("excluded.state"),
+                "action_double_state": sa.text("excluded.action_double_state"),
+                "action_double_type_json": sa.text("excluded.action_double_type_json"),
                 "updated_at": sa.text("excluded.updated_at"),
             },
         )

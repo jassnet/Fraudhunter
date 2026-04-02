@@ -438,3 +438,78 @@ def present_conversion_finding_record(
     if details is not None:
         item["details"] = details
     return item
+
+
+def format_fraud_reasons(reasons: list[str]) -> list[str]:
+    mapping = {
+        "check_invalid_rate": "無効チェック率が高いです",
+        "check_duplicate_plid": "同一アドクリックIDの重複が多いです",
+        "track_auth_error_rate": "認証エラーが多いです",
+        "track_auth_ip_ua_rate": "IP/UA認証への依存が高いです",
+        "action_short_gap": "クリックから成果までが短すぎます",
+        "action_fixed_gap_pattern": "成果発生間隔が不自然に揃っています",
+        "action_cancel_rate": "キャンセル率が高いです",
+        "promotion_duplicate_guard_bypass_risk": "案件の重複防止設定との乖離があります",
+        "click_spike": "クリック数が直近基準より急増しています",
+        "access_spike": "アクセス数が直近基準より急増しています",
+        "ctr_spike": "CTRが直近基準より急増しています",
+    }
+    return [mapping.get(reason, reason) for reason in reasons]
+
+
+def calculate_fraud_risk_level(reasons: list[str], primary_metric: int) -> dict:
+    score = 0
+    hard_signals = {"check_invalid_rate", "check_duplicate_plid"}
+    medium_signals = {
+        "track_auth_error_rate",
+        "track_auth_ip_ua_rate",
+        "action_short_gap",
+        "action_fixed_gap_pattern",
+        "action_cancel_rate",
+        "promotion_duplicate_guard_bypass_risk",
+    }
+    soft_signals = {"click_spike", "access_spike", "ctr_spike"}
+    for reason in reasons:
+        if reason in hard_signals:
+            score += 35
+        elif reason in medium_signals:
+            score += 20
+        elif reason in soft_signals:
+            score += 10
+        else:
+            score += 8
+    if primary_metric >= 20:
+        score += 15
+    elif primary_metric >= 10:
+        score += 8
+    if score >= 80:
+        return {"level": "high", "score": score, "label": RISK_LABELS["high"]}
+    if score >= 40:
+        return {"level": "medium", "score": score, "label": RISK_LABELS["medium"]}
+    return {"level": "low", "score": score, "label": RISK_LABELS["low"]}
+
+
+def present_fraud_finding_record(row: dict) -> dict:
+    reason_display = build_reason_display(row["reasons_json"], is_conversion=True)
+    metrics = row.get("metrics_json") or {}
+    return {
+        "finding_key": row["finding_key"],
+        "date": row["date"].isoformat() if hasattr(row["date"], "isoformat") else row["date"],
+        "user_id": row["user_id"],
+        "media_id": row["media_id"],
+        "promotion_id": row["promotion_id"],
+        "user_name": row.get("user_name") or row["user_id"],
+        "media_name": row.get("media_name") or row["media_id"],
+        "promotion_name": row.get("promotion_name") or row["promotion_id"],
+        "primary_metric": row["primary_metric"],
+        "reasons": row["reasons_json"],
+        "reasons_formatted": row.get("reasons_formatted_json") or format_fraud_reasons(row["reasons_json"]),
+        "risk_level": row["risk_level"],
+        "risk_score": row["risk_score"],
+        "risk_label": RISK_LABELS.get(row["risk_level"], row["risk_level"]),
+        "first_time": format_datetime_value(row.get("first_time")),
+        "last_time": format_datetime_value(row.get("last_time")),
+        "details": metrics,
+        **reason_display,
+        **_evidence_fields(row["date"]),
+    }

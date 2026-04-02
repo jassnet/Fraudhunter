@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import logging
-from datetime import date, datetime, timedelta
-from typing import Iterable, List, Optional, Tuple
+from datetime import date, datetime
+from typing import Iterable
 from urllib.parse import urljoin
 
 import requests
 
-from .models import ClickLog, ConversionLog
+from .models import CheckLog, ClickLog, ConversionLog, EntityDailyMetric, TrackLog
 from .time_utils import parse_datetime
 
 logger = logging.getLogger(__name__)
@@ -20,11 +21,10 @@ class AcsHttpClient:
         access_key: str,
         secret_key: str,
         *,
-        endpoint_path: str = "access_log/search",
-        session: Optional[requests.Session] = None,
+        endpoint_path: str = "track_log/search",
+        session: requests.Session | None = None,
         timeout: int = 30,
     ):
-        # Normalize base URL to avoid double slashes when joining paths.
         self.base_url = base_url.rstrip("/") + "/"
         self.session = session or requests.Session()
         self.token = f"{access_key}:{secret_key}"
@@ -32,20 +32,169 @@ class AcsHttpClient:
         self.timeout = timeout
 
     def fetch_click_logs(self, target_date: date, page: int, limit: int) -> Iterable[ClickLog]:
-        url = urljoin(self.base_url, self.endpoint_path)
-        offset = (page - 1) * limit
-        params = {
-            "limit": limit,
-            "offset": offset,
-            # Track Logの日付検索は regist_unix の between_date を推奨（仕様書に準拠）
-            "regist_unix": "between_date",
-            "regist_unix_A_Y": target_date.year,
-            "regist_unix_A_M": target_date.month,
-            "regist_unix_A_D": target_date.day,
-            "regist_unix_B_Y": target_date.year,
-            "regist_unix_B_M": target_date.month,
-            "regist_unix_B_D": target_date.day,
-        }
+        records = self._fetch_records(
+            self.endpoint_path,
+            self._between_date_params(target_date, prefix="regist_unix", page=page, limit=limit),
+        )
+        return [self._to_click(record) for record in records]
+
+    def fetch_conversion_logs(
+        self,
+        target_date: date,
+        page: int,
+        limit: int,
+    ) -> Iterable[ConversionLog]:
+        records = self._fetch_records(
+            "action_log_raw/search",
+            self._between_date_params(target_date, prefix="regist_unix", page=page, limit=limit),
+        )
+        return [self._to_conversion(record) for record in records]
+
+    def fetch_click_logs_for_time_range(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        page: int,
+        limit: int,
+    ) -> Iterable[ClickLog]:
+        records = self._fetch_records(
+            self.endpoint_path,
+            self._between_range_params(start_time.date(), end_time.date(), prefix="regist_unix", page=page, limit=limit),
+        )
+        return [self._to_click(record) for record in records]
+
+    def fetch_conversion_logs_for_time_range(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        page: int,
+        limit: int,
+    ) -> Iterable[ConversionLog]:
+        records = self._fetch_records(
+            "action_log_raw/search",
+            self._between_range_params(start_time.date(), end_time.date(), prefix="regist_unix", page=page, limit=limit),
+        )
+        return [self._to_conversion(record) for record in records]
+
+    def fetch_check_logs(self, target_date: date, page: int, limit: int) -> Iterable[CheckLog]:
+        records = self._fetch_records(
+            "check_log_raw/search",
+            self._between_date_params(target_date, prefix="regist_unix", page=page, limit=limit),
+        )
+        return [self._to_check(record) for record in records]
+
+    def fetch_track_logs(self, target_date: date, page: int, limit: int) -> Iterable[TrackLog]:
+        records = self._fetch_records(
+            "track_log/search",
+            self._between_date_params(target_date, prefix="regist_unix", page=page, limit=limit),
+        )
+        return [self._to_track(record) for record in records]
+
+    def fetch_click_metrics(self, target_date: date, page: int, limit: int) -> Iterable[EntityDailyMetric]:
+        records = self._fetch_records(
+            "click_log/search",
+            self._entity_day_params(target_date, page=page, limit=limit),
+        )
+        return [self._to_entity_metric(record, count_key="date_click") for record in records]
+
+    def fetch_access_metrics(self, target_date: date, page: int, limit: int) -> Iterable[EntityDailyMetric]:
+        records = self._fetch_records(
+            "access_log/search",
+            self._entity_day_params(target_date, page=page, limit=limit),
+        )
+        return [self._to_entity_metric(record, count_key="date_access") for record in records]
+
+    def fetch_imp_metrics(self, target_date: date, page: int, limit: int) -> Iterable[EntityDailyMetric]:
+        records = self._fetch_records(
+            "imp_log/search",
+            self._entity_day_params(target_date, page=page, limit=limit),
+        )
+        return [self._to_entity_metric(record, count_key="date_imp") for record in records]
+
+    def fetch_click_metric_sum(self, target_date: date) -> int:
+        return self._fetch_sum("click_log/sum", self._entity_day_params(target_date, page=1, limit=1), "click")
+
+    def fetch_access_metric_sum(self, target_date: date) -> int:
+        return self._fetch_sum("access_log/sum", self._entity_day_params(target_date, page=1, limit=1), "access")
+
+    def fetch_imp_metric_sum(self, target_date: date) -> int:
+        return self._fetch_sum("imp_log/sum", self._entity_day_params(target_date, page=1, limit=1), "imp")
+
+    def fetch_media_master(self, page: int = 1, limit: int = 500) -> list[dict]:
+        records = self._fetch_records("media/search", {"limit": limit, "offset": (page - 1) * limit})
+        return [
+            {
+                "id": record.get("id", ""),
+                "name": record.get("name", ""),
+                "user": record.get("user"),
+                "state": record.get("state"),
+            }
+            for record in records
+        ]
+
+    def fetch_promotion_master(self, page: int = 1, limit: int = 500) -> list[dict]:
+        records = self._fetch_records("promotion/search", {"limit": limit, "offset": (page - 1) * limit})
+        return [
+            {
+                "id": record.get("id", ""),
+                "name": record.get("name", ""),
+                "state": record.get("state"),
+                "action_double_state": self._to_int(record.get("action_double_state")),
+                "action_double_type_json": record.get("action_double_type"),
+            }
+            for record in records
+        ]
+
+    def fetch_user_master(self, page: int = 1, limit: int = 500) -> list[dict]:
+        records = self._fetch_records("user/search", {"limit": limit, "offset": (page - 1) * limit})
+        return [
+            {
+                "id": record.get("id", ""),
+                "name": record.get("name", ""),
+                "company": record.get("company"),
+                "state": record.get("state"),
+            }
+            for record in records
+        ]
+
+    def fetch_all_media_master(self) -> list[dict]:
+        return self._fetch_all_paged(self.fetch_media_master)
+
+    def fetch_all_promotion_master(self) -> list[dict]:
+        return self._fetch_all_paged(self.fetch_promotion_master)
+
+    def fetch_all_user_master(self) -> list[dict]:
+        return self._fetch_all_paged(self.fetch_user_master)
+
+    def _fetch_all_paged(self, fetch_page) -> list[dict]:
+        records: list[dict] = []
+        page = 1
+        while True:
+            batch = fetch_page(page=page, limit=500)
+            if not batch:
+                break
+            records.extend(batch)
+            if len(batch) < 500:
+                break
+            page += 1
+        return records
+
+    def _fetch_records(self, endpoint_path: str, params: dict[str, object]) -> list[dict]:
+        body = self._request_json(endpoint_path, params)
+        records = body.get("records", [])
+        if isinstance(records, list):
+            return records
+        if isinstance(records, dict):
+            return [records]
+        return []
+
+    def _fetch_sum(self, endpoint_path: str, params: dict[str, object], key: str) -> int:
+        body = self._request_json(endpoint_path, params)
+        payload = body.get("sum") or {}
+        return self._to_int(payload.get(key)) or 0
+
+    def _request_json(self, endpoint_path: str, params: dict[str, object]) -> dict:
+        url = urljoin(self.base_url, endpoint_path.lstrip("/"))
         logger.info("ACS request %s params=%s", url, params)
         response = self.session.get(
             url,
@@ -53,23 +202,61 @@ class AcsHttpClient:
             params=params,
             timeout=self.timeout,
         )
-
         if response.status_code != 200:
-            # Bubble up with body to ease operational troubleshooting; retries are handled by caller.
-            logger.error(
-                "ACS returned %s for %s: %s", response.status_code, response.url, response.text
-            )
+            logger.error("ACS returned %s for %s: %s", response.status_code, response.url, response.text)
             response.raise_for_status()
-
         try:
-            body = response.json()
-        except ValueError as exc:  # pragma: no cover - defensive guard
+            return response.json()
+        except ValueError:
             logger.error("ACS response was not JSON: %s", response.text)
             raise
 
-        records = body.get("records", [])
-        logger.info("ACS response status=%s records=%s", response.status_code, len(records))
-        return [self._to_click(record) for record in records]
+    @staticmethod
+    def _between_date_params(
+        target_date: date,
+        *,
+        prefix: str,
+        page: int,
+        limit: int,
+    ) -> dict[str, object]:
+        return AcsHttpClient._between_range_params(
+            target_date,
+            target_date,
+            prefix=prefix,
+            page=page,
+            limit=limit,
+        )
+
+    @staticmethod
+    def _between_range_params(
+        start_date: date,
+        end_date: date,
+        *,
+        prefix: str,
+        page: int,
+        limit: int,
+    ) -> dict[str, object]:
+        return {
+            "limit": limit,
+            "offset": (page - 1) * limit,
+            prefix: "between_date",
+            f"{prefix}_A_Y": start_date.year,
+            f"{prefix}_A_M": start_date.month,
+            f"{prefix}_A_D": start_date.day,
+            f"{prefix}_B_Y": end_date.year,
+            f"{prefix}_B_M": end_date.month,
+            f"{prefix}_B_D": end_date.day,
+        }
+
+    @staticmethod
+    def _entity_day_params(target_date: date, *, page: int, limit: int) -> dict[str, object]:
+        return {
+            "limit": limit,
+            "offset": (page - 1) * limit,
+            "date_y": target_date.year,
+            "date_m": target_date.month,
+            "date_d": target_date.day,
+        }
 
     def _to_click(self, record: dict) -> ClickLog:
         click_time_raw = (
@@ -78,353 +265,107 @@ class AcsHttpClient:
             or record.get("accessed_at")
             or record.get("regist_unix")
             or record.get("time")
-            or record.get("created_at", "")
+            or record.get("created_at")
+            or record.get("date_unix")
         )
-        click_time = self._parse_datetime(click_time_raw)
-        # track_cid を優先（成果ログの check_log_raw と突合するため）
-        # track_cid がない場合は id にフォールバック
         click_id = record.get("track_cid") or record.get("id")
         return ClickLog(
             click_id=click_id,
-            click_time=click_time,
-            media_id=record.get("media_id") or record.get("mediaId") or "",
-            program_id=record.get("program_id") or record.get("programId") or "",
+            click_time=self._parse_datetime(click_time_raw),
+            media_id=record.get("media_id") or record.get("media") or record.get("mediaId") or "",
+            program_id=record.get("program_id") or record.get("promotion") or record.get("programId") or "",
             ipaddress=record.get("ipaddress") or record.get("ip") or record.get("ip_address") or "",
-            useragent=record.get("useragent")
-            or record.get("ua")
-            or record.get("user_agent")
-            or "",
+            useragent=record.get("useragent") or record.get("ua") or record.get("user_agent") or "",
             referrer=record.get("referrer") or record.get("referer"),
             raw_payload=record,
         )
 
-    def fetch_conversion_logs(
-        self, target_date: date, page: int, limit: int
-    ) -> Iterable[ConversionLog]:
-        """
-        成果ログ（action_log_raw）を取得する。
-        ポストバック経由の成果を取得するためのメソッド。
-        """
-        url = urljoin(self.base_url, "action_log_raw/search")
-        offset = (page - 1) * limit
-        params = {
-            "limit": limit,
-            "offset": offset,
-            # 成果発生日時（regist_unix）で検索
-            "regist_unix": "between_date",
-            "regist_unix_A_Y": target_date.year,
-            "regist_unix_A_M": target_date.month,
-            "regist_unix_A_D": target_date.day,
-            "regist_unix_B_Y": target_date.year,
-            "regist_unix_B_M": target_date.month,
-            "regist_unix_B_D": target_date.day,
-        }
-        logger.info("ACS conversion request %s params=%s", url, params)
-        response = self.session.get(
-            url,
-            headers={"X-Auth-Token": self.token},
-            params=params,
-            timeout=self.timeout,
-        )
-
-        if response.status_code != 200:
-            logger.error(
-                "ACS returned %s for %s: %s",
-                response.status_code,
-                response.url,
-                response.text,
-            )
-            response.raise_for_status()
-
-        try:
-            body = response.json()
-        except ValueError:
-            logger.error("ACS response was not JSON: %s", response.text)
-            raise
-
-        records = body.get("records", [])
-        logger.info(
-            "ACS conversion response status=%s records=%s",
-            response.status_code,
-            len(records),
-        )
-        return [self._to_conversion(record) for record in records]
-
     def _to_conversion(self, record: dict) -> ConversionLog:
-        """APIレスポンスをConversionLogに変換"""
-        # 成果発生日時
-        regist_time_raw = (
-            record.get("regist_unix")
-            or record.get("regist_time")
-            or record.get("created_at", "")
+        conversion_time = self._parse_datetime(
+            record.get("regist_unix") or record.get("regist_time") or record.get("created_at")
         )
-        conversion_time = self._parse_datetime(regist_time_raw)
-
-        # クリック日時（あれば）
         click_time_raw = record.get("click_unix") or record.get("click_time")
-        click_time = self._parse_datetime(click_time_raw) if click_time_raw else None
-
-        # cid（check_log_raw）: クリックIDへの参照（将来のクリックベース検知用に残置）
-        cid = record.get("check_log_raw") or record.get("cid")
-
         return ConversionLog(
             conversion_id=record.get("id", ""),
-            cid=cid,
+            cid=record.get("check_log_raw") or record.get("cid"),
             conversion_time=conversion_time,
-            click_time=click_time,
+            click_time=self._parse_datetime(click_time_raw) if click_time_raw else None,
             media_id=record.get("media") or record.get("media_id") or "",
             program_id=record.get("promotion") or record.get("program_id") or "",
             user_id=record.get("user") or record.get("user_id"),
-            # ポストバック経由の場合、これらはポストバックサーバーのIP/UA
             postback_ipaddress=record.get("ipaddress") or record.get("ip"),
             postback_useragent=record.get("useragent") or record.get("ua"),
-            # エントリー時（実ユーザー）のIP/UA - 成果ログから直接取得
             entry_ipaddress=record.get("entry_ipaddress"),
             entry_useragent=record.get("entry_useragent"),
-            state=record.get("state"),
+            state=str(record.get("state")) if record.get("state") is not None else None,
             raw_payload=record,
         )
 
-    def fetch_click_logs_for_time_range(
-        self, start_time: datetime, end_time: datetime, page: int, limit: int
-    ) -> Iterable[ClickLog]:
-        """
-        時間範囲でクリックログを取得する（フィルタは呼び出し側で実施）。
-        """
-        # 日付範囲を計算（最大2日にまたがる可能性）
-        start_date = start_time.date()
-        end_date = end_time.date()
-        
-        url = urljoin(self.base_url, self.endpoint_path)
-        offset = (page - 1) * limit
-        params = {
-            "limit": limit,
-            "offset": offset,
-            "regist_unix": "between_date",
-            "regist_unix_A_Y": start_date.year,
-            "regist_unix_A_M": start_date.month,
-            "regist_unix_A_D": start_date.day,
-            "regist_unix_B_Y": end_date.year,
-            "regist_unix_B_M": end_date.month,
-            "regist_unix_B_D": end_date.day,
-        }
-        logger.info("ACS time range request %s params=%s", url, params)
-        response = self.session.get(
-            url,
-            headers={"X-Auth-Token": self.token},
-            params=params,
-            timeout=self.timeout,
+    def _to_check(self, record: dict) -> CheckLog:
+        check_id = record.get("id") or self._fallback_record_id("check", record)
+        return CheckLog(
+            check_id=str(check_id),
+            affiliate_user_id=record.get("user"),
+            plid=record.get("plid"),
+            state=self._to_int(record.get("state")),
+            regist_time=self._parse_datetime(record.get("regist_unix") or record.get("created_at")),
+            raw_payload=record,
         )
 
-        if response.status_code != 200:
-            logger.error(
-                "ACS returned %s for %s: %s", response.status_code, response.url, response.text
-            )
-            response.raise_for_status()
-
-        try:
-            body = response.json()
-        except ValueError as exc:
-            logger.error("ACS response was not JSON: %s", response.text)
-            raise
-
-        records = body.get("records", [])
-        logger.info("ACS response status=%s records=%s", response.status_code, len(records))
-        return [self._to_click(record) for record in records]
-
-    def fetch_conversion_logs_for_time_range(
-        self, start_time: datetime, end_time: datetime, page: int, limit: int
-    ) -> Iterable[ConversionLog]:
-        """
-        時間範囲で成果ログを取得する（フィルタは呼び出し側で実施）。
-        """
-        start_date = start_time.date()
-        end_date = end_time.date()
-        
-        url = urljoin(self.base_url, "action_log_raw/search")
-        offset = (page - 1) * limit
-        params = {
-            "limit": limit,
-            "offset": offset,
-            "regist_unix": "between_date",
-            "regist_unix_A_Y": start_date.year,
-            "regist_unix_A_M": start_date.month,
-            "regist_unix_A_D": start_date.day,
-            "regist_unix_B_Y": end_date.year,
-            "regist_unix_B_M": end_date.month,
-            "regist_unix_B_D": end_date.day,
-        }
-        logger.info("ACS conversion time range request %s params=%s", url, params)
-        response = self.session.get(
-            url,
-            headers={"X-Auth-Token": self.token},
-            params=params,
-            timeout=self.timeout,
+    def _to_track(self, record: dict) -> TrackLog:
+        track_id = record.get("id") or self._fallback_record_id(
+            "track",
+            {
+                "action_log_raw": record.get("action_log_raw"),
+                "auth_type": record.get("auth_type"),
+                "state": record.get("state"),
+                "regist_unix": record.get("regist_unix"),
+            },
+        )
+        return TrackLog(
+            track_id=str(track_id),
+            action_log_raw_id=record.get("action_log_raw"),
+            auth_type=record.get("auth_type"),
+            auth_get_type=record.get("auth_get_type"),
+            state=self._to_int(record.get("state")),
+            regist_time=self._parse_datetime(record.get("regist_unix") or record.get("created_at")),
+            raw_payload=record,
         )
 
-        if response.status_code != 200:
-            logger.error(
-                "ACS returned %s for %s: %s",
-                response.status_code,
-                response.url,
-                response.text,
-            )
-            response.raise_for_status()
-
-        try:
-            body = response.json()
-        except ValueError:
-            logger.error("ACS response was not JSON: %s", response.text)
-            raise
-
-        records = body.get("records", [])
-        logger.info(
-            "ACS conversion response status=%s records=%s",
-            response.status_code,
-            len(records),
+    def _to_entity_metric(self, record: dict, *, count_key: str) -> EntityDailyMetric:
+        metric_id = record.get("id") or self._fallback_record_id("metric", record)
+        metric_date = self._metric_date(record)
+        return EntityDailyMetric(
+            metric_id=str(metric_id),
+            metric_date=metric_date,
+            user_id=record.get("user"),
+            media_id=record.get("media"),
+            promotion_id=record.get("promotion"),
+            count=self._to_int(record.get(count_key)) or 0,
+            raw_payload=record,
         )
-        return [self._to_conversion(record) for record in records]
 
     @staticmethod
-    def _parse_datetime(value) -> datetime:
-        # Keep timestamps in configured local time (default: JST).
+    def _metric_date(record: dict) -> date:
+        if record.get("date_y") and record.get("date_m") and record.get("date_d"):
+            return date(int(record["date_y"]), int(record["date_m"]), int(record["date_d"]))
+        raw = record.get("date_unix") or record.get("created_at")
+        return parse_datetime(raw).date()
+
+    @staticmethod
+    def _fallback_record_id(prefix: str, payload: dict) -> str:
+        digest = hashlib.sha256(repr(sorted(payload.items())).encode("utf-8")).hexdigest()[:24]
+        return f"{prefix}-{digest}"
+
+    @staticmethod
+    def _to_int(value: object) -> int | None:
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _parse_datetime(value: object) -> datetime:
         return parse_datetime(value)
-
-    # ========== マスタデータ取得 ==========
-
-    def fetch_media_master(self, page: int = 1, limit: int = 500) -> List[dict]:
-        """媒体マスタを取得"""
-        url = urljoin(self.base_url, "media/search")
-        offset = (page - 1) * limit
-        params = {"limit": limit, "offset": offset}
-        
-        logger.info("ACS media master request %s params=%s", url, params)
-        response = self.session.get(
-            url,
-            headers={"X-Auth-Token": self.token},
-            params=params,
-            timeout=self.timeout,
-        )
-
-        if response.status_code != 200:
-            logger.error("ACS returned %s: %s", response.status_code, response.text)
-            response.raise_for_status()
-
-        body = response.json()
-        records = body.get("records", [])
-        logger.info("ACS media master response: %d records", len(records))
-        
-        return [
-            {
-                "id": r.get("id", ""),
-                "name": r.get("name", ""),
-                "user": r.get("user"),
-                "state": r.get("state"),
-            }
-            for r in records
-        ]
-
-    def fetch_promotion_master(self, page: int = 1, limit: int = 500) -> List[dict]:
-        """案件マスタを取得"""
-        url = urljoin(self.base_url, "promotion/search")
-        offset = (page - 1) * limit
-        params = {"limit": limit, "offset": offset}
-        
-        logger.info("ACS promotion master request %s params=%s", url, params)
-        response = self.session.get(
-            url,
-            headers={"X-Auth-Token": self.token},
-            params=params,
-            timeout=self.timeout,
-        )
-
-        if response.status_code != 200:
-            logger.error("ACS returned %s: %s", response.status_code, response.text)
-            response.raise_for_status()
-
-        body = response.json()
-        records = body.get("records", [])
-        logger.info("ACS promotion master response: %d records", len(records))
-        
-        return [
-            {
-                "id": r.get("id", ""),
-                "name": r.get("name", ""),
-                "state": r.get("state"),
-            }
-            for r in records
-        ]
-
-    def fetch_user_master(self, page: int = 1, limit: int = 500) -> List[dict]:
-        """ユーザー（アフィリエイター）マスタを取得"""
-        url = urljoin(self.base_url, "user/search")
-        offset = (page - 1) * limit
-        params = {"limit": limit, "offset": offset}
-        
-        logger.info("ACS user master request %s params=%s", url, params)
-        response = self.session.get(
-            url,
-            headers={"X-Auth-Token": self.token},
-            params=params,
-            timeout=self.timeout,
-        )
-
-        if response.status_code != 200:
-            logger.error("ACS returned %s: %s", response.status_code, response.text)
-            response.raise_for_status()
-
-        body = response.json()
-        records = body.get("records", [])
-        logger.info("ACS user master response: %d records", len(records))
-        
-        return [
-            {
-                "id": r.get("id", ""),
-                "name": r.get("name", ""),
-                "company": r.get("company"),
-                "state": r.get("state"),
-            }
-            for r in records
-        ]
-
-    def fetch_all_media_master(self) -> List[dict]:
-        """全媒体マスタを取得（ページング付き）"""
-        all_media = []
-        page = 1
-        while True:
-            batch = self.fetch_media_master(page=page, limit=500)
-            if not batch:
-                break
-            all_media.extend(batch)
-            if len(batch) < 500:
-                break
-            page += 1
-        return all_media
-
-    def fetch_all_promotion_master(self) -> List[dict]:
-        """全案件マスタを取得（ページング付き）"""
-        all_promos = []
-        page = 1
-        while True:
-            batch = self.fetch_promotion_master(page=page, limit=500)
-            if not batch:
-                break
-            all_promos.extend(batch)
-            if len(batch) < 500:
-                break
-            page += 1
-        return all_promos
-
-    def fetch_all_user_master(self) -> List[dict]:
-        """全ユーザーマスタを取得（ページング付き）"""
-        all_users = []
-        page = 1
-        while True:
-            batch = self.fetch_user_master(page=page, limit=500)
-            if not batch:
-                break
-            all_users.extend(batch)
-            if len(batch) < 500:
-                break
-            page += 1
-        return all_users

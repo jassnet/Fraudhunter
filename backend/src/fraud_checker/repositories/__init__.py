@@ -1,4 +1,6 @@
 from .base import RepositoryBase
+from .fraud_findings_read import FraudFindingsReadRepository
+from .fraud_findings_write import FraudFindingsWriteRepository
 from .ingestion import IngestionRepository
 from .master import MasterRepository
 from .reporting_read import ReportingReadRepository
@@ -13,6 +15,8 @@ __all__ = [
     "ReportingReadRepository",
     "RepositoryBase",
     "SettingsRepository",
+    "FraudFindingsReadRepository",
+    "FraudFindingsWriteRepository",
     "SuspiciousFindingsReadRepository",
     "SuspiciousFindingsWriteRepository",
     "SuspiciousReadRepository",

@@ -92,7 +92,7 @@ export function SuspiciousListTable({
       <div className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto overscroll-contain [scrollbar-gutter:stable] px-2 pb-3 pt-2 sm:px-3">
         <Table className="!table-auto w-full min-w-0 max-w-full">
           <caption className="sr-only">
-            Suspicious conversion list with risk, reason summary, and detail actions.
+            リスク、理由の概要、詳細操作を含む不審コンバージョン一覧
           </caption>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
@@ -186,7 +186,7 @@ export function SuspiciousListTable({
                       "text-right align-middle text-base font-semibold leading-none tracking-tight text-foreground tabular-nums sm:pr-1 sm:text-lg"
                     )}
                   >
-                    {totalConversions.toLocaleString("en-US")}
+                    {totalConversions.toLocaleString("ja-JP")}
                   </TableCell>
                   <TableCell className={`${cellClass} font-mono text-[12px] text-foreground/92`}>
                     <div className="flex min-w-0 items-start gap-1.5">
@@ -266,7 +266,7 @@ function DataRow({ item, onOpenDetail, indent = false }: DataRowProps) {
   const extraReasonCount = getExtraReasonCount(item);
   const metricDisplay =
     typeof item.total_conversions === "number"
-      ? item.total_conversions.toLocaleString("en-US")
+      ? item.total_conversions.toLocaleString("ja-JP")
       : "-";
 
   return (
