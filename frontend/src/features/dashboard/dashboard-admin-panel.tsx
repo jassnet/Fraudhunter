@@ -64,10 +64,10 @@ export function DashboardAdminPanel({
     const statusLabel = resolveAdminStatusLabel(action, status);
 
     return (
-      <div className="shrink-0 border border-border bg-card px-3 py-3">
+      <div className="fc-surface-card shrink-0 px-3 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            <div className="fc-overline font-semibold tracking-[0.12em]">
               {dashboardCopy.admin.title}
             </div>
             <div className="text-[12px] text-foreground/72">
@@ -102,7 +102,7 @@ export function DashboardAdminPanel({
 
   if (capability === "unavailable") {
     return (
-      <div className="shrink-0 border border-dashed border-border bg-card/55 px-3 py-3 text-[12px] text-muted-foreground">
+      <div className="fc-surface-card-muted shrink-0 px-3 py-3 text-[12px] text-muted-foreground">
         {dashboardCopy.admin.unavailableShortHint}
       </div>
     );

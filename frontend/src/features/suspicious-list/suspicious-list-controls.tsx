@@ -4,8 +4,7 @@ import { suspiciousCopy } from "@/features/suspicious-list/copy";
 import { cn } from "@/lib/utils";
 import type { SuspiciousRiskFilter, SuspiciousSortValue } from "./url-state";
 
-const selectClass =
-  "h-8 min-w-[6.5rem] rounded-md border border-input bg-background px-2 text-[12px] text-foreground outline-none transition-[color,box-shadow,border-color] focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/40";
+const selectClass = "fc-compact-select";
 
 interface SuspiciousListControlsProps {
   risk: SuspiciousRiskFilter;
@@ -21,9 +20,9 @@ export function SuspiciousListControls({
   onSortChange,
 }: SuspiciousListControlsProps) {
   return (
-    <div className="flex flex-col gap-3 border border-border bg-card/70 px-3 py-3 text-sm text-foreground/90 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="fc-surface-card-soft fc-toolbar text-sm">
+      <div className="fc-toolbar-section">
+        <span className="fc-overline">
           {suspiciousCopy.labels.listFiltersLegend}
         </span>
         <select
@@ -39,8 +38,8 @@ export function SuspiciousListControls({
         </select>
       </div>
 
-      <div className="flex min-w-0 flex-wrap items-center gap-2 border-t border-border/70 pt-3 sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0">
-        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="fc-toolbar-section fc-toolbar-section-split">
+        <span className="fc-overline">
           {suspiciousCopy.labels.sort}
         </span>
         <select

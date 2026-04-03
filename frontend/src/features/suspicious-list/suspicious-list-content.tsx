@@ -132,12 +132,12 @@ export function SuspiciousListContent({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border border-border bg-card/70 px-3 py-2.5">
-        <div className="min-w-0 space-y-0.5">
-          <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+      <div className="fc-range-bar">
+        <div className="fc-meta-copy space-y-0.5">
+          <div>
             {suspiciousCopy.labels.tableDisplayLegend}
           </div>
-          <div className="text-[12px] text-foreground/82">{resultRange}</div>
+          <div>{resultRange}</div>
         </div>
         <label className="inline-flex cursor-pointer select-none items-center gap-2 text-[12px] text-foreground/90">
           <input
