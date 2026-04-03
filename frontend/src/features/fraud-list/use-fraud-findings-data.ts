@@ -26,8 +26,6 @@ interface UseFraudFindingsDataArgs {
   sortOrder: SuspiciousSortOrder;
 }
 
-type FraudFindingsState = FraudFindingItem[];
-
 function getResultRange(page: number, total: number, visibleCount: number, status: SuspiciousDataStatus) {
   if (status === "loading" || status === "refreshing") {
     return fraudCopy.states.loadingRange;
@@ -50,7 +48,7 @@ export function useFraudFindingsData({
   sort,
   sortOrder,
 }: UseFraudFindingsDataArgs) {
-  const [data, setData] = useState<FraudFindingsState>([]);
+  const [data, setData] = useState<FraudFindingItem[]>([]);
   const [total, setTotal] = useState(0);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [visibleCount, setVisibleCount] = useState(0);
@@ -94,18 +92,18 @@ export function useFraudFindingsData({
     }
   }, [date, page, risk, search, sort, sortOrder]);
 
-  const loadDates = useEffectEvent(async () => {
-    try {
-      const result = await getAvailableDates();
-      setAvailableDates(result.dates || []);
-    } catch (error) {
-      const issue = toResourceIssue(error, fraudCopy.states.datesErrorMessage);
-      setStatus(issue.kind);
-      setMessage(issue.message);
-    }
-  });
-
   useEffect(() => {
+    const loadDates = async () => {
+      try {
+        const result = await getAvailableDates();
+        setAvailableDates(result.dates || []);
+      } catch (error) {
+        const issue = toResourceIssue(error, fraudCopy.states.datesErrorMessage);
+        setStatus(issue.kind);
+        setMessage(issue.message);
+      }
+    };
+
     void loadDates();
   }, []);
 

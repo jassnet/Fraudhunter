@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { fraudCopy } from "@/features/fraud-list/copy";
+import { getFraudReasonSummary } from "@/features/fraud-list/fraud-finding-metrics";
 import type { FraudFindingItem } from "@/lib/api";
 
 const riskToneMap: Record<string, "high" | "medium" | "low" | "neutral"> = {
@@ -18,10 +19,6 @@ const riskToneMap: Record<string, "high" | "medium" | "low" | "neutral"> = {
   medium: "medium",
   low: "low",
 };
-
-function getReasonSummary(item: FraudFindingItem) {
-  return item.reason_summary?.trim() || item.reasons_formatted?.[0] || item.reasons?.[0] || "-";
-}
 
 interface FraudFindingsTableProps {
   data: FraudFindingItem[];
@@ -67,7 +64,9 @@ export function FraudFindingsTable({
                 </StatusBadge>
               </TableCell>
               <TableCell className="px-4 py-3 align-top">
-                <div className="line-clamp-3 leading-relaxed text-foreground/92">{getReasonSummary(item)}</div>
+                <div className="line-clamp-3 leading-relaxed text-foreground/92">
+                  {getFraudReasonSummary(item)}
+                </div>
               </TableCell>
               <TableCell className="px-4 py-3 text-right align-top">
                 <Button

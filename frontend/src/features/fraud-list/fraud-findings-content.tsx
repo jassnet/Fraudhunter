@@ -23,48 +23,36 @@ interface FraudFindingsContentProps {
   onRetry: () => void;
 }
 
-function getStatePanelTone(status: SuspiciousDataStatus) {
+function getStatePanelProps(status: SuspiciousDataStatus, message: string | null) {
+  if (status === "unauthorized") {
+    return {
+      title: fraudCopy.states.unauthorizedTitle,
+      message: message || fraudCopy.states.unauthorizedMessage,
+      tone: "neutral" as const,
+    };
+  }
+
   if (status === "forbidden") {
-    return "danger" as const;
+    return {
+      title: fraudCopy.states.forbiddenTitle,
+      message: message || fraudCopy.states.forbiddenMessage,
+      tone: "danger" as const,
+    };
   }
 
   if (status === "transient-error") {
-    return "warning" as const;
+    return {
+      title: fraudCopy.states.transientTitle,
+      message: message || fraudCopy.states.transientMessage,
+      tone: "warning" as const,
+    };
   }
 
-  return "neutral" as const;
-}
-
-function getStatePanelTitle(status: SuspiciousDataStatus) {
-  if (status === "unauthorized") {
-    return fraudCopy.states.unauthorizedTitle;
-  }
-
-  if (status === "forbidden") {
-    return fraudCopy.states.forbiddenTitle;
-  }
-
-  if (status === "transient-error") {
-    return fraudCopy.states.transientTitle;
-  }
-
-  return fraudCopy.states.loadErrorTitle;
-}
-
-function getStatePanelMessage(status: SuspiciousDataStatus, message: string | null) {
-  if (message) {
-    return message;
-  }
-
-  if (status === "unauthorized") {
-    return fraudCopy.states.unauthorizedMessage;
-  }
-
-  if (status === "forbidden") {
-    return fraudCopy.states.forbiddenMessage;
-  }
-
-  return fraudCopy.states.transientMessage;
+  return {
+    title: fraudCopy.states.loadErrorTitle,
+    message: message || fraudCopy.states.loadErrorMessage,
+    tone: "neutral" as const,
+  };
 }
 
 export function FraudFindingsContent({
@@ -78,6 +66,8 @@ export function FraudFindingsContent({
   onPageChange,
   onRetry,
 }: FraudFindingsContentProps) {
+  const statePanelProps = getStatePanelProps(status, message);
+
   if (status === "loading" || status === "refreshing") {
     return (
       <div className="fc-surface-card-soft p-4">
@@ -99,9 +89,9 @@ export function FraudFindingsContent({
   ) {
     return (
       <StatePanel
-        title={getStatePanelTitle(status)}
-        message={getStatePanelMessage(status, message)}
-        tone={getStatePanelTone(status)}
+        title={statePanelProps.title}
+        message={statePanelProps.message}
+        tone={statePanelProps.tone}
         action={
           status === "transient-error" || status === "error" ? (
             <Button variant="outline" onClick={onRetry}>

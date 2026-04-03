@@ -16,7 +16,6 @@ export const fraudCopy = {
     promotion: "プログラム",
     reasons: "理由",
     details: "判定指標",
-    metric: "件数",
     risk: "リスク",
     retry: "再試行",
     firstDetected: "初回検知",
