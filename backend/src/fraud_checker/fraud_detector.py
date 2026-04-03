@@ -286,6 +286,12 @@ class AcsNativeFraudDetector:
         return statistics.median(cleaned)
 
     def _has_duplicate_guard(self, promotion_id: str) -> bool:
+        table_exists = getattr(self.repo, "_table_exists", None)
+        if callable(table_exists) and not table_exists("master_promotion"):
+            return False
+        column_exists = getattr(self.repo, "_column_exists", None)
+        if callable(column_exists) and not column_exists("master_promotion", "action_double_state"):
+            return False
         row = self.repo.fetch_one(
             """
             SELECT action_double_state

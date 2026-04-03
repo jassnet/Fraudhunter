@@ -21,6 +21,12 @@ class RepositoryBase:
     def _table_exists(self, name: str) -> bool:
         return sa.inspect(self.engine).has_table(name)
 
+    def _column_exists(self, table_name: str, column_name: str) -> bool:
+        inspector = sa.inspect(self.engine)
+        if not inspector.has_table(table_name):
+            return False
+        return column_name in {column["name"] for column in inspector.get_columns(table_name)}
+
     def _browser_filter_sql(self) -> str:
         if not BROWSER_UA_INCLUDES:
             return ""

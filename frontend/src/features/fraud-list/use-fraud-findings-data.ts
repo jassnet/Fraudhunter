@@ -57,18 +57,15 @@ export function useFraudFindingsData({
   const [status, setStatus] = useState<SuspiciousDataStatus>("loading");
   const [message, setMessage] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [resolvedDate, setResolvedDate] = useState("");
 
   const executeLoadData = useCallback(async (refresh = false) => {
-    if (!date) {
-      return;
-    }
-
     setStatus(refresh ? "refreshing" : "loading");
     setMessage(null);
 
     try {
       const response: FraudFindingsResponse = await fetchFraudFindings(
-        date,
+        date || undefined,
         FRAUD_FINDINGS_PAGE_SIZE,
         (page - 1) * FRAUD_FINDINGS_PAGE_SIZE,
         {
@@ -82,6 +79,12 @@ export function useFraudFindingsData({
       setData(response.data || []);
       setTotal(response.total || 0);
       setVisibleCount((response.data || []).length);
+      setResolvedDate(response.date || "");
+      if (response.date) {
+        setAvailableDates((current) =>
+          current.includes(response.date) ? current : [response.date, ...current]
+        );
+      }
       setLastUpdated(new Date());
       setStatus((response.total || 0) > 0 ? "ready" : "empty");
     } catch (error) {
@@ -111,10 +114,6 @@ export function useFraudFindingsData({
   });
 
   useEffect(() => {
-    if (!date) {
-      return;
-    }
-
     void loadData();
   }, [date, page, risk, search, sort, sortOrder]);
 
@@ -130,6 +129,7 @@ export function useFraudFindingsData({
     status,
     message,
     lastUpdated,
+    resolvedDate,
     totalPages,
     resultRange,
     reload: () => void executeLoadData(true),

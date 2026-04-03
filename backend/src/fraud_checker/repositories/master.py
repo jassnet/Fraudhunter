@@ -22,6 +22,27 @@ class MasterRepository(RepositoryBase):
                 Base.metadata.tables["master_user"],
             ],
         )
+        self._ensure_master_promotion_fraud_columns()
+
+    def _ensure_master_promotion_fraud_columns(self) -> None:
+        if not self._table_exists("master_promotion"):
+            return
+
+        missing_columns: list[str] = []
+        if not self._column_exists("master_promotion", "action_double_state"):
+            missing_columns.append(
+                'ALTER TABLE master_promotion ADD COLUMN action_double_state INTEGER'
+            )
+        if not self._column_exists("master_promotion", "action_double_type_json"):
+            missing_columns.append(
+                'ALTER TABLE master_promotion ADD COLUMN action_double_type_json TEXT'
+            )
+        if not missing_columns:
+            return
+
+        with self._connect() as conn:
+            for statement in missing_columns:
+                conn.execute(sa.text(statement))
 
     def upsert_media(
         self, media_id: str, name: str, user_id: str | None = None, state: str | None = None
@@ -49,6 +70,7 @@ class MasterRepository(RepositoryBase):
         action_double_state: int | None = None,
         action_double_type_json: str | list[str] | None = None,
     ) -> None:
+        self._ensure_master_promotion_fraud_columns()
         table = Base.metadata.tables["master_promotion"]
         now = now_local()
         action_double_type_value = (
@@ -125,6 +147,7 @@ class MasterRepository(RepositoryBase):
     def bulk_upsert_promotions(self, promo_list: list[dict]) -> int:
         if not promo_list:
             return 0
+        self._ensure_master_promotion_fraud_columns()
         table = Base.metadata.tables["master_promotion"]
         now = now_local()
         rows = [

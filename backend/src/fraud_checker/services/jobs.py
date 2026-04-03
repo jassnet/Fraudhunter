@@ -706,6 +706,7 @@ def run_master_sync(
     runtime = _deps(deps)
     repo = runtime.repository()
     client = runtime.acs_client()
+    repo.ensure_master_schema()
 
     with log_timed(logger, "master_sync"):
         media_list = client.fetch_all_media_master()

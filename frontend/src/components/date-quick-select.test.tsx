@@ -17,7 +17,7 @@ describe("DateQuickSelect", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Latest" }));
+    await user.click(screen.getByRole("button", { name: "最新" }));
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
@@ -27,7 +27,7 @@ describe("DateQuickSelect", () => {
     const user = userEvent.setup();
     render(<DateQuickSelect value="" onChange={onChange} availableDates={[today, "2026-01-20"]} />);
 
-    await user.click(screen.getByRole("button", { name: "Today" }));
+    await user.click(screen.getByRole("button", { name: "今日" }));
     expect(onChange).toHaveBeenCalledWith(today);
   });
 
@@ -42,7 +42,7 @@ describe("DateQuickSelect", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Yesterday" }));
+    await user.click(screen.getByRole("button", { name: "昨日" }));
     expect(onChange).toHaveBeenCalledWith("2026-01-21");
   });
 
@@ -57,7 +57,7 @@ describe("DateQuickSelect", () => {
       />
     );
 
-    await user.selectOptions(screen.getByLabelText("Target date"), "2026-01-20");
+    await user.selectOptions(screen.getByLabelText("対象日"), "2026-01-20");
     expect(onChange).toHaveBeenCalledWith("2026-01-20");
   });
 });

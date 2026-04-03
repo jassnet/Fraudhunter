@@ -10,7 +10,7 @@ import { SUSPICIOUS_LIST_PAGE_SIZE } from "@/features/suspicious-list/use-suspic
 import { ApiError } from "@/lib/api";
 import type { SuspiciousItem, SuspiciousQueryOptions, SuspiciousResponse } from "@/lib/api";
 
-const GROUP_BY_REASON_STORAGE_KEY = "suspicious:list:group-by-reason";
+const GROUP_BY_REASON_STORAGE_KEY = "suspicious:list:group-by-reason:v2";
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
   pathname: "/suspicious/conversions",
@@ -170,8 +170,8 @@ describe("Suspicious list page", () => {
     expect(screen.getAllByText("High").length).toBeGreaterThan(0);
   });
 
-  it("groups duplicate patterns by default and paginates by grouped rows", async () => {
-    localStorage.removeItem(GROUP_BY_REASON_STORAGE_KEY);
+  it("groups duplicate patterns when enabled and paginates by grouped rows", async () => {
+    localStorage.setItem(GROUP_BY_REASON_STORAGE_KEY, "1");
     const fetcher = createFetcher(buildRows(20));
     renderPage(fetcher);
 

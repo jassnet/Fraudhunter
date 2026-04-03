@@ -125,7 +125,7 @@ def test_infer_legacy_schema_revision_for_queue_concurrency_ready_schema() -> No
 def test_head_revision_advances_beyond_findings_search_indexes() -> None:
     from fraud_checker.migrations import ALEMBIC_HEAD_REVISION
 
-    assert ALEMBIC_HEAD_REVISION == "0010_drop_click_findings"
+    assert ALEMBIC_HEAD_REVISION == "0011_add_acs_native_fraud"
 
 
 def test_head_revision_fits_alembic_version_column_limit() -> None:
@@ -159,3 +159,15 @@ def test_drop_click_findings_migration_removes_table_and_generation_rows() -> No
     assert "DELETE FROM findings_generations WHERE finding_type = 'click'" in migration
     assert "op.drop_table(\"suspicious_click_findings\")" in migration
     assert "DROP INDEX IF EXISTS idx_scf_search_text_trgm" in migration
+
+
+def test_acs_native_fraud_migration_adds_master_promotion_guard_columns() -> None:
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "0011_add_acs_native_fraud.py"
+    ).read_text(encoding="utf-8")
+
+    assert "action_double_state" in migration
+    assert "action_double_type_json" in migration

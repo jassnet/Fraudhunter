@@ -76,9 +76,47 @@ def get_latest_date(repo: ReportingRepository, table: str) -> Optional[str]:
     return value
 
 
+def get_latest_findings_date(repo: ReportingRepository) -> Optional[str]:
+    try:
+        lineage_row = repo.fetch_one(
+            """
+            SELECT MAX(target_date) AS last_date
+            FROM findings_generations
+            WHERE is_current = TRUE
+              AND finding_type IN ('conversion', 'fraud')
+            """
+        )
+    except Exception:
+        lineage_row = None
+    if lineage_row and lineage_row.get("last_date"):
+        value = lineage_row["last_date"]
+        return value.isoformat() if isinstance(value, date) else value
+
+    fallback_dates: list[str] = []
+    for table_name in ("fraud_findings", "suspicious_conversion_findings"):
+        try:
+            row = repo.fetch_one(
+                f"""
+                SELECT MAX(date) AS last_date
+                FROM {table_name}
+                WHERE is_current = TRUE
+                """
+            )
+        except Exception:
+            continue
+        if row and row.get("last_date"):
+            value = row["last_date"]
+            fallback_dates.append(value.isoformat() if isinstance(value, date) else value)
+    return max(fallback_dates) if fallback_dates else None
+
+
 def resolve_summary_date(repo: ReportingRepository, target_date: Optional[str]) -> str:
     if target_date:
         return target_date
+
+    findings_date = get_latest_findings_date(repo)
+    if findings_date:
+        return findings_date
 
     click_date = get_latest_date(repo, "click_ipua_daily")
     conv_date = get_latest_date(repo, "conversion_ipua_daily")
@@ -274,7 +312,7 @@ def get_daily_stats(
             },
         )
         merged[row_date]["suspicious_conversions"] = counts.get("suspicious_conversions", 0)
-        merged[row_date]["fraud_findings"] = counts.get("fraud_findings", counts.get("suspicious_conversions", 0))
+        merged[row_date]["fraud_findings"] = counts.get("fraud_findings", 0)
 
     return sorted(merged.values(), key=lambda item: item["date"])
 

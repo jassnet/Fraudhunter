@@ -9,6 +9,12 @@ class StubReportingRepo:
     database_url = "postgresql://example/db"
 
     def fetch_one(self, query, params=None):
+        if "MAX(target_date)" in query:
+            return {"last_date": None}
+        if "FROM fraud_findings" in query:
+            return {"last_date": None}
+        if "FROM suspicious_conversion_findings" in query:
+            return {"last_date": None}
         if "MAX(date)" in query:
             return {"last_date": date(2026, 1, 21)}
         if "total_clicks" in query:
@@ -49,7 +55,16 @@ class StubReportingRepo:
     def get_conversion_findings_lineage(self, target_date: date):
         return None
 
+    def get_fraud_data_watermark(self, target_date: date):
+        return None
+
+    def get_fraud_findings_lineage(self, target_date: date):
+        return None
+
     def count_current_conversion_findings(self, target_date: date) -> int:
+        return 0
+
+    def count_current_fraud_findings(self, target_date: date) -> int:
         return 0
 
     def get_daily_finding_counts(self, limit: int, *, target_date: date | None = None) -> dict[str, dict[str, int]]:

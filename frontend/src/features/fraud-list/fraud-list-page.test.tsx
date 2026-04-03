@@ -110,7 +110,7 @@ describe("Fraud list page", () => {
 
     await screen.findByRole("heading", { name: fraudCopy.title });
     expect(
-      await screen.findByLabelText("表示範囲")
+      (await screen.findAllByLabelText("表示範囲"))[0]
     ).toHaveTextContent(fraudCopy.formatResultRange(1, FRAUD_FINDINGS_PAGE_SIZE, 25));
     expect(screen.getByText("User 1")).toBeInTheDocument();
   });
@@ -157,5 +157,53 @@ describe("Fraud list page", () => {
     });
     expect(await screen.findByText("Detail User")).toBeInTheDocument();
     expect(screen.getByText("Detail Reason")).toBeInTheDocument();
+  });
+
+  it("uses the latest fraud date when the URL has no date yet", async () => {
+    navigation.searchParams = new URLSearchParams();
+    vi.mocked(getAvailableDates).mockResolvedValue({ dates: ["2026-01-21"] });
+    vi.mocked(fetchFraudFindings).mockImplementation(async (date, limit = FRAUD_FINDINGS_PAGE_SIZE, offset = 0) => ({
+      date: date || "2026-01-20",
+      data: [
+        {
+          ...buildRows(1)[0],
+          date: "2026-01-20",
+          finding_key: "fraud-latest",
+          user_name: "Latest Fraud User",
+        },
+      ].slice(offset, offset + limit),
+      total: 1,
+      limit,
+      offset,
+    }));
+    vi.mocked(fetchFraudFindingDetail).mockImplementation(async (findingKey: string) => ({
+      ...buildRows(1)[0],
+      finding_key: findingKey,
+    }));
+
+    render(<FraudListPage />);
+
+    await screen.findByRole("heading", { name: fraudCopy.title });
+    expect(await screen.findByText("Latest Fraud User")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(fetchFraudFindings).toHaveBeenCalledWith(
+        undefined,
+        FRAUD_FINDINGS_PAGE_SIZE,
+        0,
+        expect.objectContaining({
+          search: undefined,
+          riskLevel: undefined,
+          sortBy: "count",
+          sortOrder: "desc",
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(navigation.replace).toHaveBeenCalledWith("/suspicious/fraud?date=2026-01-20", {
+        scroll: false,
+      });
+    });
   });
 });

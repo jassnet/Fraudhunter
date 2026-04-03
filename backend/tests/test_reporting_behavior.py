@@ -39,6 +39,7 @@ def test_get_latest_date_converts_date_object_to_iso():
 
 
 def test_resolve_summary_date_chooses_latest_across_click_and_conversion(monkeypatch):
+    monkeypatch.setattr(reporting, "get_latest_findings_date", lambda repo: None)
     monkeypatch.setattr(
         reporting,
         "get_latest_date",
@@ -50,7 +51,21 @@ def test_resolve_summary_date_chooses_latest_across_click_and_conversion(monkeyp
     assert resolved == "2026-01-03"
 
 
+def test_resolve_summary_date_prefers_latest_findings_date(monkeypatch):
+    monkeypatch.setattr(reporting, "get_latest_findings_date", lambda repo: "2026-01-02")
+    monkeypatch.setattr(
+        reporting,
+        "get_latest_date",
+        lambda repo, table: "2026-01-03",
+    )
+
+    resolved = reporting.resolve_summary_date(repo=object(), target_date=None)
+
+    assert resolved == "2026-01-02"
+
+
 def test_resolve_summary_date_falls_back_to_yesterday(monkeypatch):
+    monkeypatch.setattr(reporting, "get_latest_findings_date", lambda repo: None)
     monkeypatch.setattr(reporting, "get_latest_date", lambda repo, table: None)
     monkeypatch.setattr(reporting, "today_local", lambda: date(2026, 1, 4))
 
@@ -100,8 +115,22 @@ def test_get_summary_returns_business_facing_totals(monkeypatch):
                 "source_conversion_watermark": datetime(2026, 1, 3, 9, 5, 0),
             }
 
+        def get_fraud_data_watermark(self, target_date):
+            return datetime(2026, 1, 3, 9, 5, 0)
+
+        def get_fraud_findings_lineage(self, target_date):
+            return {
+                "findings_last_computed_at": datetime(2026, 1, 3, 9, 12, 0),
+                "settings_version_id": "settings-ver-1",
+                "source_click_watermark": datetime(2026, 1, 3, 9, 0, 0),
+                "source_conversion_watermark": datetime(2026, 1, 3, 9, 5, 0),
+            }
+
         def count_current_conversion_findings(self, target_date):
             return 1
+
+        def count_current_fraud_findings(self, target_date):
+            return 0
 
     monkeypatch.setattr(reporting, "resolve_summary_date", lambda repo, target_date: "2026-01-03")
     monkeypatch.setattr(
@@ -144,7 +173,7 @@ def test_get_daily_stats_merges_click_and_conversion_rows():
             assert limit == 30
             assert target_date is None
             return {
-                "2026-01-02": {"suspicious_conversions": 2},
+                "2026-01-02": {"suspicious_conversions": 2, "fraud_findings": 1},
             }
 
     rows = reporting.get_daily_stats(DummyRepo(), limit=30)
@@ -154,8 +183,30 @@ def test_get_daily_stats_merges_click_and_conversion_rows():
     assert by_date["2026-01-02"]["clicks"] == 30
     assert by_date["2026-01-02"]["conversions"] == 5
     assert by_date["2026-01-02"]["suspicious_conversions"] == 2
+    assert by_date["2026-01-02"]["fraud_findings"] == 1
     assert "suspicious_clicks" not in by_date["2026-01-02"]
     assert by_date["2025-12-31"]["clicks"] == 0
+
+
+def test_get_daily_stats_does_not_alias_conversion_findings_into_fraud_findings():
+    class DummyRepo:
+        def fetch_all(self, query, params=None):
+            if "FROM click_ipua_daily" in query:
+                return [{"date": date(2026, 1, 2), "clicks": 30}]
+            if "FROM conversion_ipua_daily" in query:
+                return []
+            raise AssertionError(f"Unexpected query: {query}")
+
+        def get_daily_finding_counts(self, limit, *, target_date=None):
+            return {
+                "2026-01-02": {"suspicious_conversions": 2},
+            }
+
+    rows = reporting.get_daily_stats(DummyRepo(), limit=30)
+
+    by_date = {row["date"]: row for row in rows}
+    assert by_date["2026-01-02"]["suspicious_conversions"] == 2
+    assert by_date["2026-01-02"]["fraud_findings"] == 0
 
 
 def test_get_daily_stats_forwards_target_date_as_date():
@@ -272,8 +323,17 @@ def test_get_summary_marks_findings_stale_when_conversion_source_advances(monkey
                 "source_conversion_watermark": datetime(2026, 1, 3, 9, 5, 0),
             }
 
+        def get_fraud_data_watermark(self, target_date):
+            return datetime(2026, 1, 3, 9, 30, 0)
+
+        def get_fraud_findings_lineage(self, target_date):
+            return {}
+
         def count_current_conversion_findings(self, target_date):
             return 1
+
+        def count_current_fraud_findings(self, target_date):
+            return 0
 
     monkeypatch.setattr(reporting, "resolve_summary_date", lambda repo, target_date: "2026-01-03")
     monkeypatch.setattr(
@@ -329,7 +389,16 @@ def test_get_summary_uses_legacy_settings_timestamp_for_conversion_findings(monk
                 "source_conversion_watermark": datetime(2026, 1, 3, 9, 0, 0),
             }
 
+        def get_fraud_data_watermark(self, target_date):
+            return datetime(2026, 1, 3, 9, 0, 0)
+
+        def get_fraud_findings_lineage(self, target_date):
+            return {}
+
         def count_current_conversion_findings(self, target_date):
+            return 0
+
+        def count_current_fraud_findings(self, target_date):
             return 0
 
     monkeypatch.setattr(reporting, "resolve_summary_date", lambda repo, target_date: "2026-01-03")

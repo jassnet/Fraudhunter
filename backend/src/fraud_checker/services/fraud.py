@@ -5,7 +5,7 @@ from typing import Optional
 
 from ..api_parsers import parse_iso_date
 from ..api_presenters import present_fraud_finding_record
-from . import lifecycle
+from . import lifecycle, reporting
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,11 @@ def get_fraud_findings(
     resolved_date = target_date
     if not resolved_date:
         row = repo.fetch_one("SELECT MAX(date) AS last_date FROM fraud_findings WHERE is_current = TRUE")
-        resolved_date = row["last_date"].isoformat() if row and row.get("last_date") else ""
+        if row and row.get("last_date"):
+            value = row["last_date"]
+            resolved_date = value.isoformat() if hasattr(value, "isoformat") else str(value)
+        else:
+            resolved_date = reporting.resolve_summary_date(repo, None)
     if not resolved_date:
         return {"date": "", "data": [], "total": 0, "limit": limit, "offset": offset}
     target_date_obj = parse_iso_date(resolved_date)

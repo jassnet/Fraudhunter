@@ -34,6 +34,7 @@
   --input: 0 0% 24%;
   --ring: 0 0% 76%;
   --radius: 2px;
+  --radius-panel: calc(var(--radius) * 6);
   --page-gradient:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.045), transparent 34%),
     linear-gradient(180deg, #0d0d0d 0%, #090909 100%);
@@ -147,16 +148,19 @@ h3 {
 }
 
 .fc-surface-card {
+  border-radius: var(--radius-panel);
   border: 1px solid hsl(var(--border));
   background-color: hsl(var(--card));
 }
 
 .fc-surface-card-soft {
+  border-radius: var(--radius-panel);
   border: 1px solid hsl(var(--border));
   background-color: hsl(var(--card) / 0.7);
 }
 
 .fc-surface-card-muted {
+  border-radius: var(--radius-panel);
   border: 1px dashed hsl(var(--border));
   background-color: hsl(var(--card) / 0.55);
 }
@@ -223,6 +227,7 @@ h3 {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  border-radius: var(--radius-panel);
   border: 1px solid hsl(var(--border));
   background-color: hsl(var(--card) / 0.7);
   padding: 0.625rem 0.75rem;

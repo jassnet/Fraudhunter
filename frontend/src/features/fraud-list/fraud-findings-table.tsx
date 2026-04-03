@@ -33,50 +33,56 @@ export function FraudFindingsTable({
   onOpenDetail,
 }: FraudFindingsTableProps) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <div className="min-h-0 min-w-0 overflow-x-auto">
-        <Table className="w-full table-fixed">
-          <TableHeader className="bg-muted/40 text-left text-xs text-muted-foreground">
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="px-3 py-2">{fraudCopy.columns.metric}</TableHead>
-              <TableHead className="px-3 py-2">{fraudCopy.columns.user}</TableHead>
-              <TableHead className="px-3 py-2">{fraudCopy.columns.media}</TableHead>
-              <TableHead className="px-3 py-2">{fraudCopy.columns.promotion}</TableHead>
-              <TableHead className="px-3 py-2">{fraudCopy.columns.risk}</TableHead>
-              <TableHead className="px-3 py-2">{fraudCopy.columns.reasons}</TableHead>
-              <TableHead className="px-3 py-2 text-right">{fraudCopy.columns.detail}</TableHead>
+    <div className="min-h-0 min-w-0 overflow-x-auto">
+      <Table className="min-w-[58rem] table-fixed">
+        <TableHeader className="bg-muted/35 text-left text-xs text-muted-foreground">
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="w-[6.5rem] px-4 py-3 font-semibold">{fraudCopy.columns.metric}</TableHead>
+            <TableHead className="w-[10rem] px-4 py-3 font-semibold">{fraudCopy.columns.user}</TableHead>
+            <TableHead className="w-[9rem] px-4 py-3 font-semibold">{fraudCopy.columns.media}</TableHead>
+            <TableHead className="w-[18rem] px-4 py-3 font-semibold">{fraudCopy.columns.promotion}</TableHead>
+            <TableHead className="w-[8rem] px-4 py-3 font-semibold">{fraudCopy.columns.risk}</TableHead>
+            <TableHead className="min-w-[14rem] px-4 py-3 font-semibold">{fraudCopy.columns.reasons}</TableHead>
+            <TableHead className="w-[7rem] px-4 py-3 text-right font-semibold">
+              {fraudCopy.columns.detail}
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.map((item) => (
+            <TableRow key={item.finding_key} className="text-sm hover:bg-muted/20">
+              <TableCell className="px-4 py-3 align-top tabular-nums font-semibold text-foreground">
+                {item.primary_metric.toLocaleString("ja-JP")}
+              </TableCell>
+              <TableCell className="px-4 py-3 align-top font-medium text-foreground">
+                {item.user_name}
+              </TableCell>
+              <TableCell className="px-4 py-3 align-top text-foreground/92">{item.media_name}</TableCell>
+              <TableCell className="px-4 py-3 align-top">
+                <div className="line-clamp-3 leading-relaxed text-foreground/92">{item.promotion_name}</div>
+              </TableCell>
+              <TableCell className="px-4 py-3 align-top">
+                <StatusBadge tone={riskToneMap[item.risk_level || ""] || "neutral"}>
+                  {item.risk_label || item.risk_level || "-"}
+                </StatusBadge>
+              </TableCell>
+              <TableCell className="px-4 py-3 align-top">
+                <div className="line-clamp-3 leading-relaxed text-foreground/92">{getReasonSummary(item)}</div>
+              </TableCell>
+              <TableCell className="px-4 py-3 text-right align-top">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void onOpenDetail(item)}
+                  className="min-w-[4.5rem]"
+                >
+                  {fraudCopy.labels.detail}
+                </Button>
+              </TableCell>
             </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.map((item) => (
-              <TableRow key={item.finding_key} className="text-sm">
-                <TableCell className="px-3 py-2 tabular-nums">
-                  {item.primary_metric.toLocaleString("ja-JP")}
-                </TableCell>
-                <TableCell className="px-3 py-2">{item.user_name}</TableCell>
-                <TableCell className="px-3 py-2">{item.media_name}</TableCell>
-                <TableCell className="px-3 py-2">{item.promotion_name}</TableCell>
-                <TableCell className="px-3 py-2">
-                  <StatusBadge tone={riskToneMap[item.risk_level || ""] || "neutral"}>
-                    {item.risk_label || item.risk_level || "-"}
-                  </StatusBadge>
-                </TableCell>
-                <TableCell className="px-3 py-2">{getReasonSummary(item)}</TableCell>
-                <TableCell className="px-3 py-2 text-right">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void onOpenDetail(item)}
-                  >
-                    {fraudCopy.labels.detail}
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }
-

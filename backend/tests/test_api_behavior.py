@@ -465,7 +465,11 @@ def test_summary_endpoint_returns_payload(monkeypatch):
     monkeypatch.setattr(
         reporting_router.reporting,
         "get_summary",
-        lambda repo, target_date: {"date": "2026-01-03", "stats": {"clicks": {"total": 12}}},
+        lambda repo, target_date: {
+            "date": "2026-01-03",
+            "stats": {"clicks": {"total": 12}},
+            "quality": {"findings": {"stale": True}},
+        },
     )
     client = TestClient(api.app)
 
@@ -473,6 +477,7 @@ def test_summary_endpoint_returns_payload(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["date"] == "2026-01-03"
+    assert response.json()["quality"]["findings"]["stale"] is True
 
 
 def test_summary_endpoint_requires_read_api_key_when_enabled(monkeypatch):

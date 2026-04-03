@@ -90,6 +90,8 @@ export function DashboardSummaryMetrics({
   summary,
   compact = false,
 }: DashboardSummaryMetricsProps) {
+  const fraudFindings = Number(summary.stats.suspicious.fraud_findings ?? 0);
+  const fraudFindingsLabel = fraudFindings.toLocaleString("ja-JP");
   const clickDelta = formatDelta(summary.stats.clicks.total, summary.stats.clicks.prev_total);
   const conversionDelta = formatDelta(
     summary.stats.conversions.total,
@@ -115,7 +117,7 @@ export function DashboardSummaryMetrics({
       />
       <SummaryMetric
         label={dashboardCopy.labels.suspiciousConversions}
-        value={summary.stats.suspicious.fraud_findings.toLocaleString("ja-JP")}
+        value={fraudFindingsLabel}
         meta={
           <span className="inline-flex items-center gap-1 font-medium text-foreground">
             不正判定一覧
@@ -125,7 +127,7 @@ export function DashboardSummaryMetrics({
         }
         tone="danger"
         href={fraudHref}
-        ariaLabel={`不正判定 ${summary.stats.suspicious.fraud_findings.toLocaleString("ja-JP")}件の一覧を表示`}
+        ariaLabel={`不正判定 ${fraudFindingsLabel}件の一覧を表示`}
         compact={compact}
       />
     </section>

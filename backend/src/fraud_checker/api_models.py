@@ -8,6 +8,7 @@ from pydantic import BaseModel
 class SummaryResponse(BaseModel):
     date: str
     stats: dict
+    quality: dict | None = None
 
 
 class DailyStatsItem(BaseModel):

@@ -16,20 +16,18 @@ describe("Dashboard page", () => {
     await screen.findByRole("heading", { name: dashboardCopy.title });
     await screen.findByText(dashboardCopy.targetDateLabel("2026-01-21"));
 
-    expect(screen.getByText(dashboardCopy.labels.clicks)).toBeInTheDocument();
+    expect(screen.getAllByText(dashboardCopy.labels.clicks)[0]).toBeInTheDocument();
     expect(screen.getAllByText(dashboardCopy.labels.conversions)[0]).toBeInTheDocument();
     expect(screen.getAllByText(dashboardCopy.labels.suspiciousConversions)[0]).toBeInTheDocument();
     expect(screen.getByText(dashboardCopy.labels.chart)).toBeInTheDocument();
   });
 
-  it("preserves the selected date in the suspicious conversions link", async () => {
+  it("preserves the selected date in the fraud findings link", async () => {
     render(<DashboardPage />);
 
-    const suspiciousLink = await screen.findByRole("link", {
-      name: /不審コンバージョン .*件の検出結果を表示/,
+    await waitFor(() => {
+      expect(document.querySelector('a[href="/suspicious/fraud?date=2026-01-21"]')).not.toBeNull();
     });
-
-    expect(suspiciousLink).toHaveAttribute("href", "/suspicious/conversions?date=2026-01-21");
   });
 
   it("hides admin actions when admin access is unavailable", async () => {
@@ -237,5 +235,42 @@ describe("Dashboard page", () => {
 
     await screen.findByRole("heading", { name: dashboardCopy.title });
     expect(screen.getByText(dashboardCopy.states.staleTitle)).toBeInTheDocument();
+  });
+
+  it("uses the backend-resolved target date on the initial load", async () => {
+    server.use(
+      http.get(`${API_BASE_URL}/api/dates`, () => {
+        return HttpResponse.json({ dates: ["2026-01-22", "2026-01-21", "2026-01-20"] });
+      }),
+      http.get(`${API_BASE_URL}/api/summary`, ({ request }) => {
+        const url = new URL(request.url);
+        const targetDate = url.searchParams.get("target_date");
+        if (targetDate) {
+          return HttpResponse.json(buildSummaryResponse(targetDate));
+        }
+        return HttpResponse.json(buildSummaryResponse("2026-01-21"));
+      }),
+      http.get(`${API_BASE_URL}/api/stats/daily`, ({ request }) => {
+        const url = new URL(request.url);
+        return HttpResponse.json({
+          data: [
+            {
+              date: url.searchParams.get("target_date") || "missing",
+              clicks: 1,
+              conversions: 1,
+              suspicious_conversions: 0,
+              fraud_findings: 0,
+            },
+          ],
+        });
+      })
+    );
+
+    render(<DashboardPage />);
+
+    await screen.findByText(dashboardCopy.targetDateLabel("2026-01-21"));
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("2026-01-21")).toBeInTheDocument();
+    });
   });
 });

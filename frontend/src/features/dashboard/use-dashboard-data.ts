@@ -53,17 +53,16 @@ export function useDashboardData() {
     setStatus(refresh ? "refreshing" : "loading");
 
     try {
-      const [summaryData, dailyData] = await Promise.all([
-        fetchSummary(targetDate),
-        fetchDailyStats(14, targetDate),
-      ]);
+      const summaryData = await fetchSummary(targetDate);
+      const resolvedDate = targetDate || summaryData.date;
+      const dailyData = await fetchDailyStats(14, resolvedDate || undefined);
 
       setSummary(summaryData);
       setDailyStats(dailyData.data || []);
       setLastUpdated(new Date());
 
-      if (!targetDate && summaryData.date) {
-        setSelectedDate(summaryData.date);
+      if (resolvedDate) {
+        setSelectedDate(resolvedDate);
       }
 
       setStatus(summaryData ? "ready" : "empty");
@@ -84,13 +83,6 @@ export function useDashboardData() {
 
         const dates = result.dates || [];
         setAvailableDates(dates);
-
-        const initialDate = dates[0];
-        if (initialDate) {
-          setSelectedDate(initialDate);
-          await loadDashboardData(initialDate, true);
-          return;
-        }
       } catch (error) {
         if (!active) return;
         setStatus("error");
@@ -99,7 +91,7 @@ export function useDashboardData() {
       }
 
       if (!active) return;
-      await loadDashboardData();
+      await loadDashboardData(undefined, true);
     };
 
     void init();

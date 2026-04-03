@@ -37,11 +37,18 @@ export function useFraudFindingDetails() {
     }
   }, []);
 
+  const clearDetail = useCallback(() => {
+    setSelected(null);
+    setSelectedDetail(null);
+    setStatus("idle");
+    setMessage(null);
+  }, []);
+
   return {
     selectedItem: selectedDetail || selected,
     detailStatus: status,
     detailMessage: message,
     openDetail,
+    clearDetail,
   };
 }
-

@@ -19,7 +19,7 @@ export function buildSummaryResponse(targetDate: string) {
         prev_total: 190,
       },
       suspicious: {
-        click_based: 0,
+        fraud_findings: 9,
         conversion_based: 17,
       },
     },
@@ -56,8 +56,8 @@ function buildDailyStats(limit = 30, targetDate = DEFAULT_DATES[0]) {
         date: isoDate,
         clicks: 700 + index * 7,
         conversions: 120 + index * 2,
-        suspicious_clicks: 0,
         suspicious_conversions: 8 + (index % 3),
+        fraud_findings: 5 + (index % 2),
       };
     }),
   };

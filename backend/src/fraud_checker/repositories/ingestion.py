@@ -31,6 +31,9 @@ class IngestionRepository(RepositoryBase):
         )
 
     def ensure_fraud_schema(self) -> None:
+        ensure_master_schema = getattr(self, "ensure_master_schema", None)
+        if callable(ensure_master_schema):
+            ensure_master_schema()
         Base.metadata.create_all(
             self.engine,
             tables=[
