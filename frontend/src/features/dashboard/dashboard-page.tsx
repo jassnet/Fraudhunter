@@ -7,12 +7,54 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatePanel } from "@/components/ui/state-panel";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { useAdminJobActions } from "@/features/admin-actions/use-admin-job-actions";
+import {
+  DashboardAdminPanel,
+} from "@/features/dashboard/dashboard-admin-panel";
+import {
+  DashboardChartCard,
+  DashboardChartSkeleton,
+} from "@/features/dashboard/dashboard-chart-card";
 import { dashboardCopy } from "@/features/dashboard/copy";
 import { DashboardSummaryMetrics } from "@/features/dashboard/dashboard-summary-metrics";
 import { OverviewChart } from "@/features/dashboard/overview-chart";
 import { useDashboardData } from "@/features/dashboard/use-dashboard-data";
+
+function dashboardBodyShell(children: ReactNode) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-3 py-2 sm:px-4 sm:py-3">
+      {children}
+    </div>
+  );
+}
+
+function getStatePanelTitle(status: "unauthorized" | "forbidden" | "transient-error" | "error") {
+  if (status === "unauthorized") {
+    return dashboardCopy.states.unauthorizedTitle;
+  }
+
+  if (status === "forbidden") {
+    return dashboardCopy.states.forbiddenTitle;
+  }
+
+  if (status === "transient-error") {
+    return dashboardCopy.states.transientTitle;
+  }
+
+  return dashboardCopy.states.genericErrorTitle;
+}
+
+function getStatePanelTone(status: "unauthorized" | "forbidden" | "transient-error" | "error") {
+  if (status === "forbidden") {
+    return "danger" as const;
+  }
+
+  if (status === "transient-error") {
+    return "warning" as const;
+  }
+
+  return "neutral" as const;
+}
 
 export default function DashboardPage() {
   const {
@@ -31,26 +73,6 @@ export default function DashboardPage() {
 
   const adminActions = useAdminJobActions({ onSuccess: handleRefresh });
 
-  const adminStatusTone: "neutral" | "medium" | "low" | "high" =
-    adminActions.status === "running"
-      ? "medium"
-      : adminActions.status === "succeeded"
-        ? "low"
-        : adminActions.status === "failed"
-          ? "high"
-          : "neutral";
-
-  const adminStatusLabel =
-    !adminActions.action ||
-    adminActions.status === "idle" ||
-    adminActions.status === "submitting"
-      ? null
-      : (
-          adminActions.action === "refresh"
-            ? dashboardCopy.admin.feedback.refresh
-            : dashboardCopy.admin.feedback.masterSync
-        )[adminActions.status];
-
   const headerActions = (
     <>
       <DateQuickSelect
@@ -67,59 +89,12 @@ export default function DashboardPage() {
     </>
   );
 
-  const adminPanel =
-    adminActions.capability === "available" ? (
-      <div className="shrink-0 border border-border bg-card px-3 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              {dashboardCopy.admin.title}
-            </div>
-            <div className="text-[12px] text-foreground/72">
-              {dashboardCopy.admin.description}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void adminActions.runRefresh()}
-              disabled={adminActions.isBusy}
-            >
-              {dashboardCopy.admin.actions.refresh}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void adminActions.runMasterSync()}
-              disabled={adminActions.isBusy}
-            >
-              {dashboardCopy.admin.actions.masterSync}
-            </Button>
-            {adminStatusLabel ? (
-              <StatusBadge tone={adminStatusTone}>{adminStatusLabel}</StatusBadge>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    ) : adminActions.capability === "unavailable" ? (
-      <div className="shrink-0 border border-dashed border-border bg-card/55 px-3 py-3 text-[12px] text-muted-foreground">
-        {dashboardCopy.admin.unavailableShortHint}
-      </div>
-    ) : null;
-
   const headerStatus =
     diagnostics.findingsStale && summary ? (
       <div className="text-[12px] text-[hsl(var(--warning))]">
         {dashboardCopy.states.staleTitle}
       </div>
     ) : null;
-
-  const dashboardBodyShell = (children: ReactNode) => (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-3 py-2 sm:px-4 sm:py-3">
-      {children}
-    </div>
-  );
 
   if (status === "loading" || status === "refreshing") {
     return (
@@ -133,7 +108,14 @@ export default function DashboardPage() {
         />
         {dashboardBodyShell(
           <>
-            <div className="shrink-0">{adminPanel}</div>
+            <DashboardAdminPanel
+              action={adminActions.action}
+              capability={adminActions.capability}
+              isBusy={adminActions.isBusy}
+              status={adminActions.status}
+              onRunRefresh={adminActions.runRefresh}
+              onRunMasterSync={adminActions.runMasterSync}
+            />
             <div className="shrink-0">
               <div className="grid border border-border bg-card md:grid-cols-2 xl:grid-cols-3">
                 {[...Array(3)].map((_, index) => (
@@ -148,16 +130,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
-            <section className="flex min-h-0 flex-1 flex-col overflow-hidden border border-border bg-card">
-              <div className="flex min-h-12 items-center border-b border-border bg-muted/35 px-4 py-3">
-                <h2 className="text-sm font-semibold tracking-[0.02em] text-foreground">
-                  {dashboardCopy.labels.chart}
-                </h2>
-              </div>
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
-                <Skeleton className="min-h-[12rem] flex-1 rounded-none" />
-              </div>
-            </section>
+            <DashboardChartSkeleton />
           </>
         )}
       </div>
@@ -175,23 +148,9 @@ export default function DashboardPage() {
         <PageHeader title={dashboardCopy.title} actions={headerActions} />
         <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
           <StatePanel
-            title={
-              status === "unauthorized"
-                ? dashboardCopy.states.unauthorizedTitle
-                : status === "forbidden"
-                  ? dashboardCopy.states.forbiddenTitle
-                  : status === "transient-error"
-                    ? dashboardCopy.states.transientTitle
-                    : dashboardCopy.states.genericErrorTitle
-            }
+            title={getStatePanelTitle(status)}
             message={message || dashboardCopy.states.loadError}
-            tone={
-              status === "forbidden"
-                ? "danger"
-                : status === "transient-error"
-                  ? "warning"
-                  : "neutral"
-            }
+            tone={getStatePanelTone(status)}
             action={
               status === "transient-error" || status === "error" ? (
                 <Button onClick={handleRefresh} variant="outline">
@@ -232,20 +191,20 @@ export default function DashboardPage() {
 
       {dashboardBodyShell(
         <>
-          {adminPanel}
+          <DashboardAdminPanel
+            action={adminActions.action}
+            capability={adminActions.capability}
+            isBusy={adminActions.isBusy}
+            status={adminActions.status}
+            onRunRefresh={adminActions.runRefresh}
+            onRunMasterSync={adminActions.runMasterSync}
+          />
           <div className="shrink-0">
             <DashboardSummaryMetrics summary={summary} compact />
           </div>
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden border border-border bg-card">
-            <div className="flex min-h-12 items-center border-b border-border bg-muted/35 px-4 py-3">
-              <h2 className="text-sm font-semibold tracking-[0.02em] text-foreground">
-                {dashboardCopy.labels.chart}
-              </h2>
-            </div>
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3 sm:p-4">
-              <OverviewChart data={dailyStats} layout="fill" />
-            </div>
-          </section>
+          <DashboardChartCard>
+            <OverviewChart data={dailyStats} layout="fill" />
+          </DashboardChartCard>
         </>
       )}
     </div>
