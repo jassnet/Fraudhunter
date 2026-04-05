@@ -3,16 +3,13 @@ import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
   plugins: [tsconfigPaths()],
+  esbuild: {
+    jsx: "automatic",
+  },
   test: {
     environment: "jsdom",
+    globals: true,
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    coverage: {
-      provider: "v8",
-      reporter: ["text", "json-summary", "html"],
-      reportsDirectory: "./coverage",
-      include: ["src/**/*.{ts,tsx}"],
-      exclude: ["src/**/*.d.ts", "src/test/**"],
-    },
+    css: true,
   },
 });

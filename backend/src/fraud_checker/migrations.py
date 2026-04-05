@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 from .db.session import normalize_database_url
 
-ALEMBIC_HEAD_REVISION = "0011_add_acs_native_fraud"
+ALEMBIC_HEAD_REVISION = "0012_add_fraud_alert_reviews"
 
 
 def infer_legacy_schema_revision(

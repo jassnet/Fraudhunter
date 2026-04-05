@@ -1,21 +1,20 @@
 import type { Metadata } from "next";
-import { AppShell } from "@/components/app-shell";
+import type { ReactNode } from "react";
+
+import { AppFrame } from "@/components/app-frame";
+
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "不正検知チェッカー",
-  description: "不正検知結果のモニタリング用ダッシュボードです。",
+  title: "Fraud Checker Console",
+  description: "アフィリエイト不正検知システムの管理画面",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="ja" data-theme="dark" suppressHydrationWarning>
+    <html lang="ja">
       <body suppressHydrationWarning>
-        <AppShell>{children}</AppShell>
+        <AppFrame>{children}</AppFrame>
       </body>
     </html>
   );

@@ -387,3 +387,14 @@ class FraudFindingRecord(Base):
     generation_id: Mapped[str | None] = mapped_column(Text)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     search_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class FraudAlertReview(Base):
+    __tablename__ = "fraud_alert_reviews"
+    __table_args__ = (
+        Index("idx_fraud_alert_reviews_status_updated", "review_status", "updated_at"),
+    )
+
+    finding_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    review_status: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

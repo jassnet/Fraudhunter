@@ -94,3 +94,13 @@ class SettingsModel(BaseModel):
     fraud_spike_lookback_days: int = 7
     browser_only: bool = False
     exclude_datacenter_ip: bool = False
+
+
+class ConsoleReviewRequest(BaseModel):
+    finding_keys: list[str]
+    status: str
+
+
+class ConsoleReviewResponse(BaseModel):
+    updated_count: int
+    status: str
