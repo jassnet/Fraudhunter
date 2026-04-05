@@ -135,4 +135,4 @@ def test_calculate_risk_level_adds_click_padding_bonus_once():
         is_conversion=True,
     )
 
-    assert risk == {"level": "high", "score": 105, "label": "高リスク"}
+    assert risk == {"level": "high", "score": 120, "label": "高リスク"}

@@ -447,7 +447,7 @@ def test_format_reasons_and_risk_scoring_reflect_business_priority():
         "短時間に成果が集中しています（バースト検知）",
         "クリックから成果までの時間が短すぎます（5秒以下）",
     ]
-    assert risk == {"level": "high", "score": 135, "label": "高リスク"}
+    assert risk == {"level": "high", "score": 150, "label": "高リスク"}
 
 
 def test_root_returns_running_message():

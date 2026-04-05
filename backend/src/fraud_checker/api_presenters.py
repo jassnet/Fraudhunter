@@ -144,7 +144,7 @@ def build_reason_display(reasons: list[str], *, is_conversion: bool) -> dict:
 
 
 def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = False) -> dict:
-    score = len(reasons) * 20
+    score = len(reasons) * 25  # 20 → 25
     has_click_padding_reason = any(reason.startswith("click_padding_") for reason in reasons)
 
     for reason in reasons:
@@ -162,6 +162,8 @@ def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = F
             score += 40
         elif count >= 5:
             score += 20
+        elif count >= 3:
+            score += 10  # 3件以上でも加点
     else:
         if count >= 200:
             score += 40
@@ -170,9 +172,9 @@ def calculate_risk_level(reasons: list[str], count: int, is_conversion: bool = F
         elif count >= 50:
             score += 10
 
-    if score >= 80:
+    if score >= 65:  # 80 → 65
         return {"level": "high", "score": score, "label": RISK_LABELS["high"]}
-    if score >= 40:
+    if score >= 30:  # 40 → 30
         return {"level": "medium", "score": score, "label": RISK_LABELS["medium"]}
     return {"level": "low", "score": score, "label": RISK_LABELS["low"]}
 

@@ -7,8 +7,7 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from ..api_presenters import calculate_fraud_risk_level, calculate_risk_level, format_fraud_reasons, format_reasons
-from ..fraud_detector import AcsNativeFraudDetector
+from ..api_presenters import calculate_risk_level, format_reasons
 from ..logging_utils import log_event, log_timed
 from ..service_protocols import FindingsRepository
 from ..suspicious import ConversionSuspiciousDetector
@@ -29,11 +28,7 @@ def _rule_version(settings: dict) -> str:
 
 def _detector_code_version() -> str:
     suspicious_path = Path(__file__).resolve().parent.parent / "suspicious.py"
-    fraud_path = Path(__file__).resolve().parent.parent / "fraud_detector.py"
-    return _hash_text(
-        suspicious_path.read_text(encoding="utf-8", errors="ignore")
-        + fraud_path.read_text(encoding="utf-8", errors="ignore")
-    )[:16]
+    return _hash_text(suspicious_path.read_text(encoding="utf-8", errors="ignore"))[:16]
 
 
 def _search_text(*parts: str) -> str:
@@ -73,7 +68,6 @@ def recompute_findings_for_dates(
     results: dict[str, dict[str, int]] = {}
 
     conversion_detector = ConversionSuspiciousDetector(repo, conversion_rules)
-    fraud_detector = AcsNativeFraudDetector(repo, settings)
 
     for target_date in sorted(set(target_dates)):
         with log_timed(logger, "recompute_findings", target_date=target_date):
@@ -81,7 +75,7 @@ def recompute_findings_for_dates(
             source_conversion_watermark = repo.get_conversion_data_watermark(target_date)
             source_fraud_watermark = repo.get_fraud_data_watermark(target_date)
             conversion_findings = conversion_detector.find_for_date(target_date)
-            fraud_findings = fraud_detector.find_for_date(target_date)
+            fraud_findings: list = []
             conversion_details = repo.get_suspicious_conversion_details_bulk(
                 target_date,
                 [(finding.ipaddress, finding.useragent) for finding in conversion_findings],
