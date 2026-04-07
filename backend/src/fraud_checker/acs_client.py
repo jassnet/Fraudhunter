@@ -8,7 +8,7 @@ from urllib.parse import urljoin
 
 import requests
 
-from .models import CheckLog, ClickLog, ConversionLog, EntityDailyMetric, TrackLog
+from .models import ClickLog, ConversionLog
 from .time_utils import parse_datetime
 
 logger = logging.getLogger(__name__)
@@ -75,50 +75,6 @@ class AcsHttpClient:
             self._between_range_params(start_time.date(), end_time.date(), prefix="regist_unix", page=page, limit=limit),
         )
         return [self._to_conversion(record) for record in records]
-
-    def fetch_check_logs(self, target_date: date, page: int, limit: int) -> Iterable[CheckLog]:
-        records = self._fetch_records(
-            "check_log_raw/search",
-            self._between_date_params(target_date, prefix="regist_unix", page=page, limit=limit),
-        )
-        return [self._to_check(record) for record in records]
-
-    def fetch_track_logs(self, target_date: date, page: int, limit: int) -> Iterable[TrackLog]:
-        records = self._fetch_records(
-            "track_log/search",
-            self._between_date_params(target_date, prefix="regist_unix", page=page, limit=limit),
-        )
-        return [self._to_track(record) for record in records]
-
-    def fetch_click_metrics(self, target_date: date, page: int, limit: int) -> Iterable[EntityDailyMetric]:
-        records = self._fetch_records(
-            "click_log/search",
-            self._entity_day_params(target_date, page=page, limit=limit),
-        )
-        return [self._to_entity_metric(record, count_key="date_click") for record in records]
-
-    def fetch_access_metrics(self, target_date: date, page: int, limit: int) -> Iterable[EntityDailyMetric]:
-        records = self._fetch_records(
-            "access_log/search",
-            self._entity_day_params(target_date, page=page, limit=limit),
-        )
-        return [self._to_entity_metric(record, count_key="date_access") for record in records]
-
-    def fetch_imp_metrics(self, target_date: date, page: int, limit: int) -> Iterable[EntityDailyMetric]:
-        records = self._fetch_records(
-            "imp_log/search",
-            self._entity_day_params(target_date, page=page, limit=limit),
-        )
-        return [self._to_entity_metric(record, count_key="date_imp") for record in records]
-
-    def fetch_click_metric_sum(self, target_date: date) -> int:
-        return self._fetch_sum("click_log/sum", self._entity_day_params(target_date, page=1, limit=1), "click")
-
-    def fetch_access_metric_sum(self, target_date: date) -> int:
-        return self._fetch_sum("access_log/sum", self._entity_day_params(target_date, page=1, limit=1), "access")
-
-    def fetch_imp_metric_sum(self, target_date: date) -> int:
-        return self._fetch_sum("imp_log/sum", self._entity_day_params(target_date, page=1, limit=1), "imp")
 
     def fetch_media_master(self, page: int = 1, limit: int = 500) -> list[dict]:
         records = self._fetch_records("media/search", {"limit": limit, "offset": (page - 1) * limit})
@@ -248,16 +204,6 @@ class AcsHttpClient:
             f"{prefix}_B_D": end_date.day,
         }
 
-    @staticmethod
-    def _entity_day_params(target_date: date, *, page: int, limit: int) -> dict[str, object]:
-        return {
-            "limit": limit,
-            "offset": (page - 1) * limit,
-            "date_y": target_date.year,
-            "date_m": target_date.month,
-            "date_d": target_date.day,
-        }
-
     def _to_click(self, record: dict) -> ClickLog:
         click_time_raw = (
             record.get("click_time")
@@ -300,57 +246,6 @@ class AcsHttpClient:
             state=str(record.get("state")) if record.get("state") is not None else None,
             raw_payload=record,
         )
-
-    def _to_check(self, record: dict) -> CheckLog:
-        check_id = record.get("id") or self._fallback_record_id("check", record)
-        return CheckLog(
-            check_id=str(check_id),
-            affiliate_user_id=record.get("user"),
-            plid=record.get("plid"),
-            state=self._to_int(record.get("state")),
-            regist_time=self._parse_datetime(record.get("regist_unix") or record.get("created_at")),
-            raw_payload=record,
-        )
-
-    def _to_track(self, record: dict) -> TrackLog:
-        track_id = record.get("id") or self._fallback_record_id(
-            "track",
-            {
-                "action_log_raw": record.get("action_log_raw"),
-                "auth_type": record.get("auth_type"),
-                "state": record.get("state"),
-                "regist_unix": record.get("regist_unix"),
-            },
-        )
-        return TrackLog(
-            track_id=str(track_id),
-            action_log_raw_id=record.get("action_log_raw"),
-            auth_type=record.get("auth_type"),
-            auth_get_type=record.get("auth_get_type"),
-            state=self._to_int(record.get("state")),
-            regist_time=self._parse_datetime(record.get("regist_unix") or record.get("created_at")),
-            raw_payload=record,
-        )
-
-    def _to_entity_metric(self, record: dict, *, count_key: str) -> EntityDailyMetric:
-        metric_id = record.get("id") or self._fallback_record_id("metric", record)
-        metric_date = self._metric_date(record)
-        return EntityDailyMetric(
-            metric_id=str(metric_id),
-            metric_date=metric_date,
-            user_id=record.get("user"),
-            media_id=record.get("media"),
-            promotion_id=record.get("promotion"),
-            count=self._to_int(record.get(count_key)) or 0,
-            raw_payload=record,
-        )
-
-    @staticmethod
-    def _metric_date(record: dict) -> date:
-        if record.get("date_y") and record.get("date_m") and record.get("date_d"):
-            return date(int(record["date_y"]), int(record["date_m"]), int(record["date_d"]))
-        raw = record.get("date_unix") or record.get("created_at")
-        return parse_datetime(raw).date()
 
     @staticmethod
     def _fallback_record_id(prefix: str, payload: dict) -> str:

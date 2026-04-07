@@ -443,9 +443,9 @@ def test_format_reasons_and_risk_scoring_reflect_business_priority():
     risk = api_presenters.calculate_risk_level(reasons, count=5, is_conversion=True)
 
     assert formatted == [
-        "成果数が閾値以上です（5件以上）",
-        "短時間に成果が集中しています（バースト検知）",
-        "クリックから成果までの時間が短すぎます（5秒以下）",
+        "同一端末から5件以上の成果が発生しています",
+        "10秒間に5件の成果が集中しています",
+        "クリックから成果まで最短1秒しかなく、不自然に短い間隔です",
     ]
     assert risk == {"level": "high", "score": 150, "label": "高リスク"}
 

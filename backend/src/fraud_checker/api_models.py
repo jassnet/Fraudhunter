@@ -16,7 +16,6 @@ class DailyStatsItem(BaseModel):
     clicks: int
     conversions: int
     suspicious_conversions: int = 0
-    fraud_findings: int = 0
 
 
 class DailyStatsResponse(BaseModel):

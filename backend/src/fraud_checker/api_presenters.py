@@ -29,46 +29,97 @@ _REASON_PRIORITY = {
 }
 
 
+def _format_duration(seconds: float) -> str:
+    s = int(seconds)
+    if s >= 86400:
+        days = s // 86400
+        return f"{days}日"
+    if s >= 3600:
+        hours = s // 3600
+        return f"{hours}時間"
+    if s >= 60:
+        minutes = s // 60
+        return f"{minutes}分"
+    return f"{s}秒"
+
+
+def _extract_actual(reason: str, prefix: str) -> Optional[str]:
+    try:
+        return reason.split(prefix)[1].split(")")[0].strip()
+    except (IndexError, ValueError):
+        return None
+
+
 def format_reasons(reasons: list[str]) -> list[str]:
     formatted: list[str] = []
     for reason in reasons:
         if reason.startswith("total_clicks >="):
             threshold = reason.split(">=")[1].strip()
-            formatted.append(f"クリック数が閾値以上です（{threshold}件以上）")
+            formatted.append(f"同一端末から{threshold}件以上のクリックが発生しています")
         elif reason.startswith("media_count >="):
             threshold = reason.split(">=")[1].strip()
-            formatted.append(f"同一 IP/UA で複数媒体にまたがるクリックがあります（{threshold}媒体以上）")
+            formatted.append(f"同一端末から{threshold}つ以上の媒体で成果が発生しています")
         elif reason.startswith("program_count >="):
             threshold = reason.split(">=")[1].strip()
-            formatted.append(f"同一 IP/UA で複数案件にまたがるクリックがあります（{threshold}案件以上）")
+            formatted.append(f"同一端末から{threshold}つ以上の案件で成果が発生しています")
         elif reason.startswith("burst:") and "clicks" in reason:
-            formatted.append("短時間にクリックが集中しています（バースト検知）")
+            try:
+                parts = reason.split()
+                count = parts[1]
+                secs = parts[4].rstrip("s")
+                formatted.append(f"{_format_duration(float(secs))}間に{count}件のクリックが集中しています")
+            except (IndexError, ValueError):
+                formatted.append("短時間にクリックが集中しています")
         elif reason.startswith("conversion_count >="):
             threshold = reason.split(">=")[1].strip()
-            formatted.append(f"成果数が閾値以上です（{threshold}件以上）")
+            formatted.append(f"同一端末から{threshold}件以上の成果が発生しています")
         elif reason.startswith("burst:") and "conversions" in reason:
-            formatted.append("短時間に成果が集中しています（バースト検知）")
+            try:
+                parts = reason.split()
+                count = parts[1]
+                secs = parts[4].rstrip("s")
+                formatted.append(f"{_format_duration(float(secs))}間に{count}件の成果が集中しています")
+            except (IndexError, ValueError):
+                formatted.append("短時間に成果が集中しています")
         elif reason.startswith("click_to_conversion_seconds <="):
-            threshold = reason.split("<=")[1].split("s")[0].strip()
-            formatted.append(f"クリックから成果までの時間が短すぎます（{threshold}秒以下）")
+            actual = _extract_actual(reason, "min=")
+            if actual:
+                actual_secs = actual.rstrip("s")
+                formatted.append(f"クリックから成果まで最短{actual_secs}秒しかなく、不自然に短い間隔です")
+            else:
+                threshold = reason.split("<=")[1].split("s")[0].strip()
+                formatted.append(f"クリックから成果までの間隔が{threshold}秒以下と不自然です")
         elif reason.startswith("click_to_conversion_seconds >="):
-            threshold = reason.split(">=")[1].split("s")[0].strip()
-            formatted.append(f"クリックから成果までの時間が長すぎます（{threshold}秒以上）")
+            actual = _extract_actual(reason, "max=")
+            if actual:
+                actual_secs = float(actual.rstrip("s"))
+                formatted.append(f"クリックから成果まで最長{_format_duration(actual_secs)}かかっており、不自然に長い間隔です")
+            else:
+                threshold = float(reason.split(">=")[1].split("s")[0].strip())
+                formatted.append(f"クリックから成果までの間隔が{_format_duration(threshold)}以上と不自然です")
         elif reason.startswith("click_padding_linked_ratio >="):
-            threshold = reason.split(">=")[1].split("(")[0].strip()
-            formatted.append(
-                f"不審CVに紐づくクリック数が多すぎます（CVあたり{threshold}件以上）"
-            )
+            actual = _extract_actual(reason, "actual=")
+            if actual:
+                formatted.append(f"成果1件あたり{actual}回のクリックが紐付いており、水増しの疑いがあります")
+            else:
+                threshold = reason.split(">=")[1].split("(")[0].strip()
+                formatted.append(f"成果1件あたり{threshold}回以上のクリックが紐付いており、水増しの疑いがあります")
         elif reason.startswith("click_padding_extra_window >="):
-            threshold = reason.split(">=")[1].split("in")[0].strip()
-            formatted.append(
-                f"不審CVの前後30分に追加クリックが集中しています（{threshold}件以上）"
-            )
+            actual = _extract_actual(reason, "actual=")
+            if actual:
+                formatted.append(f"成果の前後30分に{actual}件の不審なクリックが集中しています")
+            else:
+                threshold = reason.split(">=")[1].split("in")[0].strip()
+                formatted.append(f"成果の前後30分に{threshold}件以上の不審なクリックが集中しています")
         elif reason.startswith("click_padding_non_browser_ratio >="):
-            threshold = reason.split(">=")[1].split("(")[0].strip()
-            formatted.append(
-                f"追加クリックの非ブラウザ比率が高すぎます（{threshold}以上）"
-            )
+            actual = _extract_actual(reason, "actual=")
+            if actual:
+                pct = int(float(actual) * 100)
+                formatted.append(f"周辺クリックの{pct}%がブラウザ以外からの発信で、自動化の疑いがあります")
+            else:
+                threshold = reason.split(">=")[1].split("(")[0].strip()
+                pct = int(float(threshold) * 100)
+                formatted.append(f"周辺クリックの{pct}%以上がブラウザ以外からの発信です")
         else:
             formatted.append(reason)
     return formatted

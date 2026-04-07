@@ -8,6 +8,7 @@ from typing import Any
 import sqlalchemy as sa
 
 from ..api_parsers import parse_iso_date
+from ..api_presenters import format_reasons
 from ..db import Base
 from ..db import models as _db_models  # noqa: F401
 from ..time_utils import now_local
@@ -15,6 +16,9 @@ from . import reporting
 
 DEFAULT_REWARD_YEN = 3000
 ALERT_REVIEW_STATUSES = {"unhandled", "investigating", "confirmed_fraud", "white"}
+DEFAULT_AFFILIATE_ID = "unassigned"
+DEFAULT_AFFILIATE_NAME = "Unassigned"
+DEFAULT_OUTCOME_TYPE = "Unknown Outcome"
 REWARD_KEYS = {
     "reward",
     "reward_amount",
@@ -53,20 +57,20 @@ def get_dashboard(repo, target_date: str | None = None) -> dict[str, Any]:
     trend = [
         {
             "date": item["date"],
-            "alerts": int(item.get("fraud_findings", 0) or 0),
+            "alerts": int(item.get("suspicious_conversions", 0) or 0),
         }
         for item in trend_source
     ]
 
-    ranking = _build_affiliate_ranking(alert_rows, transaction_summary, affiliate_totals)[:10]
+    ranking = _build_affiliate_ranking(transaction_summary, affiliate_totals)[:10]
 
     return {
         "date": resolved_date,
         "available_dates": available_dates,
         "kpis": {
-            "fraud_rate": {"value": fraud_rate, "label": "全体フラウド率", "unit": "%"},
-            "unhandled_alerts": {"value": unhandled_alerts, "label": "未対応アラート件数", "unit": "件"},
-            "estimated_damage": {"value": estimated_damage, "label": "被害推定額", "unit": "円"},
+            "fraud_rate": {"value": fraud_rate, "label": "Fraud Rate", "unit": "%"},
+            "unhandled_alerts": {"value": unhandled_alerts, "label": "Unhandled Alerts", "unit": "items"},
+            "estimated_damage": {"value": estimated_damage, "label": "Estimated Damage", "unit": "JPY"},
         },
         "trend": trend,
         "ranking": ranking,
@@ -124,26 +128,30 @@ def get_alert_detail(repo, finding_key: str) -> dict[str, Any] | None:
     entity_transactions = _fetch_entity_transactions(
         repo,
         row["date"],
-        row["user_id"],
-        row["media_id"],
-        row["promotion_id"],
+        row["ipaddress"],
+        row["useragent"],
     )
-    recent_transactions = _fetch_recent_affiliate_transactions(repo, row["user_id"])
-
     summary = _summarize_transactions(entity_transactions)
-    reasons = row.get("reasons_formatted_json") or row.get("reasons_json") or []
+    affiliate_id = summary["affiliate_id"]
+    recent_transactions = (
+        _fetch_recent_affiliate_transactions(repo, affiliate_id)
+        if affiliate_id and affiliate_id != DEFAULT_AFFILIATE_ID
+        else entity_transactions[:10]
+    )
+    raw_reasons = row.get("reasons_json") or []
+    reasons = format_reasons(raw_reasons) if raw_reasons else []
 
     return {
         "finding_key": row["finding_key"],
-        "affiliate_id": row["user_id"],
-        "affiliate_name": row["user_name"],
+        "affiliate_id": affiliate_id,
+        "affiliate_name": summary["affiliate_name"],
         "risk_score": row["risk_score"],
         "risk_level": row["risk_level"],
         "status": row["review_status"],
         "reward_amount": summary["reward_amount"],
         "detected_at": _iso(row.get("computed_at")),
-        "outcome_type": _derive_outcome_type(row),
-        "program_name": row.get("promotion_name"),
+        "outcome_type": summary["outcome_type"],
+        "program_name": summary["outcome_type"],
         "reasons": reasons,
         "transactions": [_present_transaction(item) for item in recent_transactions],
         "actions": ["confirmed_fraud", "white", "investigating"],
@@ -197,14 +205,18 @@ def _resolve_alert_window(
     if end_date:
         return end_date, end_date
 
-    latest_fraud_date = repo.fetch_one(
+    if not repo._table_exists("suspicious_conversion_findings"):
+        fallback = reporting.resolve_summary_date(repo, None)
+        return fallback, fallback
+
+    latest_finding_date = repo.fetch_one(
         """
         SELECT MAX(date) AS latest_date
-        FROM fraud_findings
+        FROM suspicious_conversion_findings
         WHERE is_current = TRUE
         """
     )
-    value = latest_fraud_date.get("latest_date") if latest_fraud_date else None
+    value = latest_finding_date.get("latest_date") if latest_finding_date else None
     if value is None:
         fallback = reporting.resolve_summary_date(repo, None)
         return fallback, fallback
@@ -220,6 +232,9 @@ def _fetch_alert_rows(
     status: str | None,
     sort: str,
 ) -> list[dict[str, Any]]:
+    if not repo._table_exists("suspicious_conversion_findings"):
+        return []
+
     params: dict[str, object] = {}
     conditions = ["f.is_current = TRUE"]
     review_status_sql = "COALESCE(r.review_status, 'unhandled')"
@@ -246,23 +261,18 @@ def _fetch_alert_rows(
         SELECT
             f.finding_key,
             f.date,
-            f.user_id,
-            COALESCE(f.user_name, f.user_id) AS user_name,
-            f.media_id,
-            COALESCE(f.media_name, f.media_id) AS media_name,
-            f.promotion_id,
-            COALESCE(f.promotion_name, f.promotion_id) AS promotion_name,
+            f.ipaddress,
+            f.useragent,
             f.risk_level,
             f.risk_score,
             f.reasons_json,
             f.reasons_formatted_json,
             f.metrics_json,
-            f.primary_metric,
             f.first_time,
             f.last_time,
             f.computed_at,
             {review_status_sql} AS review_status
-        FROM fraud_findings f
+        FROM suspicious_conversion_findings f
         LEFT JOIN fraud_alert_reviews r
           ON r.finding_key = f.finding_key
         WHERE {" AND ".join(conditions)}
@@ -274,28 +284,26 @@ def _fetch_alert_rows(
 
 
 def _fetch_alert_detail_row(repo, finding_key: str) -> dict[str, Any] | None:
+    if not repo._table_exists("suspicious_conversion_findings"):
+        return None
+
     rows = repo.fetch_all(
         """
         SELECT
             f.finding_key,
             f.date,
-            f.user_id,
-            COALESCE(f.user_name, f.user_id) AS user_name,
-            f.media_id,
-            COALESCE(f.media_name, f.media_id) AS media_name,
-            f.promotion_id,
-            COALESCE(f.promotion_name, f.promotion_id) AS promotion_name,
+            f.ipaddress,
+            f.useragent,
             f.risk_level,
             f.risk_score,
             f.reasons_json,
             f.reasons_formatted_json,
             f.metrics_json,
-            f.primary_metric,
             f.first_time,
             f.last_time,
             f.computed_at,
             COALESCE(r.review_status, 'unhandled') AS review_status
-        FROM fraud_findings f
+        FROM suspicious_conversion_findings f
         LEFT JOIN fraud_alert_reviews r
           ON r.finding_key = f.finding_key
         WHERE f.finding_key = :finding_key
@@ -313,49 +321,56 @@ def _fetch_alert_transaction_summary(repo, rows: list[dict[str, Any]]) -> dict[s
     if not rows or not repo._table_exists("conversion_raw"):
         return {}
 
-    keys = [
-        (row["finding_key"], row["date"], row["user_id"], row["media_id"], row["promotion_id"])
-        for row in rows
-    ]
+    keys = [(row["finding_key"], row["date"], row["ipaddress"], row["useragent"]) for row in rows]
     placeholders = ", ".join(
-        f"(:finding_key{idx}, :target_date{idx}, :user_id{idx}, :media_id{idx}, :promotion_id{idx})"
+        f"(:finding_key{idx}, :target_date{idx}, :ipaddress{idx}, :useragent{idx})"
         for idx in range(len(keys))
     )
     params: dict[str, object] = {}
-    for idx, (finding_key, target_date, user_id, media_id, promotion_id) in enumerate(keys):
+    for idx, (finding_key, target_date, ipaddress, useragent) in enumerate(keys):
         params[f"finding_key{idx}"] = finding_key
         params[f"target_date{idx}"] = target_date
-        params[f"user_id{idx}"] = user_id
-        params[f"media_id{idx}"] = media_id
-        params[f"promotion_id{idx}"] = promotion_id
+        params[f"ipaddress{idx}"] = ipaddress
+        params[f"useragent{idx}"] = useragent
 
     rows = repo.fetch_all(
         f"""
         WITH target_entities AS (
             SELECT *
             FROM (VALUES {placeholders})
-            AS t(finding_key, target_date, user_id, media_id, promotion_id)
+            AS t(finding_key, target_date, ipaddress, useragent)
         )
         SELECT
             t.finding_key,
             c.id AS transaction_id,
             c.conversion_time,
             c.state,
-            c.raw_payload
+            c.raw_payload,
+            c.user_id,
+            COALESCE(u.name, c.user_id, :default_affiliate_name) AS affiliate_name,
+            c.program_id,
+            COALESCE(p.name, c.program_id, :default_outcome_type) AS promotion_name
         FROM target_entities t
         JOIN conversion_raw c
           ON CAST(c.conversion_time AS date) = t.target_date
-         AND c.user_id = t.user_id
-         AND c.media_id = t.media_id
-         AND c.program_id = t.promotion_id
+         AND c.entry_ipaddress = t.ipaddress
+         AND c.entry_useragent = t.useragent
+        LEFT JOIN master_user u
+          ON u.id = c.user_id
+        LEFT JOIN master_promotion p
+          ON p.id = c.program_id
         ORDER BY c.conversion_time DESC
         """,
-        params,
+        {
+            **params,
+            "default_affiliate_name": DEFAULT_AFFILIATE_NAME,
+            "default_outcome_type": DEFAULT_OUTCOME_TYPE,
+        },
     )
 
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        grouped[str(row["finding_key"])].append(row)
+        grouped[str(row["finding_key"])].append(dict(row))
 
     return {finding_key: _summarize_transactions(items) for finding_key, items in grouped.items()}
 
@@ -379,9 +394,8 @@ def _fetch_affiliate_conversion_totals(repo, target_date: date) -> dict[str, int
 def _fetch_entity_transactions(
     repo,
     target_date: date,
-    user_id: str,
-    media_id: str,
-    promotion_id: str,
+    ipaddress: str,
+    useragent: str,
 ) -> list[dict[str, Any]]:
     if not repo._table_exists("conversion_raw"):
         return []
@@ -392,28 +406,32 @@ def _fetch_entity_transactions(
             c.conversion_time,
             c.state,
             c.raw_payload,
+            c.user_id,
+            COALESCE(u.name, c.user_id, :default_affiliate_name) AS affiliate_name,
             c.program_id,
-            COALESCE(p.name, c.program_id, '成果') AS promotion_name
+            COALESCE(p.name, c.program_id, :default_outcome_type) AS promotion_name
         FROM conversion_raw c
+        LEFT JOIN master_user u
+          ON u.id = c.user_id
         LEFT JOIN master_promotion p
           ON p.id = c.program_id
         WHERE CAST(c.conversion_time AS date) = :target_date
-          AND c.user_id = :user_id
-          AND c.media_id = :media_id
-          AND c.program_id = :promotion_id
+          AND c.entry_ipaddress = :ipaddress
+          AND c.entry_useragent = :useragent
         ORDER BY c.conversion_time DESC
         """,
         {
             "target_date": target_date,
-            "user_id": user_id,
-            "media_id": media_id,
-            "promotion_id": promotion_id,
+            "ipaddress": ipaddress,
+            "useragent": useragent,
+            "default_affiliate_name": DEFAULT_AFFILIATE_NAME,
+            "default_outcome_type": DEFAULT_OUTCOME_TYPE,
         },
     )
 
 
 def _fetch_recent_affiliate_transactions(repo, user_id: str) -> list[dict[str, Any]]:
-    if not repo._table_exists("conversion_raw"):
+    if not user_id or user_id == DEFAULT_AFFILIATE_ID or not repo._table_exists("conversion_raw"):
         return []
     return repo.fetch_all(
         """
@@ -422,38 +440,46 @@ def _fetch_recent_affiliate_transactions(repo, user_id: str) -> list[dict[str, A
             c.conversion_time,
             c.state,
             c.raw_payload,
+            c.user_id,
+            COALESCE(u.name, c.user_id, :default_affiliate_name) AS affiliate_name,
             c.program_id,
-            COALESCE(p.name, c.program_id, '成果') AS promotion_name
+            COALESCE(p.name, c.program_id, :default_outcome_type) AS promotion_name
         FROM conversion_raw c
+        LEFT JOIN master_user u
+          ON u.id = c.user_id
         LEFT JOIN master_promotion p
           ON p.id = c.program_id
         WHERE c.user_id = :user_id
         ORDER BY c.conversion_time DESC
         LIMIT 10
         """,
-        {"user_id": user_id},
+        {
+            "user_id": user_id,
+            "default_affiliate_name": DEFAULT_AFFILIATE_NAME,
+            "default_outcome_type": DEFAULT_OUTCOME_TYPE,
+        },
     )
 
 
 def _build_affiliate_ranking(
-    alert_rows: list[dict[str, Any]],
     transaction_summary: dict[str, dict[str, Any]],
     affiliate_totals: dict[str, int],
 ) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
-    for row in alert_rows:
-        affiliate_id = row["user_id"]
+    for summary in transaction_summary.values():
+        affiliate_id = summary["affiliate_id"]
+        if not affiliate_id or affiliate_id == DEFAULT_AFFILIATE_ID:
+            continue
         state = grouped.setdefault(
             affiliate_id,
             {
                 "affiliate_id": affiliate_id,
-                "affiliate_name": row["user_name"],
+                "affiliate_name": summary["affiliate_name"],
                 "alert_count": 0,
                 "fraud_conversions": 0,
                 "estimated_damage": 0,
             },
         )
-        summary = transaction_summary.get(row["finding_key"], {"transaction_count": 0, "reward_amount": 0})
         state["alert_count"] += 1
         state["fraud_conversions"] += summary["transaction_count"]
         state["estimated_damage"] += summary["reward_amount"]
@@ -480,17 +506,25 @@ def _build_affiliate_ranking(
 
 
 def _build_alert_item(row: dict[str, Any], transaction_summary: dict[str, Any] | None) -> dict[str, Any]:
-    summary = transaction_summary or {"transaction_count": 0, "reward_amount": 0, "latest_occurred_at": None}
-    reasons = row.get("reasons_formatted_json") or row.get("reasons_json") or []
+    summary = transaction_summary or {
+        "transaction_count": 0,
+        "reward_amount": 0,
+        "latest_occurred_at": None,
+        "affiliate_id": DEFAULT_AFFILIATE_ID,
+        "affiliate_name": DEFAULT_AFFILIATE_NAME,
+        "outcome_type": DEFAULT_OUTCOME_TYPE,
+    }
+    raw_reasons = row.get("reasons_json") or []
+    reasons = format_reasons(raw_reasons) if raw_reasons else []
     return {
         "finding_key": row["finding_key"],
         "detected_at": _iso(row.get("computed_at")) or _iso(row.get("last_time")),
-        "affiliate_id": row["user_id"],
-        "affiliate_name": row["user_name"],
-        "outcome_type": _derive_outcome_type(row),
+        "affiliate_id": summary["affiliate_id"],
+        "affiliate_name": summary["affiliate_name"],
+        "outcome_type": summary["outcome_type"],
         "risk_score": row["risk_score"],
         "risk_level": row["risk_level"],
-        "pattern": reasons[0] if reasons else "不正パターンあり",
+        "pattern": reasons[0] if reasons else "No pattern available",
         "status": row["review_status"],
         "reward_amount": summary["reward_amount"],
         "transaction_count": summary["transaction_count"],
@@ -501,7 +535,7 @@ def _present_transaction(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "transaction_id": row["transaction_id"],
         "occurred_at": _iso(row.get("conversion_time")),
-        "outcome_type": row.get("promotion_name") or "成果",
+        "outcome_type": row.get("promotion_name") or DEFAULT_OUTCOME_TYPE,
         "reward_amount": _reward_from_payload(row.get("raw_payload")),
         "state": row.get("state") or "unknown",
     }
@@ -509,12 +543,32 @@ def _present_transaction(row: dict[str, Any]) -> dict[str, Any]:
 
 def _summarize_transactions(rows: list[dict[str, Any]]) -> dict[str, Any]:
     reward_amount = 0
+    affiliate_counts: Counter[str] = Counter()
+    program_counts: Counter[str] = Counter()
+    affiliate_names: dict[str, str] = {}
+
     for row in rows:
         reward_amount += _reward_from_payload(row.get("raw_payload"))
+        user_id = row.get("user_id")
+        if user_id:
+            affiliate_counts[str(user_id)] += 1
+            affiliate_names[str(user_id)] = row.get("affiliate_name") or str(user_id)
+        promotion_name = row.get("promotion_name")
+        if promotion_name:
+            program_counts[str(promotion_name)] += 1
+
+    affiliate_id = affiliate_counts.most_common(1)[0][0] if affiliate_counts else DEFAULT_AFFILIATE_ID
+    affiliate_name = affiliate_names.get(affiliate_id, DEFAULT_AFFILIATE_NAME)
+    outcome_type = program_counts.most_common(1)[0][0] if program_counts else DEFAULT_OUTCOME_TYPE
+    latest_occurred_at = _iso(rows[0].get("conversion_time")) if rows else None
+
     return {
         "transaction_count": len(rows),
         "reward_amount": reward_amount,
-        "latest_occurred_at": _iso(rows[0].get("conversion_time")) if rows else None,
+        "latest_occurred_at": latest_occurred_at,
+        "affiliate_id": affiliate_id,
+        "affiliate_name": affiliate_name,
+        "outcome_type": outcome_type,
     }
 
 
@@ -558,10 +612,6 @@ def _coerce_int(value: Any) -> int | None:
         except ValueError:
             return None
     return None
-
-
-def _derive_outcome_type(row: dict[str, Any]) -> str:
-    return row.get("promotion_name") or "成果"
 
 
 def _deserialize_alert_row(row: dict[str, Any]) -> dict[str, Any]:

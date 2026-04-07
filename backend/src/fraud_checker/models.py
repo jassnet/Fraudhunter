@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
@@ -79,51 +79,3 @@ class SuspiciousConversionFinding(ConversionIpUaRollup):
     linked_clicks_per_conversion: float | None = None
     extra_window_click_count: int | None = None
     extra_window_non_browser_ratio: float | None = None
-
-
-@dataclass
-class CheckLog:
-    check_id: str
-    affiliate_user_id: str | None
-    plid: str | None
-    state: int | None
-    regist_time: datetime
-    raw_payload: Any = None
-
-
-@dataclass
-class TrackLog:
-    track_id: str
-    action_log_raw_id: str | None
-    auth_type: str | None
-    auth_get_type: str | None
-    state: int | None
-    regist_time: datetime
-    raw_payload: Any = None
-
-
-@dataclass
-class EntityDailyMetric:
-    metric_id: str
-    metric_date: date
-    user_id: str | None
-    media_id: str | None
-    promotion_id: str | None
-    count: int
-    raw_payload: Any = None
-
-
-@dataclass
-class FraudFinding:
-    date: date
-    user_id: str
-    media_id: str
-    promotion_id: str
-    user_name: str | None
-    media_name: str | None
-    promotion_name: str | None
-    primary_metric: int
-    reasons: list[str]
-    metrics: dict[str, Any] = field(default_factory=dict)
-    first_event_time: datetime | None = None
-    last_event_time: datetime | None = None

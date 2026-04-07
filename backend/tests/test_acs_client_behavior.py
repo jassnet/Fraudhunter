@@ -225,7 +225,15 @@ def test_fetch_master_endpoints_map_records():
 
     # Then
     assert media == [{"id": "m1", "name": "Media", "user": "u1", "state": "on"}]
-    assert promos == [{"id": "p1", "name": "Promo", "state": "on"}]
+    assert promos == [
+        {
+            "id": "p1",
+            "name": "Promo",
+            "state": "on",
+            "action_double_state": None,
+            "action_double_type_json": None,
+        }
+    ]
     assert users == [{"id": "u1", "name": "User", "company": "Acme", "state": "on"}]
 
 

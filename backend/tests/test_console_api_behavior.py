@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import sqlalchemy as sa
 from fastapi.testclient import TestClient
 
 from fraud_checker import api
@@ -18,9 +17,9 @@ def test_console_dashboard_endpoint_returns_business_payload(monkeypatch):
         lambda repo, target_date=None: {
             "date": "2026-04-05",
             "kpis": {
-                "fraud_rate": {"value": 12.5, "label": "全体フラウド率", "unit": "%"},
-                "unhandled_alerts": {"value": 18, "label": "未対応アラート件数", "unit": "件"},
-                "estimated_damage": {"value": 425000, "label": "被害推定額", "unit": "円"},
+                "fraud_rate": {"value": 12.5, "label": "Fraud Rate", "unit": "%"},
+                "unhandled_alerts": {"value": 18, "label": "Unhandled Alerts", "unit": "items"},
+                "estimated_damage": {"value": 425000, "label": "Estimated Damage", "unit": "JPY"},
             },
             "trend": [
                 {"date": "2026-04-01", "alerts": 8},
@@ -66,13 +65,13 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
         return {
             "items": [
                 {
-                    "finding_key": "fraud-001",
+                    "finding_key": "finding-001",
                     "detected_at": "2026-04-05T12:00:00",
                     "affiliate_id": "aff-001",
                     "affiliate_name": "Affiliate Alpha",
-                    "outcome_type": "会員登録",
+                    "outcome_type": "Program Alpha",
                     "risk_score": 97,
-                    "pattern": "同一IPからの異常集中",
+                    "pattern": "Same IP generated repeated conversions",
                     "status": "unhandled",
                 }
             ],
@@ -110,14 +109,14 @@ def test_console_alert_detail_endpoint_returns_reasons_transactions_and_actions(
             "status": "investigating",
             "reward_amount": 58000,
             "reasons": [
-                "同一IPから24時間以内に47件のCV",
-                "CV間隔が平均2.3秒",
+                "47 conversions from the same IP within 24 hours",
+                "Average conversion gap was 2.3 seconds",
             ],
             "transactions": [
                 {
                     "transaction_id": "txn-001",
                     "occurred_at": "2026-04-05T11:58:00",
-                    "outcome_type": "会員登録",
+                    "outcome_type": "Program Alpha",
                     "reward_amount": 12000,
                     "state": "approved",
                 }
@@ -127,7 +126,7 @@ def test_console_alert_detail_endpoint_returns_reasons_transactions_and_actions(
     )
     client = TestClient(api.app)
 
-    response = client.get("/api/console/alerts/fraud-001")
+    response = client.get("/api/console/alerts/finding-001")
 
     assert response.status_code == 200
     payload = response.json()
@@ -153,12 +152,12 @@ def test_console_review_endpoint_requires_admin_and_returns_mutation_result(monk
 
     unauthorized = client.post(
         "/api/console/alerts/review",
-        json={"finding_keys": ["fraud-001", "fraud-002"], "status": "confirmed_fraud"},
+        json={"finding_keys": ["finding-001", "finding-002"], "status": "confirmed_fraud"},
     )
     authorized = client.post(
         "/api/console/alerts/review",
         headers={"X-API-Key": "admin-secret"},
-        json={"finding_keys": ["fraud-001", "fraud-002"], "status": "confirmed_fraud"},
+        json={"finding_keys": ["finding-001", "finding-002"], "status": "confirmed_fraud"},
     )
 
     assert unauthorized.status_code == 401
@@ -176,29 +175,35 @@ def test_console_dashboard_creates_review_table_when_missing(tmp_path, monkeypat
     database_path = tmp_path / "console-dashboard.db"
     repo = PostgresRepository(f"sqlite:///{database_path}")
 
-    fraud_findings = Base.metadata.tables["fraud_findings"]
-    Base.metadata.create_all(repo.engine, tables=[fraud_findings])
+    suspicious_findings = Base.metadata.tables["suspicious_conversion_findings"]
+    Base.metadata.create_all(repo.engine, tables=[suspicious_findings])
 
     with repo.engine.begin() as conn:
         conn.execute(
-            fraud_findings.insert(),
+            suspicious_findings.insert(),
             {
-                "finding_key": "fraud-001",
+                "finding_key": "finding-001",
                 "date": datetime(2026, 4, 5).date(),
-                "user_id": "aff-001",
-                "media_id": "media-001",
-                "promotion_id": "promo-001",
-                "user_name": "Affiliate Alpha",
-                "media_name": "Media Alpha",
-                "promotion_name": "Program Alpha",
+                "ipaddress": "203.0.113.10",
+                "useragent": "Mozilla/5.0 Chrome/123.0",
+                "ua_hash": "ua-hash-1",
+                "media_ids_json": '["media-001"]',
+                "program_ids_json": '["promo-001"]',
+                "media_names_json": '["Media Alpha"]',
+                "program_names_json": '["Program Alpha"]',
+                "affiliate_names_json": '["Affiliate Alpha"]',
                 "risk_level": "high",
                 "risk_score": 97,
-                "reasons_json": '["同一IPから大量CV"]',
-                "reasons_formatted_json": '["同一IPから大量CV"]',
+                "reasons_json": '["Same IP generated repeated conversions"]',
+                "reasons_formatted_json": '["Same IP generated repeated conversions"]',
                 "metrics_json": "{}",
-                "primary_metric": 47,
-                "first_time": None,
-                "last_time": None,
+                "total_conversions": 1,
+                "media_count": 1,
+                "program_count": 1,
+                "min_click_to_conv_seconds": None,
+                "max_click_to_conv_seconds": None,
+                "first_time": datetime(2026, 4, 5, 9, 50, 0),
+                "last_time": datetime(2026, 4, 5, 10, 0, 0),
                 "rule_version": "test",
                 "computed_at": datetime(2026, 4, 5, 10, 0, 0),
                 "computed_by_job_id": None,
@@ -207,7 +212,7 @@ def test_console_dashboard_creates_review_table_when_missing(tmp_path, monkeypat
                 "source_conversion_watermark": None,
                 "generation_id": None,
                 "is_current": True,
-                "search_text": "aff-001",
+                "search_text": "affiliate alpha",
             },
         )
 
@@ -228,18 +233,21 @@ def test_console_dashboard_creates_review_table_when_missing(tmp_path, monkeypat
         console_service.reporting,
         "get_daily_stats",
         lambda repo, days, resolved_date: [
-            {"date": "2026-04-04", "fraud_findings": 0},
-            {"date": "2026-04-05", "fraud_findings": 1},
+            {"date": "2026-04-04", "suspicious_conversions": 0},
+            {"date": "2026-04-05", "suspicious_conversions": 1},
         ],
     )
     monkeypatch.setattr(
         console_service,
         "_fetch_alert_transaction_summary",
         lambda repo, rows: {
-            "fraud-001": {
+            "finding-001": {
                 "transaction_count": 1,
                 "reward_amount": 3000,
                 "latest_occurred_at": "2026-04-05T10:00:00",
+                "affiliate_id": "aff-001",
+                "affiliate_name": "Affiliate Alpha",
+                "outcome_type": "Program Alpha",
             }
         },
     )

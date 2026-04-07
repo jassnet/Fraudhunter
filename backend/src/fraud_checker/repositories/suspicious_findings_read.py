@@ -182,21 +182,6 @@ class SuspiciousFindingsReadRepository(RepositoryBase):
                         row["suspicious_conversions"] or 0
                     )
 
-        if self._table_exists("fraud_findings"):
-            fraud_rows = self.fetch_all(
-                f"""
-                SELECT date, COUNT(*) AS fraud_findings
-                FROM fraud_findings
-                WHERE {" AND ".join(legacy_where_parts)}
-                GROUP BY date
-                ORDER BY date DESC
-                LIMIT :limit
-                """,
-                params,
-            )
-            for row in fraud_rows:
-                row_date = row["date"].isoformat() if isinstance(row["date"], date) else row["date"]
-                merged.setdefault(row_date, {})["fraud_findings"] = int(row["fraud_findings"] or 0)
         return merged
 
     def count_current_conversion_findings(self, target_date: date) -> int:
@@ -224,7 +209,7 @@ class SuspiciousFindingsReadRepository(RepositoryBase):
         params = {"cutoff": cutoff}
         where_sql = "date < :cutoff"
         counts: dict[str, int] = {}
-        for table_name in ("suspicious_conversion_findings", "fraud_findings"):
+        for table_name in ("suspicious_conversion_findings",):
             if not self._table_exists(table_name):
                 counts[table_name] = 0
                 continue

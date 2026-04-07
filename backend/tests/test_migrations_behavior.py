@@ -125,7 +125,7 @@ def test_infer_legacy_schema_revision_for_queue_concurrency_ready_schema() -> No
 def test_head_revision_advances_beyond_findings_search_indexes() -> None:
     from fraud_checker.migrations import ALEMBIC_HEAD_REVISION
 
-    assert ALEMBIC_HEAD_REVISION == "0011_add_acs_native_fraud"
+    assert ALEMBIC_HEAD_REVISION == "0012_add_fraud_alert_reviews"
 
 
 def test_head_revision_fits_alembic_version_column_limit() -> None:

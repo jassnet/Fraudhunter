@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..db import Base
-from ..models import CheckLog, ClickLog, ConversionLog, ConversionWithClickInfo, EntityDailyMetric, TrackLog
+from ..models import ClickLog, ConversionLog, ConversionWithClickInfo
 from ..time_utils import now_local
 from .base import RepositoryBase
 
@@ -27,22 +27,6 @@ class IngestionRepository(RepositoryBase):
             tables=[
                 Base.metadata.tables["conversion_raw"],
                 Base.metadata.tables["conversion_ipua_daily"],
-            ],
-        )
-
-    def ensure_fraud_schema(self) -> None:
-        ensure_master_schema = getattr(self, "ensure_master_schema", None)
-        if callable(ensure_master_schema):
-            ensure_master_schema()
-        Base.metadata.create_all(
-            self.engine,
-            tables=[
-                Base.metadata.tables["check_raw"],
-                Base.metadata.tables["track_raw"],
-                Base.metadata.tables["click_sum_daily"],
-                Base.metadata.tables["access_sum_daily"],
-                Base.metadata.tables["imp_sum_daily"],
-                Base.metadata.tables["fraud_findings"],
             ],
         )
 
@@ -404,8 +388,6 @@ class IngestionRepository(RepositoryBase):
         targets = {
             "click_raw": ("click_time < :cutoff", {"cutoff": cutoff}),
             "conversion_raw": ("conversion_time < :cutoff", {"cutoff": cutoff}),
-            "check_raw": ("regist_time < :cutoff", {"cutoff": cutoff}),
-            "track_raw": ("regist_time < :cutoff", {"cutoff": cutoff}),
         }
         return self._purge_targets(targets, execute=execute)
 
@@ -413,136 +395,8 @@ class IngestionRepository(RepositoryBase):
         targets = {
             "click_ipua_daily": ("date < :cutoff", {"cutoff": cutoff}),
             "conversion_ipua_daily": ("date < :cutoff", {"cutoff": cutoff}),
-            "click_sum_daily": ("date < :cutoff", {"cutoff": cutoff}),
-            "access_sum_daily": ("date < :cutoff", {"cutoff": cutoff}),
-            "imp_sum_daily": ("date < :cutoff", {"cutoff": cutoff}),
         }
         return self._purge_targets(targets, execute=execute)
-
-    def replace_check_logs(self, target_date: date, checks: Iterable[CheckLog]) -> int:
-        if not self._table_exists("check_raw"):
-            return 0
-        now = now_local()
-        rows = [
-            {
-                "id": check.check_id,
-                "affiliate_user_id": check.affiliate_user_id,
-                "plid": check.plid,
-                "state": check.state,
-                "regist_time": check.regist_time,
-                "raw_payload": json.dumps(check.raw_payload) if check.raw_payload is not None else None,
-                "created_at": now,
-                "updated_at": now,
-            }
-            for check in checks
-            if check.regist_time.date() == target_date
-        ]
-        with self._connect() as conn:
-            conn.execute(
-                sa.text("DELETE FROM check_raw WHERE CAST(regist_time AS date) = :target_date"),
-                {"target_date": target_date},
-            )
-            if rows:
-                stmt = pg_insert(Base.metadata.tables["check_raw"]).on_conflict_do_update(
-                    index_elements=["id"],
-                    set_={
-                        "affiliate_user_id": sa.text("excluded.affiliate_user_id"),
-                        "plid": sa.text("excluded.plid"),
-                        "state": sa.text("excluded.state"),
-                        "regist_time": sa.text("excluded.regist_time"),
-                        "raw_payload": sa.text("excluded.raw_payload"),
-                        "created_at": sa.text("excluded.created_at"),
-                        "updated_at": sa.text("excluded.updated_at"),
-                    },
-                )
-                conn.execute(stmt, rows)
-        return len(rows)
-
-    def replace_track_logs(self, target_date: date, tracks: Iterable[TrackLog]) -> int:
-        if not self._table_exists("track_raw"):
-            return 0
-        now = now_local()
-        rows = [
-            {
-                "id": track.track_id,
-                "action_log_raw_id": track.action_log_raw_id,
-                "auth_type": track.auth_type,
-                "auth_get_type": track.auth_get_type,
-                "state": track.state,
-                "regist_time": track.regist_time,
-                "raw_payload": json.dumps(track.raw_payload) if track.raw_payload is not None else None,
-                "created_at": now,
-                "updated_at": now,
-            }
-            for track in tracks
-            if track.regist_time.date() == target_date
-        ]
-        with self._connect() as conn:
-            conn.execute(
-                sa.text("DELETE FROM track_raw WHERE CAST(regist_time AS date) = :target_date"),
-                {"target_date": target_date},
-            )
-            if rows:
-                stmt = pg_insert(Base.metadata.tables["track_raw"]).on_conflict_do_update(
-                    index_elements=["id"],
-                    set_={
-                        "action_log_raw_id": sa.text("excluded.action_log_raw_id"),
-                        "auth_type": sa.text("excluded.auth_type"),
-                        "auth_get_type": sa.text("excluded.auth_get_type"),
-                        "state": sa.text("excluded.state"),
-                        "regist_time": sa.text("excluded.regist_time"),
-                        "raw_payload": sa.text("excluded.raw_payload"),
-                        "created_at": sa.text("excluded.created_at"),
-                        "updated_at": sa.text("excluded.updated_at"),
-                    },
-                )
-                conn.execute(stmt, rows)
-        return len(rows)
-
-    def replace_entity_daily_metrics(
-        self,
-        target_date: date,
-        metrics: Iterable[EntityDailyMetric],
-        *,
-        table_name: str,
-        value_column: str,
-    ) -> int:
-        if not self._table_exists(table_name):
-            return 0
-        table = Base.metadata.tables[table_name]
-        now = now_local()
-        rows = [
-            {
-                "date": metric.metric_date,
-                "user_id": metric.user_id or "",
-                "media_id": metric.media_id or "",
-                "promotion_id": metric.promotion_id or "",
-                value_column: metric.count,
-                "created_at": now,
-                "updated_at": now,
-            }
-            for metric in metrics
-            if metric.metric_date == target_date
-            and metric.user_id
-            and metric.media_id
-            and metric.promotion_id
-        ]
-        with self._connect() as conn:
-            conn.execute(
-                sa.text(f"DELETE FROM {table_name} WHERE date = :target_date"),
-                {"target_date": target_date},
-            )
-            if rows:
-                stmt = pg_insert(table).on_conflict_do_update(
-                    index_elements=["date", "user_id", "media_id", "promotion_id"],
-                    set_={
-                        value_column: sa.text(f"excluded.{value_column}"),
-                        "created_at": sa.text("excluded.created_at"),
-                        "updated_at": sa.text("excluded.updated_at"),
-                    },
-                )
-                conn.execute(stmt, rows)
-        return len(rows)
 
     def _purge_targets(
         self,

@@ -3,8 +3,6 @@ from __future__ import annotations
 import fraud_checker.db.models  # noqa: F401
 
 from .repositories import (
-    FraudFindingsReadRepository,
-    FraudFindingsWriteRepository,
     IngestionRepository,
     MasterRepository,
     ReportingReadRepository,
@@ -16,8 +14,6 @@ from .repositories import (
 class PostgresRepository(
     IngestionRepository,
     ReportingReadRepository,
-    FraudFindingsReadRepository,
-    FraudFindingsWriteRepository,
     SuspiciousReadRepository,
     MasterRepository,
     SettingsRepository,

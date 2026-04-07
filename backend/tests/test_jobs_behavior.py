@@ -711,6 +711,9 @@ def test_run_master_sync_enqueues_findings_recompute_for_available_dates(monkeyp
             return [{"user_id": "u1"}]
 
     class FakeRepo:
+        def ensure_master_schema(self):
+            return None
+
         def bulk_upsert_media(self, media_list):
             return len(media_list)
 

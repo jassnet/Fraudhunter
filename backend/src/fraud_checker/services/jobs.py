@@ -520,7 +520,6 @@ def run_click_ingestion(
     )
     with log_timed(logger, "click_ingestion", target_date=target_date):
         count = ingestor.run_for_date(target_date)
-        _ingest_fraud_support_for_date(repo, client, target_date, page_size=settings.page_size)
         finding_counts = findings_service.recompute_findings_for_dates(
             repo,
             [target_date],
@@ -551,7 +550,6 @@ def run_conversion_ingestion(
     )
     with log_timed(logger, "conversion_ingestion", target_date=target_date):
         total, enriched, click_enriched = ingestor.run_for_date(target_date)
-        _ingest_fraud_support_for_date(repo, client, target_date, page_size=settings.page_size)
         finding_counts = findings_service.recompute_findings_for_dates(
             repo,
             [target_date],
@@ -630,9 +628,6 @@ def run_refresh(
                 dates_to_recompute.add(current)
                 current += timedelta(days=1)
 
-        for target_date in sorted(dates_to_recompute):
-            _ingest_fraud_support_for_date(repo, client, target_date, page_size=settings.page_size)
-
         if dates_to_recompute:
             generation_id = f"refresh-{job_run_id or uuid.uuid4().hex[:12]}"
             recompute_jobs = enqueue_findings_recompute_jobs(
@@ -647,55 +642,10 @@ def run_refresh(
                 "generation_id": generation_id,
                 "job_ids": [job.id for job in recompute_jobs],
                 "target_dates": [target_date.isoformat() for target_date in sorted(dates_to_recompute)],
-                "detect_requested": detect,
+        "detect_requested": detect,
             }
 
     return result, f"Refresh completed for last {hours} hours"
-
-
-def _ingest_fraud_support_for_date(repo, client, target_date: date, *, page_size: int) -> dict[str, int]:
-    repo.ensure_fraud_schema()
-    checks = _fetch_paged(lambda page: client.fetch_check_logs(target_date, page, page_size), page_size)
-    tracks = _fetch_paged(lambda page: client.fetch_track_logs(target_date, page, page_size), page_size)
-    click_metrics = _fetch_paged(lambda page: client.fetch_click_metrics(target_date, page, page_size), page_size)
-    access_metrics = _fetch_paged(lambda page: client.fetch_access_metrics(target_date, page, page_size), page_size)
-    imp_metrics = _fetch_paged(lambda page: client.fetch_imp_metrics(target_date, page, page_size), page_size)
-    return {
-        "checks": repo.replace_check_logs(target_date, checks),
-        "tracks": repo.replace_track_logs(target_date, tracks),
-        "click_metrics": repo.replace_entity_daily_metrics(
-            target_date,
-            click_metrics,
-            table_name="click_sum_daily",
-            value_column="click_count",
-        ),
-        "access_metrics": repo.replace_entity_daily_metrics(
-            target_date,
-            access_metrics,
-            table_name="access_sum_daily",
-            value_column="access_count",
-        ),
-        "imp_metrics": repo.replace_entity_daily_metrics(
-            target_date,
-            imp_metrics,
-            table_name="imp_sum_daily",
-            value_column="imp_count",
-        ),
-    }
-
-
-def _fetch_paged(fetch_page, page_size: int):
-    rows = []
-    page = 1
-    while True:
-        batch = list(fetch_page(page))
-        if not batch:
-            break
-        rows.extend(batch)
-        if len(batch) < page_size:
-            break
-        page += 1
-    return rows
 
 
 def run_master_sync(
