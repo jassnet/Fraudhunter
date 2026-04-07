@@ -263,11 +263,15 @@ def _fetch_alert_rows(
             f.date,
             f.ipaddress,
             f.useragent,
+            f.program_ids_json,
+            f.program_names_json,
+            f.affiliate_names_json,
             f.risk_level,
             f.risk_score,
             f.reasons_json,
             f.reasons_formatted_json,
             f.metrics_json,
+            f.total_conversions,
             f.first_time,
             f.last_time,
             f.computed_at,
@@ -318,10 +322,11 @@ def _fetch_alert_detail_row(repo, finding_key: str) -> dict[str, Any] | None:
 
 
 def _fetch_alert_transaction_summary(repo, rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    if not rows or not repo._table_exists("conversion_raw"):
+    findings = rows
+    if not findings or not repo._table_exists("conversion_raw"):
         return {}
 
-    keys = [(row["finding_key"], row["date"], row["ipaddress"], row["useragent"]) for row in rows]
+    keys = [(row["finding_key"], row["date"], row["ipaddress"], row["useragent"]) for row in findings]
     placeholders = ", ".join(
         f"(:finding_key{idx}, :target_date{idx}, :ipaddress{idx}, :useragent{idx})"
         for idx in range(len(keys))
@@ -333,7 +338,7 @@ def _fetch_alert_transaction_summary(repo, rows: list[dict[str, Any]]) -> dict[s
         params[f"ipaddress{idx}"] = ipaddress
         params[f"useragent{idx}"] = useragent
 
-    rows = repo.fetch_all(
+    matched_records = repo.fetch_all(
         f"""
         WITH target_entities AS (
             SELECT *
@@ -369,10 +374,143 @@ def _fetch_alert_transaction_summary(repo, rows: list[dict[str, Any]]) -> dict[s
     )
 
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
+    for row in matched_records:
         grouped[str(row["finding_key"])].append(dict(row))
 
-    return {finding_key: _summarize_transactions(items) for finding_key, items in grouped.items()}
+    summaries = {finding_key: _summarize_transactions(items) for finding_key, items in grouped.items()}
+    price_index = _fetch_program_unit_prices(repo, findings)
+
+    for finding in findings:
+        finding_key = str(finding["finding_key"])
+        matched_rows = grouped.get(finding_key, [])
+        summary = summaries.get(finding_key)
+        summaries[finding_key] = _merge_summary_with_fallback(
+            finding,
+            matched_rows=matched_rows,
+            summary=summary,
+            price_index=price_index,
+        )
+
+    return summaries
+
+
+def _fetch_program_unit_prices(repo, findings: list[dict[str, Any]]) -> dict[tuple[date, str], int]:
+    requested_dates = sorted({row["date"] for row in findings if isinstance(row.get("date"), date)})
+    requested_program_ids = sorted(
+        {
+            str(program_id)
+            for row in findings
+            for program_id in (row.get("program_ids_json") or [])
+            if program_id
+        }
+    )
+    if not requested_dates or not requested_program_ids:
+        return {}
+
+    date_placeholders = ", ".join(f":target_date_{idx}" for idx in range(len(requested_dates)))
+    program_placeholders = ", ".join(f":program_id_{idx}" for idx in range(len(requested_program_ids)))
+    params: dict[str, object] = {
+        **{f"target_date_{idx}": value for idx, value in enumerate(requested_dates)},
+        **{f"program_id_{idx}": value for idx, value in enumerate(requested_program_ids)},
+    }
+    rows = repo.fetch_all(
+        f"""
+        SELECT
+            CAST(conversion_time AS date) AS target_date,
+            program_id,
+            raw_payload
+        FROM conversion_raw
+        WHERE CAST(conversion_time AS date) IN ({date_placeholders})
+          AND program_id IN ({program_placeholders})
+        """,
+        params,
+    )
+
+    grouped_prices: dict[tuple[date, str], list[int]] = defaultdict(list)
+    for row in rows:
+        target_date = row.get("target_date")
+        program_id = row.get("program_id")
+        if not isinstance(target_date, date) or not program_id:
+            continue
+        grouped_prices[(target_date, str(program_id))].append(_reward_from_payload(row.get("raw_payload")))
+
+    index: dict[tuple[date, str], int] = {}
+    for key, prices in grouped_prices.items():
+        representative = _representative_unit_price(prices)
+        if representative is not None:
+            index[key] = representative
+    return index
+
+
+def _merge_summary_with_fallback(
+    finding: dict[str, Any],
+    *,
+    matched_rows: list[dict[str, Any]],
+    summary: dict[str, Any] | None,
+    price_index: dict[tuple[date, str], int],
+) -> dict[str, Any]:
+    total_conversions = int(finding.get("total_conversions") or 0)
+    matched_count = len(matched_rows)
+    resolved_count = max(total_conversions, matched_count)
+
+    if summary is None:
+        summary = {
+            "transaction_count": 0,
+            "reward_amount": 0,
+            "latest_occurred_at": _iso(finding.get("last_time")) or _iso(finding.get("computed_at")),
+            "affiliate_id": DEFAULT_AFFILIATE_ID,
+            "affiliate_name": _first_non_empty(finding.get("affiliate_names_json")) or DEFAULT_AFFILIATE_NAME,
+            "outcome_type": _first_non_empty(finding.get("program_names_json")) or DEFAULT_OUTCOME_TYPE,
+        }
+
+    summary["transaction_count"] = resolved_count
+
+    missing_count = max(total_conversions - matched_count, 0)
+    if missing_count <= 0:
+        return summary
+
+    direct_unit_price = _representative_unit_price(
+        [_reward_from_payload(row.get("raw_payload")) for row in matched_rows]
+    )
+    fallback_unit_price = direct_unit_price
+    if fallback_unit_price is None:
+        fallback_unit_price = _resolve_finding_unit_price(finding, price_index)
+    if fallback_unit_price is None:
+        fallback_unit_price = DEFAULT_REWARD_YEN
+
+    summary["reward_amount"] += fallback_unit_price * missing_count
+    return summary
+
+
+def _resolve_finding_unit_price(
+    finding: dict[str, Any],
+    price_index: dict[tuple[date, str], int],
+) -> int | None:
+    target_date = finding.get("date")
+    if not isinstance(target_date, date):
+        return None
+    prices = [
+        price_index[(target_date, str(program_id))]
+        for program_id in (finding.get("program_ids_json") or [])
+        if program_id and (target_date, str(program_id)) in price_index
+    ]
+    return _representative_unit_price(prices)
+
+
+def _representative_unit_price(prices: list[int]) -> int | None:
+    positive_prices = [price for price in prices if price > 0]
+    if not positive_prices:
+        return None
+    return Counter(positive_prices).most_common(1)[0][0]
+
+
+def _first_non_empty(values: Any) -> str | None:
+    if not isinstance(values, list):
+        return None
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 def _fetch_affiliate_conversion_totals(repo, target_date: date) -> dict[str, int]:
@@ -616,7 +754,14 @@ def _coerce_int(value: Any) -> int | None:
 
 def _deserialize_alert_row(row: dict[str, Any]) -> dict[str, Any]:
     parsed = dict(row)
-    for key in ("reasons_json", "reasons_formatted_json", "metrics_json"):
+    for key in (
+        "reasons_json",
+        "reasons_formatted_json",
+        "metrics_json",
+        "program_ids_json",
+        "program_names_json",
+        "affiliate_names_json",
+    ):
         parsed[key] = _parse_json(parsed.get(key))
     if isinstance(parsed.get("date"), str):
         parsed["date"] = parse_iso_date(parsed["date"])

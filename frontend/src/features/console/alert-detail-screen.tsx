@@ -76,8 +76,8 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
             <section className="detail-header-grid" aria-label="アラート概要">
               <div className="detail-stat detail-stat-wide">
                 <div className="detail-key">アフィリエイトID / 名称</div>
-                <div className="detail-value">{data.affiliate_id}</div>
-                <div className="detail-subvalue">{data.affiliate_name}</div>
+                <div className="detail-value">{data.affiliate_name}</div>
+                <div className="detail-subvalue">{data.affiliate_id}</div>
               </div>
               <div className="detail-stat">
                 <div className="detail-key">リスクスコア</div>
@@ -86,7 +86,7 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
                 </div>
               </div>
               <div className="detail-stat">
-                <div className="detail-key">報酬額</div>
+                <div className="detail-key">被害推定額</div>
                 <div className="detail-value">{formatCurrency(data.reward_amount)}</div>
               </div>
               <div className="detail-stat">

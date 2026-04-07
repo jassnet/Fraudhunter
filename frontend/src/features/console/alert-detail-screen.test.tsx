@@ -57,6 +57,7 @@ describe("AlertDetailScreen", () => {
     render(<AlertDetailScreen findingKey="fk-001" />);
 
     expect(await screen.findByRole("heading", { name: "アラート詳細" })).toBeInTheDocument();
+    expect(screen.getByText("beta-traffic")).toBeInTheDocument();
     expect(screen.getByText("AFF-145")).toBeInTheDocument();
     expect(screen.getByText("96")).toBeInTheDocument();
     expect(screen.getByText("未対応")).toBeInTheDocument();

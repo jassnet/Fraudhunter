@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi.testclient import TestClient
 
@@ -262,3 +262,98 @@ def test_console_dashboard_creates_review_table_when_missing(tmp_path, monkeypat
     assert repo._table_exists("fraud_alert_reviews") is True
     assert payload["kpis"]["unhandled_alerts"]["value"] == 1
     assert payload["ranking"][0]["affiliate_id"] == "aff-001"
+
+
+def test_alert_transaction_summary_falls_back_to_program_unit_price_times_total_conversions():
+    from fraud_checker.services import console as console_service
+
+    class DummyRepo:
+        def _table_exists(self, name):
+            assert name == "conversion_raw"
+            return True
+
+        def fetch_all(self, query, params=None):
+            if "WITH target_entities" in query:
+                return []
+            if "CAST(conversion_time AS date) AS target_date" in query:
+                return [
+                    {
+                        "target_date": date(2026, 4, 5),
+                        "program_id": "program-1",
+                        "raw_payload": {"reward_amount": 12000},
+                    }
+                ]
+            raise AssertionError(f"Unexpected query: {query}")
+
+    summary = console_service._fetch_alert_transaction_summary(
+        DummyRepo(),
+        [
+            {
+                "finding_key": "finding-001",
+                "date": date(2026, 4, 5),
+                "ipaddress": "203.0.113.10",
+                "useragent": "Mozilla/5.0",
+                "program_ids_json": ["program-1"],
+                "program_names_json": ["Program Alpha"],
+                "affiliate_names_json": ["Affiliate Alpha"],
+                "total_conversions": 3,
+                "last_time": datetime(2026, 4, 5, 10, 0, 0),
+                "computed_at": datetime(2026, 4, 5, 10, 5, 0),
+            }
+        ],
+    )
+
+    assert summary["finding-001"]["transaction_count"] == 3
+    assert summary["finding-001"]["reward_amount"] == 36000
+    assert summary["finding-001"]["affiliate_name"] == "Affiliate Alpha"
+    assert summary["finding-001"]["outcome_type"] == "Program Alpha"
+
+
+def test_alert_transaction_summary_backfills_missing_matches_with_direct_unit_price():
+    from fraud_checker.services import console as console_service
+
+    class DummyRepo:
+        def _table_exists(self, name):
+            assert name == "conversion_raw"
+            return True
+
+        def fetch_all(self, query, params=None):
+            if "WITH target_entities" in query:
+                return [
+                    {
+                        "finding_key": "finding-001",
+                        "transaction_id": "conv-1",
+                        "conversion_time": datetime(2026, 4, 5, 10, 0, 0),
+                        "state": "approved",
+                        "raw_payload": {"reward_amount": 8000},
+                        "user_id": "aff-1",
+                        "affiliate_name": "Affiliate Alpha",
+                        "program_id": "program-1",
+                        "promotion_name": "Program Alpha",
+                    }
+                ]
+            if "CAST(conversion_time AS date) AS target_date" in query:
+                return []
+            raise AssertionError(f"Unexpected query: {query}")
+
+    summary = console_service._fetch_alert_transaction_summary(
+        DummyRepo(),
+        [
+            {
+                "finding_key": "finding-001",
+                "date": date(2026, 4, 5),
+                "ipaddress": "203.0.113.10",
+                "useragent": "Mozilla/5.0",
+                "program_ids_json": ["program-1"],
+                "program_names_json": ["Program Alpha"],
+                "affiliate_names_json": ["Affiliate Alpha"],
+                "total_conversions": 3,
+                "last_time": datetime(2026, 4, 5, 10, 0, 0),
+                "computed_at": datetime(2026, 4, 5, 10, 5, 0),
+            }
+        ],
+    )
+
+    assert summary["finding-001"]["transaction_count"] == 3
+    assert summary["finding-001"]["reward_amount"] == 24000
+    assert summary["finding-001"]["affiliate_id"] == "aff-1"
