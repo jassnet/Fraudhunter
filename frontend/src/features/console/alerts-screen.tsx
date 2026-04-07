@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 
 import {
   ActionButton,
@@ -27,6 +28,8 @@ type AlertFilters = {
   startDate: string;
   endDate: string;
   sort: string;
+  page: number;
+  pageSize: number;
 };
 
 const DEFAULT_FILTERS: AlertFilters = {
@@ -34,6 +37,8 @@ const DEFAULT_FILTERS: AlertFilters = {
   startDate: "",
   endDate: "",
   sort: "risk_desc",
+  page: 1,
+  pageSize: 50,
 };
 
 type AlertGroup = {
@@ -51,6 +56,100 @@ type AlertGroup = {
   outcomeSummary: string;
   patternSummary: string;
 };
+
+type AlertsScreenProps = {
+  searchParams?: Record<string, string | string[] | undefined>;
+};
+
+type SelectionCheckboxProps = {
+  checked: boolean;
+  indeterminate: boolean;
+  ariaLabel: string;
+  onChange: () => void;
+};
+
+function SelectionCheckbox({ checked, indeterminate, ariaLabel, onChange }: SelectionCheckboxProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+
+  return (
+    <input
+      ref={inputRef}
+      aria-label={ariaLabel}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+    />
+  );
+}
+
+function firstSearchParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
+
+function buildInitialFilters(searchParams?: Record<string, string | string[] | undefined>): AlertFilters {
+  if (!searchParams) {
+    return DEFAULT_FILTERS;
+  }
+
+  const status = firstSearchParam(searchParams.status);
+  const startDate = firstSearchParam(searchParams.start_date);
+  const endDate = firstSearchParam(searchParams.end_date);
+  const sort = firstSearchParam(searchParams.sort);
+  const page = Number(firstSearchParam(searchParams.page) || DEFAULT_FILTERS.page);
+  const pageSize = Number(firstSearchParam(searchParams.page_size) || DEFAULT_FILTERS.pageSize);
+
+  return {
+    status: (status || DEFAULT_FILTERS.status) as AlertFilterStatus,
+    startDate,
+    endDate,
+    sort: sort || DEFAULT_FILTERS.sort,
+    page: Number.isFinite(page) && page > 0 ? page : DEFAULT_FILTERS.page,
+    pageSize: Number.isFinite(pageSize) && pageSize > 0 ? pageSize : DEFAULT_FILTERS.pageSize,
+  };
+}
+
+function parseSearchParamsKey(key: string): Record<string, string | string[] | undefined> {
+  if (!key) {
+    return {};
+  }
+  try {
+    return JSON.parse(key) as Record<string, string | string[] | undefined>;
+  } catch {
+    return {};
+  }
+}
+
+function areFiltersEqual(left: AlertFilters, right: AlertFilters) {
+  return (
+    left.status === right.status &&
+    left.startDate === right.startDate &&
+    left.endDate === right.endDate &&
+    left.sort === right.sort &&
+    left.page === right.page &&
+    left.pageSize === right.pageSize
+  );
+}
+
+function toFilterQuery(filters: AlertFilters) {
+  const query = new URLSearchParams();
+  query.set("status", filters.status);
+  query.set("sort", filters.sort);
+  query.set("page", String(filters.page));
+  query.set("page_size", String(filters.pageSize));
+  if (filters.startDate) {
+    query.set("start_date", filters.startDate);
+  }
+  if (filters.endDate) {
+    query.set("end_date", filters.endDate);
+  }
+  return query.toString();
+}
 
 function summarizeOutcomes(items: AlertListItem[]) {
   const uniqueOutcomeTypes = Array.from(new Set(items.map((item) => item.outcome_type)));
@@ -113,8 +212,16 @@ function buildAlertGroups(items: AlertListItem[]) {
   return groups;
 }
 
-export function AlertsScreen() {
-  const [filters, setFilters] = useState<AlertFilters>(DEFAULT_FILTERS);
+export function AlertsScreen({ searchParams }: AlertsScreenProps) {
+  const searchParamsKey = JSON.stringify(searchParams ?? {});
+  const router = useRouter();
+  const pathname = usePathname();
+  const tableId = useId();
+  const routeFilters = useMemo(
+    () => buildInitialFilters(parseSearchParamsKey(searchParamsKey)),
+    [searchParamsKey],
+  );
+  const [filters, setFilters] = useState<AlertFilters>(() => buildInitialFilters(searchParams));
   const [data, setData] = useState<AlertsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +229,16 @@ export function AlertsScreen() {
   const [submittingStatus, setSubmittingStatus] = useState<ReviewStatus | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  const filtersRef = useRef(filters);
+  const dataRef = useRef(data);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   async function loadAlerts(nextFilters: AlertFilters) {
     setLoading(true);
@@ -132,6 +249,8 @@ export function AlertsScreen() {
         startDate: nextFilters.startDate,
         endDate: nextFilters.endDate,
         sort: nextFilters.sort,
+        page: nextFilters.page,
+        pageSize: nextFilters.pageSize,
       });
       setData(response);
       setFilters({
@@ -139,6 +258,8 @@ export function AlertsScreen() {
         startDate: response.applied_filters.start_date ?? "",
         endDate: response.applied_filters.end_date ?? "",
         sort: response.applied_filters.sort,
+        page: response.page,
+        pageSize: response.page_size,
       });
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "アラート一覧の取得に失敗しました。";
@@ -149,8 +270,15 @@ export function AlertsScreen() {
   }
 
   useEffect(() => {
-    void loadAlerts(DEFAULT_FILTERS);
-  }, []);
+    if (areFiltersEqual(routeFilters, filtersRef.current)) {
+      if (dataRef.current === null) {
+        void loadAlerts(routeFilters);
+      }
+      return;
+    }
+    setFilters(routeFilters);
+    void loadAlerts(routeFilters);
+  }, [routeFilters]);
 
   function setFilter<K extends keyof AlertFilters>(key: K, value: AlertFilters[K]) {
     setFilters((current) => ({
@@ -215,6 +343,31 @@ export function AlertsScreen() {
 
   const items = data?.items ?? [];
   const groups = buildAlertGroups(items);
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / filters.pageSize));
+
+  async function handleSearch() {
+    await loadAlerts({
+      ...filters,
+      page: 1,
+    });
+  }
+
+  async function handlePageChange(nextPage: number) {
+    await loadAlerts({
+      ...filters,
+      page: nextPage,
+    });
+  }
+
+  useEffect(() => {
+    const nextQuery = toFilterQuery(filters);
+    const currentQuery = toFilterQuery(routeFilters);
+    if (nextQuery === currentQuery) {
+      return;
+    }
+    router.replace(`${pathname}?${nextQuery}`, { scroll: false });
+  }, [filters, pathname, routeFilters, router]);
 
   return (
     <div className="screen-page">
@@ -257,7 +410,7 @@ export function AlertsScreen() {
           />
         </div>
 
-        <ActionButton onClick={() => void loadAlerts(filters)} disabled={loading}>
+        <ActionButton onClick={() => void handleSearch()} disabled={loading}>
           絞り込む
         </ActionButton>
       </div>
@@ -309,10 +462,10 @@ export function AlertsScreen() {
             <thead>
               <tr>
                 <th>
-                  <input
-                    aria-label="すべて選択"
-                    type="checkbox"
+                  <SelectionCheckbox
+                    ariaLabel="すべて選択"
                     checked={items.length > 0 && selectedKeys.length === items.length}
+                    indeterminate={selectedKeys.length > 0 && selectedKeys.length < items.length}
                     onChange={() => toggleSelectAll(items)}
                   />
                 </th>
@@ -324,22 +477,23 @@ export function AlertsScreen() {
                 <th>検知日時</th>
               </tr>
             </thead>
-            <tbody>
-              {groups.map((group) => {
+            {groups.map((group, index) => {
+              const detailsId = `${tableId}-group-${index}`;
                 const groupKeys = group.items.map((item) => item.finding_key);
-                const allSelected = groupKeys.every((key) => selectedKeys.includes(key));
+                const selectedCount = groupKeys.filter((key) => selectedKeys.includes(key)).length;
+                const allSelected = groupKeys.length > 0 && selectedCount === groupKeys.length;
                 const isGrouped = group.items.length > 1;
                 const isExpanded = expandedGroups.includes(group.groupKey);
 
                 return (
-                  <Fragment key={group.groupKey}>
+                  <tbody key={group.groupKey} id={isGrouped ? detailsId : undefined}>
                     <tr className={isGrouped ? "alert-group-summary" : undefined}>
                       <td>
                         <div className="alert-row-controls">
-                          <input
-                            aria-label={`${group.affiliateName} を選択`}
-                            type="checkbox"
+                          <SelectionCheckbox
+                            ariaLabel={`${group.affiliateName} を選択`}
                             checked={allSelected}
+                            indeterminate={!allSelected && selectedCount > 0}
                             onChange={() => (isGrouped ? toggleGroupSelection(group) : toggleSelection(groupKeys[0]))}
                           />
                           {isGrouped ? (
@@ -347,6 +501,7 @@ export function AlertsScreen() {
                               className="table-toggle"
                               type="button"
                               aria-expanded={isExpanded}
+                              aria-controls={detailsId}
                               onClick={() => toggleGroup(group.groupKey)}
                             >
                               {isExpanded ? "折りたたむ" : `${group.items.length}件を展開`}
@@ -408,13 +563,31 @@ export function AlertsScreen() {
                           </tr>
                         ))
                       : null}
-                  </Fragment>
+                  </tbody>
                 );
               })}
-            </tbody>
           </table>
         )}
       </div>
+      {data ? (
+        <div className="control-bar" aria-label="pagination">
+          <div className="table-secondary">
+            {total}件中 {(filters.page - 1) * filters.pageSize + (items.length > 0 ? 1 : 0)}-
+            {(filters.page - 1) * filters.pageSize + items.length}件を表示
+          </div>
+          <div className="selection-bar-actions">
+            <ActionButton disabled={loading || filters.page <= 1} onClick={() => void handlePageChange(filters.page - 1)}>
+              前へ
+            </ActionButton>
+            <span className="table-secondary">
+              {filters.page} / {totalPages}
+            </span>
+            <ActionButton disabled={loading || !data.has_next} onClick={() => void handlePageChange(filters.page + 1)}>
+              次へ
+            </ActionButton>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

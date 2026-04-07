@@ -119,6 +119,8 @@ def _start_processes() -> Dict[str, subprocess.Popen]:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(BACKEND_DIR / "src") + os.pathsep + env.get("PYTHONPATH", "")
     env.setdefault("NEXT_PUBLIC_API_URL", f"http://localhost:{BACKEND_PORT}")
+    env.setdefault("FC_ENV", "dev")
+    env.setdefault("FC_READ_API_KEY", "dev-read-secret")
 
     npm_exe = "npm.cmd" if os.name == "nt" and (FRONTEND_DIR / "package.json").exists() else "npm"
     backend_cmd = _build_backend_cmd()

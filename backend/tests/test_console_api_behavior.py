@@ -57,12 +57,29 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
         start_date: str | None,
         end_date: str | None,
         sort: str,
+        page: int,
+        page_size: int,
     ):
         captured["status"] = status
         captured["start_date"] = start_date
         captured["end_date"] = end_date
         captured["sort"] = sort
+        captured["page"] = page
+        captured["page_size"] = page_size
         return {
+            "available_dates": ["2026-04-05"],
+            "applied_filters": {
+                "status": status or "all",
+                "start_date": start_date,
+                "end_date": end_date,
+                "sort": sort,
+            },
+            "status_counts": {
+                "unhandled": 1,
+                "investigating": 0,
+                "confirmed_fraud": 0,
+                "white": 0,
+            },
             "items": [
                 {
                     "finding_key": "finding-001",
@@ -76,6 +93,9 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
                 }
             ],
             "total": 1,
+            "page": page,
+            "page_size": page_size,
+            "has_next": False,
         }
 
     monkeypatch.setattr(console_router, "get_repository", lambda: object())
@@ -90,6 +110,8 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
         "start_date": None,
         "end_date": None,
         "sort": "risk_desc",
+        "page": 1,
+        "page_size": 50,
     }
     assert response.json()["items"][0]["risk_score"] == 97
 
@@ -135,6 +157,49 @@ def test_console_alert_detail_endpoint_returns_reasons_transactions_and_actions(
     assert payload["transactions"][0]["transaction_id"] == "txn-001"
 
 
+def test_console_alerts_endpoint_forwards_pagination_params(monkeypatch):
+    from fraud_checker.api_routers import console as console_router
+
+    captured: dict[str, object] = {}
+
+    def fake_list_alerts(repo, **kwargs):
+        captured.update(kwargs)
+        return {
+            "available_dates": [],
+            "applied_filters": {
+                "status": kwargs["status"] or "all",
+                "start_date": kwargs["start_date"],
+                "end_date": kwargs["end_date"],
+                "sort": kwargs["sort"],
+            },
+            "status_counts": {
+                "unhandled": 0,
+                "investigating": 0,
+                "confirmed_fraud": 0,
+                "white": 0,
+            },
+            "items": [],
+            "total": 0,
+            "page": kwargs["page"],
+            "page_size": kwargs["page_size"],
+            "has_next": False,
+        }
+
+    monkeypatch.setattr(console_router, "get_repository", lambda: object())
+    monkeypatch.setattr(console_router.console_service, "list_alerts", fake_list_alerts)
+    client = TestClient(api.app)
+
+    response = client.get(
+        "/api/console/alerts",
+        params={"status": "all", "start_date": "2026-04-01", "end_date": "2026-04-05", "page": 3, "page_size": 25},
+    )
+
+    assert response.status_code == 200
+    assert captured["status"] == "all"
+    assert captured["page"] == 3
+    assert captured["page_size"] == 25
+
+
 def test_console_review_endpoint_requires_admin_and_returns_mutation_result(monkeypatch):
     from fraud_checker.api_routers import console as console_router
 
@@ -165,7 +230,7 @@ def test_console_review_endpoint_requires_admin_and_returns_mutation_result(monk
     assert authorized.json() == {"updated_count": 2, "status": "confirmed_fraud"}
 
 
-def test_console_dashboard_creates_review_table_when_missing(tmp_path, monkeypatch):
+def test_console_dashboard_uses_migrated_review_table(tmp_path, monkeypatch):
     import fraud_checker.db.models  # noqa: F401
 
     from fraud_checker.db import Base
@@ -176,7 +241,8 @@ def test_console_dashboard_creates_review_table_when_missing(tmp_path, monkeypat
     repo = PostgresRepository(f"sqlite:///{database_path}")
 
     suspicious_findings = Base.metadata.tables["suspicious_conversion_findings"]
-    Base.metadata.create_all(repo.engine, tables=[suspicious_findings])
+    review_table = Base.metadata.tables["fraud_alert_reviews"]
+    Base.metadata.create_all(repo.engine, tables=[suspicious_findings, review_table])
 
     with repo.engine.begin() as conn:
         conn.execute(
@@ -191,6 +257,7 @@ def test_console_dashboard_creates_review_table_when_missing(tmp_path, monkeypat
                 "program_ids_json": '["promo-001"]',
                 "media_names_json": '["Media Alpha"]',
                 "program_names_json": '["Program Alpha"]',
+                "affiliate_ids_json": '["aff-001"]',
                 "affiliate_names_json": '["Affiliate Alpha"]',
                 "risk_level": "high",
                 "risk_score": 97,
@@ -210,6 +277,9 @@ def test_console_dashboard_creates_review_table_when_missing(tmp_path, monkeypat
                 "settings_updated_at_snapshot": None,
                 "source_click_watermark": None,
                 "source_conversion_watermark": None,
+                "estimated_damage_yen": 3000,
+                "damage_unit_price_source": "program_observed",
+                "damage_evidence_json": "[]",
                 "generation_id": None,
                 "is_current": True,
                 "search_text": "affiliate alpha",
@@ -239,29 +309,49 @@ def test_console_dashboard_creates_review_table_when_missing(tmp_path, monkeypat
     )
     monkeypatch.setattr(
         console_service,
-        "_fetch_alert_transaction_summary",
-        lambda repo, rows: {
-            "finding-001": {
-                "transaction_count": 1,
-                "reward_amount": 3000,
-                "latest_occurred_at": "2026-04-05T10:00:00",
-                "affiliate_id": "aff-001",
-                "affiliate_name": "Affiliate Alpha",
-                "outcome_type": "Program Alpha",
-            }
-        },
-    )
-    monkeypatch.setattr(
-        console_service,
         "_fetch_affiliate_conversion_totals",
         lambda repo, target_date: {"aff-001": 10},
     )
 
     payload = console_service.get_dashboard(repo, target_date="2026-04-05")
 
-    assert repo._table_exists("fraud_alert_reviews") is True
     assert payload["kpis"]["unhandled_alerts"]["value"] == 1
     assert payload["ranking"][0]["affiliate_id"] == "aff-001"
+    assert payload["kpis"]["estimated_damage"]["value"] == 3000
+
+
+def test_build_alert_item_prefers_snapshot_damage_and_affiliate_fields():
+    from fraud_checker.services import console as console_service
+
+    item = console_service._build_alert_item(
+        {
+            "finding_key": "finding-001",
+            "computed_at": datetime(2026, 4, 5, 10, 0, 0),
+            "last_time": datetime(2026, 4, 5, 10, 0, 0),
+            "program_names_json": ["Program Alpha"],
+            "affiliate_ids_json": ["aff-001"],
+            "affiliate_names_json": ["Affiliate Alpha"],
+            "reasons_json": ["Same IP generated repeated conversions"],
+            "risk_score": 97,
+            "risk_level": "high",
+            "review_status": "unhandled",
+            "estimated_damage_yen": 42000,
+            "total_conversions": 7,
+        },
+        {
+            "transaction_count": 3,
+            "reward_amount": 12000,
+            "affiliate_id": "fallback-aff",
+            "affiliate_name": "Fallback Affiliate",
+            "outcome_type": "Fallback Program",
+        },
+    )
+
+    assert item["affiliate_id"] == "aff-001"
+    assert item["affiliate_name"] == "Affiliate Alpha"
+    assert item["outcome_type"] == "Program Alpha"
+    assert item["reward_amount"] == 42000
+    assert item["transaction_count"] == 7
 
 
 def test_alert_transaction_summary_falls_back_to_program_unit_price_times_total_conversions():

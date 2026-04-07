@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -72,27 +72,53 @@ export function AppFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement | null>(null);
+  const mobileCloseButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("sidebar-collapsed");
-      if (stored === "true") setCollapsed(true);
-    } catch {
-      // localStorage利用不可の場合は無視
+    if (!mobileOpen) {
+      document.body.style.removeProperty("overflow");
+      return undefined;
     }
-  }, []);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem("sidebar-collapsed", String(collapsed));
-    } catch {
-      // localStorage利用不可の場合は無視
-    }
-  }, [collapsed]);
+    document.body.style.setProperty("overflow", "hidden");
+    mobileCloseButtonRef.current?.focus();
 
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileOpen(false);
+        return;
+      }
+      if (event.key !== "Tab" || !sidebarRef.current) {
+        return;
+      }
+
+      const focusable = sidebarRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.removeProperty("overflow");
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mobileOpen]);
 
   return (
     <div className={`app-shell${collapsed ? " sidebar-collapsed" : ""}`}>
@@ -119,12 +145,24 @@ export function AppFrame({ children }: { children: ReactNode }) {
 
       {/* サイドバー */}
       <aside
+        ref={sidebarRef}
         className={`sidebar${collapsed ? " sidebar--collapsed" : ""}${mobileOpen ? " sidebar--open" : ""}`}
         aria-label="主要ナビゲーション"
+        aria-modal={mobileOpen ? "true" : undefined}
+        role={mobileOpen ? "dialog" : undefined}
       >
         <div className="sidebar__brand">
           <div className="sidebar__brand-icon">FC</div>
           <span className="sidebar__brand-text">Fraud Checker</span>
+          <button
+            ref={mobileCloseButtonRef}
+            className="sidebar__mobile-close"
+            type="button"
+            onClick={() => setMobileOpen(false)}
+            aria-label="メニューを閉じる"
+          >
+            <ChevronLeftIcon />
+          </button>
         </div>
 
         <nav className="sidebar__nav">
@@ -134,6 +172,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
               className={`sidebar__link${resolveActive(pathname, href) ? " sidebar__link--active" : ""}`}
               href={href}
               title={collapsed ? label : undefined}
+              onClick={() => setMobileOpen(false)}
             >
               <Icon />
               <span className="sidebar__link-label">{label}</span>

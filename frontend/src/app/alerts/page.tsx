@@ -1,5 +1,11 @@
 import { AlertsScreen } from "@/features/console/alerts-screen";
 
-export default function AlertsPage() {
-  return <AlertsScreen />;
+type AlertsPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function AlertsPage({ searchParams }: AlertsPageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+
+  return <AlertsScreen searchParams={resolvedSearchParams} />;
 }

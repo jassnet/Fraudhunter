@@ -31,6 +31,8 @@ def get_alerts(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     sort: str = Query("risk_desc"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
 ):
     try:
         return console_service.list_alerts(
@@ -39,6 +41,8 @@ def get_alerts(
             start_date=start_date,
             end_date=end_date,
             sort=sort,
+            page=page,
+            page_size=page_size,
         )
     except HTTPException:
         raise

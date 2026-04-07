@@ -1,16 +1,31 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
+import { vi } from "vitest";
 
 import { server } from "@/test/msw/server";
 
 import { AlertsScreen } from "./alerts-screen";
 
+const replaceMock = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/alerts",
+  useRouter: () => ({
+    replace: replaceMock,
+  }),
+}));
+
 describe("AlertsScreen", () => {
+  beforeEach(() => {
+    replaceMock.mockReset();
+  });
+
   it("defaults to unhandled alerts, shows bulk triage actions, and refreshes after review", async () => {
     let fetchCount = 0;
     let requestedStatus: string | null = null;
     let requestedSort: string | null = null;
+    let requestedPage: string | null = null;
     let reviewRequestBody: unknown = null;
 
     server.use(
@@ -19,6 +34,7 @@ describe("AlertsScreen", () => {
         const url = new URL(request.url);
         requestedStatus = url.searchParams.get("status");
         requestedSort = url.searchParams.get("sort");
+        requestedPage = url.searchParams.get("page");
 
         if (fetchCount > 1) {
           return HttpResponse.json({
@@ -37,6 +53,9 @@ describe("AlertsScreen", () => {
             },
             items: [],
             total: 0,
+            page: 1,
+            page_size: 50,
+            has_next: false,
           });
         }
 
@@ -83,6 +102,9 @@ describe("AlertsScreen", () => {
             },
           ],
           total: 2,
+          page: 1,
+          page_size: 50,
+          has_next: false,
         });
       }),
       http.post("/api/console/alerts/review", async ({ request }) => {
@@ -98,7 +120,12 @@ describe("AlertsScreen", () => {
     await waitFor(() => {
       expect(requestedStatus).toBe("unhandled");
       expect(requestedSort).toBe("risk_desc");
+      expect(requestedPage).toBe("1");
     });
+    expect(replaceMock).toHaveBeenCalledWith(
+      "/alerts?status=unhandled&sort=risk_desc&page=1&page_size=50&start_date=2026-04-05&end_date=2026-04-05",
+      { scroll: false },
+    );
 
     expect(screen.getByLabelText("ステータス")).toHaveValue("unhandled");
     expect(screen.getByLabelText("開始日")).toHaveValue("2026-04-05");
@@ -185,6 +212,9 @@ describe("AlertsScreen", () => {
             },
           ],
           total: 3,
+          page: 1,
+          page_size: 50,
+          has_next: false,
         }),
       ),
     );
@@ -201,5 +231,102 @@ describe("AlertsScreen", () => {
 
     expect(await screen.findByText("CV間隔が平均2.3秒")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /alpha-media/i })).toHaveLength(2);
+  });
+
+  it("requests the next page when pagination is used", async () => {
+    const requestedPages: string[] = [];
+
+    server.use(
+      http.get("/api/console/alerts", ({ request }) => {
+        const url = new URL(request.url);
+        const page = url.searchParams.get("page") ?? "1";
+        requestedPages.push(page);
+
+        if (page === "2") {
+          return HttpResponse.json({
+            available_dates: ["2026-04-05"],
+            applied_filters: {
+              status: "unhandled",
+              start_date: "2026-04-05",
+              end_date: "2026-04-05",
+              sort: "risk_desc",
+            },
+            status_counts: {
+              unhandled: 51,
+              investigating: 0,
+              confirmed_fraud: 0,
+              white: 0,
+            },
+            items: [
+              {
+                finding_key: "fk-051",
+                detected_at: "2026-04-05T10:45:00+09:00",
+                affiliate_id: "AFF-500",
+                affiliate_name: "page-two-affiliate",
+                outcome_type: "Program Z",
+                risk_score: 72,
+                risk_level: "medium",
+                pattern: "page-two-pattern",
+                status: "unhandled",
+                reward_amount: 8000,
+                transaction_count: 1,
+              },
+            ],
+            total: 51,
+            page: 2,
+            page_size: 50,
+            has_next: false,
+          });
+        }
+
+        return HttpResponse.json({
+          available_dates: ["2026-04-05"],
+          applied_filters: {
+            status: "unhandled",
+            start_date: "2026-04-05",
+            end_date: "2026-04-05",
+            sort: "risk_desc",
+          },
+          status_counts: {
+            unhandled: 51,
+            investigating: 0,
+            confirmed_fraud: 0,
+            white: 0,
+          },
+          items: [
+            {
+              finding_key: "fk-001",
+              detected_at: "2026-04-05T09:28:00+09:00",
+              affiliate_id: "AFF-200",
+              affiliate_name: "page-one-affiliate",
+              outcome_type: "Program A",
+              risk_score: 98,
+              risk_level: "critical",
+              pattern: "page-one-pattern",
+              status: "unhandled",
+              reward_amount: 52000,
+              transaction_count: 11,
+            },
+          ],
+          total: 51,
+          page: 1,
+          page_size: 50,
+          has_next: true,
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<AlertsScreen />);
+
+    expect(await screen.findByText("page-one-affiliate")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "次へ" }));
+
+    expect(await screen.findByText("page-two-affiliate")).toBeInTheDocument();
+    expect(requestedPages).toEqual(["1", "2"]);
+    expect(replaceMock).toHaveBeenLastCalledWith(
+      "/alerts?status=unhandled&sort=risk_desc&page=2&page_size=50&start_date=2026-04-05&end_date=2026-04-05",
+      { scroll: false },
+    );
   });
 });

@@ -15,6 +15,7 @@ from ..time_utils import now_local
 from . import settings as settings_service
 
 logger = logging.getLogger(__name__)
+DEFAULT_REWARD_YEN = 3000
 
 
 def _hash_text(value: str) -> str:
@@ -44,6 +45,73 @@ def _unique(values: list[str]) -> list[str]:
         seen.add(value)
         result.append(value)
     return result
+
+
+def _estimate_damage_snapshot(
+    *,
+    total_conversions: int,
+    details: list[dict],
+    program_unit_prices: dict[str, int],
+) -> tuple[int, str, list[dict[str, object]]]:
+    evidence_rows: list[dict[str, object]] = []
+    estimated_damage = 0
+    detail_total = 0
+
+    for detail in details:
+        conversion_count = int(detail.get("conversion_count") or 0)
+        if conversion_count <= 0:
+            continue
+        detail_total += conversion_count
+        program_id = str(detail.get("program_id") or "")
+        if program_id and program_id in program_unit_prices:
+            unit_price = program_unit_prices[program_id]
+            source = "program_observed"
+        else:
+            unit_price = DEFAULT_REWARD_YEN
+            source = "fallback_default"
+        estimated_damage += conversion_count * unit_price
+        evidence_rows.append(
+            {
+                "program_id": program_id or None,
+                "program_name": detail.get("program_name") or None,
+                "conversion_count": conversion_count,
+                "unit_price_yen": unit_price,
+                "unit_price_source": source,
+            }
+        )
+
+    missing_count = max(total_conversions - detail_total, 0)
+    if missing_count > 0:
+        estimated_damage += missing_count * DEFAULT_REWARD_YEN
+        evidence_rows.append(
+            {
+                "program_id": None,
+                "program_name": "unknown",
+                "conversion_count": missing_count,
+                "unit_price_yen": DEFAULT_REWARD_YEN,
+                "unit_price_source": "fallback_default",
+            }
+        )
+
+    sources = {str(row["unit_price_source"]) for row in evidence_rows}
+    if not sources:
+        evidence_rows.append(
+            {
+                "program_id": None,
+                "program_name": "unknown",
+                "conversion_count": total_conversions,
+                "unit_price_yen": DEFAULT_REWARD_YEN,
+                "unit_price_source": "fallback_default",
+            }
+        )
+        estimated_damage = total_conversions * DEFAULT_REWARD_YEN
+        unit_price_source = "fallback_default"
+    elif len(sources) == 1:
+        unit_price_source = next(iter(sources))
+    else:
+        unit_price_source = "mixed"
+
+    return estimated_damage, unit_price_source, evidence_rows
 
 
 def recompute_findings_for_dates(
@@ -78,6 +146,15 @@ def recompute_findings_for_dates(
                 target_date,
                 [(finding.ipaddress, finding.useragent) for finding in conversion_findings],
             )
+            program_unit_prices = repo.get_program_unit_prices(
+                target_date,
+                [
+                    str(detail["program_id"])
+                    for details in conversion_details.values()
+                    for detail in details
+                    if detail.get("program_id")
+                ],
+            )
             conversion_rows = []
             for finding in conversion_findings:
                 details = conversion_details.get((finding.ipaddress, finding.useragent), [])
@@ -85,7 +162,13 @@ def recompute_findings_for_dates(
                 program_ids = _unique([detail["program_id"] for detail in details])
                 media_names = _unique([detail["media_name"] for detail in details])
                 program_names = _unique([detail["program_name"] for detail in details])
+                affiliate_ids = _unique([detail.get("affiliate_id") for detail in details if detail.get("affiliate_id")])
                 affiliate_names = _unique([detail.get("affiliate_name") for detail in details if detail.get("affiliate_name")])
+                estimated_damage_yen, damage_unit_price_source, damage_evidence = _estimate_damage_snapshot(
+                    total_conversions=finding.conversion_count,
+                    details=details,
+                    program_unit_prices=program_unit_prices,
+                )
                 reasons_formatted = format_reasons(finding.reasons)
                 risk = calculate_risk_level(finding.reasons, finding.conversion_count, is_conversion=True)
                 metrics = {
@@ -114,6 +197,7 @@ def recompute_findings_for_dates(
                         "program_ids_json": json.dumps(program_ids, ensure_ascii=False),
                         "media_names_json": json.dumps(media_names, ensure_ascii=False),
                         "program_names_json": json.dumps(program_names, ensure_ascii=False),
+                        "affiliate_ids_json": json.dumps(affiliate_ids, ensure_ascii=False),
                         "affiliate_names_json": json.dumps(affiliate_names, ensure_ascii=False),
                         "risk_level": risk["level"],
                         "risk_score": risk["score"],
@@ -133,6 +217,9 @@ def recompute_findings_for_dates(
                         "settings_updated_at_snapshot": settings_updated_at_snapshot,
                         "source_click_watermark": source_click_watermark,
                         "source_conversion_watermark": source_conversion_watermark,
+                        "estimated_damage_yen": estimated_damage_yen,
+                        "damage_unit_price_source": damage_unit_price_source,
+                        "damage_evidence_json": json.dumps(damage_evidence, ensure_ascii=False),
                         "generation_id": generation_id,
                         "is_current": True,
                         "search_text": _search_text(

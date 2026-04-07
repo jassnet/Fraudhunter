@@ -60,6 +60,9 @@ export type AlertsResponse = {
   status_counts: Record<ReviewStatus, number>;
   items: AlertListItem[];
   total: number;
+  page: number;
+  page_size: number;
+  has_next: boolean;
 };
 
 export type AlertTransaction = {

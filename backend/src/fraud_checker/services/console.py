@@ -9,8 +9,6 @@ import sqlalchemy as sa
 
 from ..api_parsers import parse_iso_date
 from ..api_presenters import format_reasons
-from ..db import Base
-from ..db import models as _db_models  # noqa: F401
 from ..time_utils import now_local
 from . import reporting
 
@@ -19,6 +17,9 @@ ALERT_REVIEW_STATUSES = {"unhandled", "investigating", "confirmed_fraud", "white
 DEFAULT_AFFILIATE_ID = "unassigned"
 DEFAULT_AFFILIATE_NAME = "Unassigned"
 DEFAULT_OUTCOME_TYPE = "Unknown Outcome"
+DEFAULT_ALERT_PAGE = 1
+DEFAULT_ALERT_PAGE_SIZE = 50
+MAX_ALERT_PAGE_SIZE = 200
 REWARD_KEYS = {
     "reward",
     "reward_amount",
@@ -33,7 +34,6 @@ REWARD_KEYS = {
 
 
 def get_dashboard(repo, target_date: str | None = None) -> dict[str, Any]:
-    _ensure_review_schema(repo)
     summary = reporting.get_summary(repo, target_date)
     resolved_date = summary["date"]
     available_dates = reporting.get_available_dates(repo)
@@ -44,14 +44,20 @@ def get_dashboard(repo, target_date: str | None = None) -> dict[str, Any]:
         status=None,
         sort="risk_desc",
     )
-    transaction_summary = _fetch_alert_transaction_summary(repo, alert_rows)
+    transaction_summary = _fetch_alert_transaction_summary(
+        repo,
+        [row for row in alert_rows if _requires_summary_fallback(row)],
+    )
     affiliate_totals = _fetch_affiliate_conversion_totals(repo, parse_iso_date(resolved_date))
 
-    impacted_conversions = sum(item["transaction_count"] for item in transaction_summary.values())
+    impacted_conversions = sum(int(row.get("total_conversions") or 0) for row in alert_rows)
     total_conversions = int(summary.get("stats", {}).get("conversions", {}).get("total", 0) or 0)
     fraud_rate = round((impacted_conversions / total_conversions) * 100, 1) if total_conversions else 0.0
     unhandled_alerts = sum(1 for row in alert_rows if row["review_status"] == "unhandled")
-    estimated_damage = sum(item["reward_amount"] for item in transaction_summary.values())
+    estimated_damage = sum(
+        _resolve_alert_summary(row, transaction_summary.get(str(row["finding_key"])))["reward_amount"]
+        for row in alert_rows
+    )
 
     trend_source = reporting.get_daily_stats(repo, 14, resolved_date)
     trend = [
@@ -62,7 +68,7 @@ def get_dashboard(repo, target_date: str | None = None) -> dict[str, Any]:
         for item in trend_source
     ]
 
-    ranking = _build_affiliate_ranking(transaction_summary, affiliate_totals)[:10]
+    ranking = _build_affiliate_ranking(alert_rows, transaction_summary, affiliate_totals)[:10]
 
     return {
         "date": resolved_date,
@@ -84,21 +90,40 @@ def list_alerts(
     start_date: str | None = None,
     end_date: str | None = None,
     sort: str = "risk_desc",
+    page: int = DEFAULT_ALERT_PAGE,
+    page_size: int = DEFAULT_ALERT_PAGE_SIZE,
 ) -> dict[str, Any]:
-    _ensure_review_schema(repo)
     resolved_start, resolved_end = _resolve_alert_window(repo, start_date, end_date)
-    all_rows = _fetch_alert_rows(
+    resolved_page = max(DEFAULT_ALERT_PAGE, int(page or DEFAULT_ALERT_PAGE))
+    resolved_page_size = min(MAX_ALERT_PAGE_SIZE, max(1, int(page_size or DEFAULT_ALERT_PAGE_SIZE)))
+    offset = (resolved_page - 1) * resolved_page_size
+
+    filtered_rows = _fetch_alert_rows(
         repo,
         start_date=resolved_start,
         end_date=resolved_end,
-        status=None,
+        status=status,
         sort=sort,
+        limit=resolved_page_size,
+        offset=offset,
     )
-    filtered_rows = [row for row in all_rows if status in (None, "", "all") or row["review_status"] == status]
-    transaction_summary = _fetch_alert_transaction_summary(repo, filtered_rows)
+    transaction_summary = _fetch_alert_transaction_summary(
+        repo,
+        [row for row in filtered_rows if _requires_summary_fallback(row)],
+    )
 
-    items = [_build_alert_item(row, transaction_summary.get(row["finding_key"])) for row in filtered_rows]
-    status_counts = Counter(row["review_status"] for row in all_rows)
+    items = [_build_alert_item(row, transaction_summary.get(str(row["finding_key"]))) for row in filtered_rows]
+    status_counts = _fetch_alert_status_counts(
+        repo,
+        start_date=resolved_start,
+        end_date=resolved_end,
+    )
+    total = _count_alert_rows(
+        repo,
+        start_date=resolved_start,
+        end_date=resolved_end,
+        status=status,
+    )
 
     return {
         "available_dates": reporting.get_available_dates(repo),
@@ -115,15 +140,21 @@ def list_alerts(
             "white": status_counts.get("white", 0),
         },
         "items": items,
-        "total": len(items),
+        "total": total,
+        "page": resolved_page,
+        "page_size": resolved_page_size,
+        "has_next": offset + len(items) < total,
     }
 
 
 def get_alert_detail(repo, finding_key: str) -> dict[str, Any] | None:
-    _ensure_review_schema(repo)
     row = _fetch_alert_detail_row(repo, finding_key)
     if row is None:
         return None
+
+    fallback_summary = None
+    if _requires_summary_fallback(row):
+        fallback_summary = _fetch_alert_transaction_summary(repo, [row]).get(str(row["finding_key"]))
 
     entity_transactions = _fetch_entity_transactions(
         repo,
@@ -131,7 +162,7 @@ def get_alert_detail(repo, finding_key: str) -> dict[str, Any] | None:
         row["ipaddress"],
         row["useragent"],
     )
-    summary = _summarize_transactions(entity_transactions)
+    summary = _resolve_alert_summary(row, fallback_summary)
     affiliate_id = summary["affiliate_id"]
     recent_transactions = (
         _fetch_recent_affiliate_transactions(repo, affiliate_id)
@@ -166,7 +197,6 @@ def apply_review_action(repo, finding_keys: list[str], status: str) -> dict[str,
     if not unique_keys:
         return {"updated_count": 0, "status": status}
 
-    _ensure_review_schema(repo)
     now = now_local()
     statement = sa.text(
         """
@@ -180,15 +210,17 @@ def apply_review_action(repo, finding_keys: list[str], status: str) -> dict[str,
     )
 
     with repo.engine.begin() as conn:
-        for finding_key in unique_keys:
-            conn.execute(
-                statement,
+        conn.execute(
+            statement,
+            [
                 {
                     "finding_key": finding_key,
                     "review_status": status,
                     "updated_at": now,
-                },
-            )
+                }
+                for finding_key in unique_keys
+            ],
+        )
 
     return {"updated_count": len(unique_keys), "status": status}
 
@@ -205,17 +237,16 @@ def _resolve_alert_window(
     if end_date:
         return end_date, end_date
 
-    if not repo._table_exists("suspicious_conversion_findings"):
-        fallback = reporting.resolve_summary_date(repo, None)
-        return fallback, fallback
-
-    latest_finding_date = repo.fetch_one(
-        """
-        SELECT MAX(date) AS latest_date
-        FROM suspicious_conversion_findings
-        WHERE is_current = TRUE
-        """
-    )
+    try:
+        latest_finding_date = repo.fetch_one(
+            """
+            SELECT MAX(date) AS latest_date
+            FROM suspicious_conversion_findings
+            WHERE is_current = TRUE
+            """
+        )
+    except sa.exc.SQLAlchemyError:
+        latest_finding_date = None
     value = latest_finding_date.get("latest_date") if latest_finding_date else None
     if value is None:
         fallback = reporting.resolve_summary_date(repo, None)
@@ -231,10 +262,9 @@ def _fetch_alert_rows(
     end_date: str | None,
     status: str | None,
     sort: str,
+    limit: int | None = None,
+    offset: int | None = None,
 ) -> list[dict[str, Any]]:
-    if not repo._table_exists("suspicious_conversion_findings"):
-        return []
-
     params: dict[str, object] = {}
     conditions = ["f.is_current = TRUE"]
     review_status_sql = "COALESCE(r.review_status, 'unhandled')"
@@ -255,70 +285,170 @@ def _fetch_alert_rows(
         "detected_desc": "f.computed_at DESC, f.risk_score DESC",
         "detected_asc": "f.computed_at ASC, f.risk_score DESC",
     }.get(sort, "f.risk_score DESC, f.computed_at DESC")
+    pagination_sql = ""
+    if limit is not None:
+        params["limit"] = limit
+        pagination_sql += " LIMIT :limit"
+    if offset is not None:
+        params["offset"] = max(0, offset)
+        pagination_sql += " OFFSET :offset"
 
-    rows = repo.fetch_all(
-        f"""
-        SELECT
-            f.finding_key,
-            f.date,
-            f.ipaddress,
-            f.useragent,
-            f.program_ids_json,
-            f.program_names_json,
-            f.affiliate_names_json,
-            f.risk_level,
-            f.risk_score,
-            f.reasons_json,
-            f.reasons_formatted_json,
-            f.metrics_json,
-            f.total_conversions,
-            f.first_time,
-            f.last_time,
-            f.computed_at,
-            {review_status_sql} AS review_status
-        FROM suspicious_conversion_findings f
-        LEFT JOIN fraud_alert_reviews r
-          ON r.finding_key = f.finding_key
-        WHERE {" AND ".join(conditions)}
-        ORDER BY {order_by}, f.finding_key ASC
-        """,
-        params,
-    )
+    try:
+        rows = repo.fetch_all(
+            f"""
+            SELECT
+                f.finding_key,
+                f.date,
+                f.ipaddress,
+                f.useragent,
+                f.program_ids_json,
+                f.program_names_json,
+                f.affiliate_ids_json,
+                f.affiliate_names_json,
+                f.risk_level,
+                f.risk_score,
+                f.reasons_json,
+                f.reasons_formatted_json,
+                f.metrics_json,
+                f.total_conversions,
+                f.first_time,
+                f.last_time,
+                f.computed_at,
+                f.estimated_damage_yen,
+                f.damage_unit_price_source,
+                f.damage_evidence_json,
+                {review_status_sql} AS review_status
+            FROM suspicious_conversion_findings f
+            LEFT JOIN fraud_alert_reviews r
+              ON r.finding_key = f.finding_key
+            WHERE {" AND ".join(conditions)}
+            ORDER BY {order_by}, f.finding_key ASC
+            {pagination_sql}
+            """,
+            params,
+        )
+    except sa.exc.SQLAlchemyError:
+        return []
     return [_deserialize_alert_row(row) for row in rows]
 
 
 def _fetch_alert_detail_row(repo, finding_key: str) -> dict[str, Any] | None:
-    if not repo._table_exists("suspicious_conversion_findings"):
+    try:
+        rows = repo.fetch_all(
+            """
+            SELECT
+                f.finding_key,
+                f.date,
+                f.ipaddress,
+                f.useragent,
+                f.program_names_json,
+                f.affiliate_ids_json,
+                f.affiliate_names_json,
+                f.risk_level,
+                f.risk_score,
+                f.reasons_json,
+                f.reasons_formatted_json,
+                f.metrics_json,
+                f.first_time,
+                f.last_time,
+                f.computed_at,
+                f.total_conversions,
+                f.estimated_damage_yen,
+                f.damage_unit_price_source,
+                f.damage_evidence_json,
+                COALESCE(r.review_status, 'unhandled') AS review_status
+            FROM suspicious_conversion_findings f
+            LEFT JOIN fraud_alert_reviews r
+              ON r.finding_key = f.finding_key
+            WHERE f.finding_key = :finding_key
+              AND f.is_current = TRUE
+            LIMIT 1
+            """,
+            {"finding_key": finding_key},
+        )
+    except sa.exc.SQLAlchemyError:
         return None
-
-    rows = repo.fetch_all(
-        """
-        SELECT
-            f.finding_key,
-            f.date,
-            f.ipaddress,
-            f.useragent,
-            f.risk_level,
-            f.risk_score,
-            f.reasons_json,
-            f.reasons_formatted_json,
-            f.metrics_json,
-            f.first_time,
-            f.last_time,
-            f.computed_at,
-            COALESCE(r.review_status, 'unhandled') AS review_status
-        FROM suspicious_conversion_findings f
-        LEFT JOIN fraud_alert_reviews r
-          ON r.finding_key = f.finding_key
-        WHERE f.finding_key = :finding_key
-          AND f.is_current = TRUE
-        LIMIT 1
-        """,
-        {"finding_key": finding_key},
-    )
     if not rows:
         return None
     return _deserialize_alert_row(rows[0])
+
+
+def _fetch_alert_status_counts(
+    repo,
+    *,
+    start_date: str | None,
+    end_date: str | None,
+) -> dict[str, int]:
+    params: dict[str, object] = {}
+    conditions = ["f.is_current = TRUE"]
+
+    if start_date:
+        params["start_date"] = parse_iso_date(start_date)
+        conditions.append("f.date >= :start_date")
+    if end_date:
+        params["end_date"] = parse_iso_date(end_date)
+        conditions.append("f.date <= :end_date")
+
+    try:
+        rows = repo.fetch_all(
+            f"""
+            SELECT
+                COALESCE(r.review_status, 'unhandled') AS review_status,
+                COUNT(*) AS row_count
+            FROM suspicious_conversion_findings f
+            LEFT JOIN fraud_alert_reviews r
+              ON r.finding_key = f.finding_key
+            WHERE {" AND ".join(conditions)}
+            GROUP BY COALESCE(r.review_status, 'unhandled')
+            """,
+            params,
+        )
+    except sa.exc.SQLAlchemyError:
+        return {}
+
+    return {
+        str(row["review_status"]): int(row.get("row_count") or 0)
+        for row in rows
+        if row.get("review_status")
+    }
+
+
+def _count_alert_rows(
+    repo,
+    *,
+    start_date: str | None,
+    end_date: str | None,
+    status: str | None,
+) -> int:
+    params: dict[str, object] = {}
+    conditions = ["f.is_current = TRUE"]
+    review_status_sql = "COALESCE(r.review_status, 'unhandled')"
+
+    if start_date:
+        params["start_date"] = parse_iso_date(start_date)
+        conditions.append("f.date >= :start_date")
+    if end_date:
+        params["end_date"] = parse_iso_date(end_date)
+        conditions.append("f.date <= :end_date")
+    if status and status != "all":
+        params["review_status"] = status
+        conditions.append(f"{review_status_sql} = :review_status")
+
+    try:
+        row = repo.fetch_one(
+            f"""
+            SELECT COUNT(*) AS row_count
+            FROM suspicious_conversion_findings f
+            LEFT JOIN fraud_alert_reviews r
+              ON r.finding_key = f.finding_key
+            WHERE {" AND ".join(conditions)}
+            """,
+            params,
+        )
+    except sa.exc.SQLAlchemyError:
+        return 0
+
+    return int((row or {}).get("row_count") or 0)
 
 
 def _fetch_alert_transaction_summary(repo, rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -600,11 +730,13 @@ def _fetch_recent_affiliate_transactions(repo, user_id: str) -> list[dict[str, A
 
 
 def _build_affiliate_ranking(
+    rows: list[dict[str, Any]],
     transaction_summary: dict[str, dict[str, Any]],
     affiliate_totals: dict[str, int],
 ) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
-    for summary in transaction_summary.values():
+    for row in rows:
+        summary = _resolve_alert_summary(row, transaction_summary.get(str(row["finding_key"])))
         affiliate_id = summary["affiliate_id"]
         if not affiliate_id or affiliate_id == DEFAULT_AFFILIATE_ID:
             continue
@@ -644,14 +776,7 @@ def _build_affiliate_ranking(
 
 
 def _build_alert_item(row: dict[str, Any], transaction_summary: dict[str, Any] | None) -> dict[str, Any]:
-    summary = transaction_summary or {
-        "transaction_count": 0,
-        "reward_amount": 0,
-        "latest_occurred_at": None,
-        "affiliate_id": DEFAULT_AFFILIATE_ID,
-        "affiliate_name": DEFAULT_AFFILIATE_NAME,
-        "outcome_type": DEFAULT_OUTCOME_TYPE,
-    }
+    summary = _resolve_alert_summary(row, transaction_summary)
     raw_reasons = row.get("reasons_json") or []
     reasons = format_reasons(raw_reasons) if raw_reasons else []
     return {
@@ -666,6 +791,39 @@ def _build_alert_item(row: dict[str, Any], transaction_summary: dict[str, Any] |
         "status": row["review_status"],
         "reward_amount": summary["reward_amount"],
         "transaction_count": summary["transaction_count"],
+    }
+
+
+def _requires_summary_fallback(row: dict[str, Any]) -> bool:
+    affiliate_ids = row.get("affiliate_ids_json") or []
+    estimated_damage = row.get("estimated_damage_yen")
+    return not affiliate_ids or estimated_damage is None
+
+
+def _resolve_alert_summary(
+    row: dict[str, Any],
+    fallback_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    affiliate_id = _first_non_empty(row.get("affiliate_ids_json")) or (
+        fallback_summary["affiliate_id"] if fallback_summary else DEFAULT_AFFILIATE_ID
+    )
+    affiliate_name = _first_non_empty(row.get("affiliate_names_json")) or (
+        fallback_summary["affiliate_name"] if fallback_summary else DEFAULT_AFFILIATE_NAME
+    )
+    outcome_type = _first_non_empty(row.get("program_names_json")) or (
+        fallback_summary["outcome_type"] if fallback_summary else DEFAULT_OUTCOME_TYPE
+    )
+    reward_amount = row.get("estimated_damage_yen")
+    if reward_amount is None:
+        reward_amount = fallback_summary["reward_amount"] if fallback_summary else 0
+
+    return {
+        "transaction_count": int(row.get("total_conversions") or (fallback_summary["transaction_count"] if fallback_summary else 0)),
+        "reward_amount": int(reward_amount or 0),
+        "latest_occurred_at": _iso(row.get("last_time")) or _iso(row.get("computed_at")),
+        "affiliate_id": affiliate_id,
+        "affiliate_name": affiliate_name,
+        "outcome_type": outcome_type,
     }
 
 
@@ -760,7 +918,9 @@ def _deserialize_alert_row(row: dict[str, Any]) -> dict[str, Any]:
         "metrics_json",
         "program_ids_json",
         "program_names_json",
+        "affiliate_ids_json",
         "affiliate_names_json",
+        "damage_evidence_json",
     ):
         parsed[key] = _parse_json(parsed.get(key))
     if isinstance(parsed.get("date"), str):
@@ -785,10 +945,3 @@ def _iso(value: Any) -> str | None:
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)
-
-
-def _ensure_review_schema(repo) -> None:
-    Base.metadata.create_all(
-        repo.engine,
-        tables=[Base.metadata.tables["fraud_alert_reviews"]],
-    )

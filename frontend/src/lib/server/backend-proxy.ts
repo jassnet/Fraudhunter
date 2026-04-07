@@ -18,15 +18,10 @@ function applyAuthHeaders(headers: Headers, auth: ProxyAuth) {
   }
 
   const readToken = process.env.FC_READ_API_KEY;
-  if (readToken) {
-    headers.set("X-Read-API-Key", readToken);
-    return;
+  if (!readToken) {
+    throw new Error("FC_READ_API_KEY is not configured.");
   }
-
-  const adminToken = process.env.FC_ADMIN_API_KEY;
-  if (adminToken) {
-    headers.set("X-API-Key", adminToken);
-  }
+  headers.set("X-Read-API-Key", readToken);
 }
 
 type ProxyRequest = {

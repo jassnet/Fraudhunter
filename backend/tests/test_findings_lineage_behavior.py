@@ -66,10 +66,17 @@ def test_recompute_findings_persists_lineage_metadata_for_conversion_rows(monkey
                         "program_id": "p1",
                         "media_name": "Media 1",
                         "program_name": "Program 1",
+                        "affiliate_id": "aff-1",
                         "affiliate_name": "Affiliate 1",
+                        "conversion_count": 6,
                     }
                 ]
             }
+
+        def get_program_unit_prices(self, requested_date, program_ids):
+            assert requested_date == target_date
+            assert program_ids == ["p1"]
+            return {"p1": 12000}
 
         def replace_conversion_findings(self, requested_date, rows, *, generation_metadata):
             captured["conversion"] = rows
@@ -92,6 +99,13 @@ def test_recompute_findings_persists_lineage_metadata_for_conversion_rows(monkey
     assert row["settings_updated_at_snapshot"] == settings_updated_at
     assert row["source_click_watermark"] == click_watermark
     assert row["source_conversion_watermark"] == conversion_watermark
+    assert row["affiliate_ids_json"] == '["aff-1"]'
+    assert row["estimated_damage_yen"] == 72000
+    assert row["damage_unit_price_source"] == "program_observed"
+    assert row["damage_evidence_json"] == (
+        '[{"program_id": "p1", "program_name": "Program 1", "conversion_count": 6, '
+        '"unit_price_yen": 12000, "unit_price_source": "program_observed"}]'
+    )
     assert captured_generations["conversion"]["settings_version_id"] == "settings-ver-1"
     assert captured_generations["conversion"]["generation_id"] == "gen-456"
     assert captured_generations["conversion"]["source_click_watermark"] == click_watermark

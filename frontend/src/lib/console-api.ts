@@ -13,6 +13,8 @@ type AlertQuery = {
   startDate?: string;
   endDate?: string;
   sort?: string;
+  page?: number;
+  pageSize?: number;
 };
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -71,6 +73,12 @@ export function getAlerts(query: AlertQuery) {
   }
   if (query.endDate) {
     searchParams.set("end_date", query.endDate);
+  }
+  if (query.page) {
+    searchParams.set("page", String(query.page));
+  }
+  if (query.pageSize) {
+    searchParams.set("page_size", String(query.pageSize));
   }
   return fetchJson<AlertsResponse>(`/api/console/alerts?${searchParams.toString()}`);
 }

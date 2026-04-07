@@ -109,6 +109,23 @@ select {
   transition: opacity 150ms ease;
 }
 
+.sidebar__mobile-close {
+  margin-left: auto;
+  display: none;
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--radius);
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar__mobile-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .sidebar--collapsed .sidebar__brand-text {
   opacity: 0;
   width: 0;
@@ -974,6 +991,10 @@ tbody tr:hover {
     left: calc(-1 * var(--sidebar-width));
     transition: left 250ms ease, width 200ms ease;
     width: var(--sidebar-width) !important;
+  }
+
+  .sidebar__mobile-close {
+    display: inline-flex;
   }
 
   .sidebar--open {

@@ -50,6 +50,7 @@ class SuspiciousFindingsReadRepository(RepositoryBase):
                             SUM(c.conversion_count) AS metric_value,
                             m.name AS media_name,
                             p.name AS program_name,
+                            m.user_id AS affiliate_id,
                             u.name AS affiliate_name
                         FROM conversion_ipua_daily c
                         LEFT JOIN master_media m ON c.media_id = m.id
@@ -57,7 +58,7 @@ class SuspiciousFindingsReadRepository(RepositoryBase):
                         LEFT JOIN master_user u ON m.user_id = u.id
                         WHERE c.date = :target_date
                           AND (c.ipaddress, c.useragent) IN ({placeholders})
-                        GROUP BY c.ipaddress, c.useragent, c.media_id, c.program_id, m.name, p.name, u.name
+                        GROUP BY c.ipaddress, c.useragent, c.media_id, c.program_id, m.name, p.name, m.user_id, u.name
                         ORDER BY metric_value DESC
                         """
                     ),
@@ -72,10 +73,47 @@ class SuspiciousFindingsReadRepository(RepositoryBase):
                             "conversion_count": row[4],
                             "media_name": row[5] or row[2],
                             "program_name": row[6] or row[3],
-                            "affiliate_name": row[7] or None,
+                            "affiliate_id": row[7] or None,
+                            "affiliate_name": row[8] or None,
                         }
                     )
         return results
+
+    def get_program_unit_prices(self, target_date: date, program_ids: list[str]) -> dict[str, int]:
+        if not program_ids or not self._table_exists("conversion_raw"):
+            return {}
+
+        unique_program_ids = [program_id for program_id in dict.fromkeys(program_ids) if program_id]
+        if not unique_program_ids:
+            return {}
+
+        placeholders = ", ".join(f":program_id_{idx}" for idx in range(len(unique_program_ids)))
+        params: dict[str, object] = {"target_date": target_date}
+        params.update({f"program_id_{idx}": value for idx, value in enumerate(unique_program_ids)})
+        rows = self.fetch_all(
+            f"""
+            SELECT
+                program_id,
+                raw_payload
+            FROM conversion_raw
+            WHERE CAST(conversion_time AS date) = :target_date
+              AND program_id IN ({placeholders})
+            """,
+            params,
+        )
+
+        grouped_prices: dict[str, list[int]] = {}
+        for row in rows:
+            program_id = row.get("program_id")
+            if not program_id:
+                continue
+            grouped_prices.setdefault(str(program_id), []).append(_reward_from_payload(row.get("raw_payload")))
+
+        return {
+            program_id: price
+            for program_id, values in grouped_prices.items()
+            if (price := _representative_unit_price(values)) is not None
+        }
 
     def list_conversion_findings(
         self,
@@ -263,11 +301,90 @@ class SuspiciousFindingsReadRepository(RepositoryBase):
             "program_ids_json",
             "media_names_json",
             "program_names_json",
+            "affiliate_ids_json",
             "affiliate_names_json",
             "reasons_json",
             "reasons_formatted_json",
             "metrics_json",
+            "damage_evidence_json",
         ):
             if key in parsed and parsed[key] is not None:
                 parsed[key] = json.loads(parsed[key])
         return parsed
+
+
+REWARD_KEYS = {
+    "reward",
+    "reward_amount",
+    "commission",
+    "commission_amount",
+    "payout",
+    "payout_amount",
+    "amount",
+    "price",
+    "cv_price",
+}
+DEFAULT_REWARD_YEN = 3000
+
+
+def _reward_from_payload(raw_payload) -> int:
+    parsed = _parse_json(raw_payload)
+    extracted = _extract_reward_value(parsed)
+    if extracted is None:
+        return DEFAULT_REWARD_YEN
+    return extracted
+
+
+def _extract_reward_value(value) -> int | None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if key.lower() in REWARD_KEYS:
+                parsed = _coerce_int(nested)
+                if parsed is not None:
+                    return parsed
+            nested_value = _extract_reward_value(nested)
+            if nested_value is not None:
+                return nested_value
+    if isinstance(value, list):
+        for item in value:
+            nested_value = _extract_reward_value(item)
+            if nested_value is not None:
+                return nested_value
+    return None
+
+
+def _coerce_int(value) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.replace(",", "").replace("¥", "").strip()
+        if not stripped:
+            return None
+        try:
+            return int(float(stripped))
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_json(value):
+    if value is None or isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
+def _representative_unit_price(prices: list[int]) -> int | None:
+    positive_prices = [price for price in prices if price > 0]
+    if not positive_prices:
+        return None
+    counts: dict[int, int] = {}
+    for price in positive_prices:
+        counts[price] = counts.get(price, 0) + 1
+    return max(counts.items(), key=lambda item: (item[1], item[0]))[0]

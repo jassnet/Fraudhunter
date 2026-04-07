@@ -148,7 +148,7 @@ def test_get_suspicious_conversion_detail_bulk_maps_rows(monkeypatch):
             if "FROM conversion_ipua_daily" in sql:
                 class _Result:
                     def fetchall(self_inner):
-                        return [("1.1.1.1", "UA", "m1", "p1", 3, None, None, None)]
+                        return [("1.1.1.1", "UA", "m1", "p1", 3, None, None, None, None)]
 
                 return _Result()
             raise AssertionError(f"unexpected SQL: {sql}")

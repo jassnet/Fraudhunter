@@ -125,7 +125,7 @@ def test_infer_legacy_schema_revision_for_queue_concurrency_ready_schema() -> No
 def test_head_revision_advances_beyond_findings_search_indexes() -> None:
     from fraud_checker.migrations import ALEMBIC_HEAD_REVISION
 
-    assert ALEMBIC_HEAD_REVISION == "0012_add_fraud_alert_reviews"
+    assert ALEMBIC_HEAD_REVISION == "0013_add_damage_snapshot"
 
 
 def test_head_revision_fits_alembic_version_column_limit() -> None:
@@ -171,3 +171,17 @@ def test_acs_native_fraud_migration_adds_master_promotion_guard_columns() -> Non
 
     assert "action_double_state" in migration
     assert "action_double_type_json" in migration
+
+
+def test_damage_snapshot_migration_adds_snapshot_columns_to_conversion_findings() -> None:
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "0013_add_damage_snapshot.py"
+    ).read_text(encoding="utf-8")
+
+    assert "affiliate_ids_json" in migration
+    assert "estimated_damage_yen" in migration
+    assert "damage_unit_price_source" in migration
+    assert "damage_evidence_json" in migration
