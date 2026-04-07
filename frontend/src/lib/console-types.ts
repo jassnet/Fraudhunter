@@ -24,6 +24,17 @@ export type DashboardResponse = {
   }>;
 };
 
+export type JobActionResponse = {
+  success: boolean;
+  message: string;
+  details?: {
+    job_id?: string;
+    hours?: number;
+    clicks?: boolean;
+    conversions?: boolean;
+  };
+};
+
 export type AlertListItem = {
   finding_key: string;
   detected_at: string;

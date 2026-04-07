@@ -3,6 +3,7 @@ import type {
   AlertFilterStatus,
   AlertsResponse,
   DashboardResponse,
+  JobActionResponse,
   ReviewResponse,
   ReviewStatus,
 } from "@/lib/console-types";
@@ -46,6 +47,18 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getDashboard() {
   return fetchJson<DashboardResponse>("/api/console/dashboard");
+}
+
+export function refreshLatestData() {
+  return fetchJson<JobActionResponse>("/api/console/refresh", {
+    method: "POST",
+    body: JSON.stringify({
+      hours: 1,
+      clicks: true,
+      conversions: true,
+      detect: true,
+    }),
+  });
 }
 
 export function getAlerts(query: AlertQuery) {

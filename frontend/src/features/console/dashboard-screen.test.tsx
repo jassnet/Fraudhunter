@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 
 import { server } from "@/test/msw/server";
@@ -63,5 +64,57 @@ describe("DashboardScreen", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("alpha-media")).toBeInTheDocument();
     expect(screen.getByText("36.7%")).toBeInTheDocument();
+  });
+
+  it("runs the latest-data refresh when the admin update button is pressed", async () => {
+    let dashboardFetchCount = 0;
+    let refreshRequestBody: unknown = null;
+
+    server.use(
+      http.get("/api/console/dashboard", () => {
+        dashboardFetchCount += 1;
+        return HttpResponse.json({
+          date: "2026-04-05",
+          available_dates: ["2026-04-05"],
+          kpis: {
+            fraud_rate: { value: 12.4, unit: "%" },
+            unhandled_alerts: { value: 19, unit: "件" },
+            estimated_damage: { value: 428000, unit: "円" },
+          },
+          trend: [{ date: "2026-04-05", alerts: 14 }],
+          ranking: [],
+        });
+      }),
+      http.post("/api/console/refresh", async ({ request }) => {
+        refreshRequestBody = await request.json();
+        return HttpResponse.json({
+          success: true,
+          message: "直近1時間の再取得ジョブを登録しました",
+          details: { job_id: "run-refresh-1", hours: 1, clicks: true, conversions: true },
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<DashboardScreen adminActionsEnabled />);
+
+    expect(await screen.findByText("全体フラウド率")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "更新" }));
+
+    await waitFor(() => {
+      expect(refreshRequestBody).toEqual({
+        hours: 1,
+        clicks: true,
+        conversions: true,
+        detect: true,
+      });
+    });
+    await waitFor(() => {
+      expect(dashboardFetchCount).toBe(2);
+    });
+    expect(
+      await screen.findByText("最新データの取り込みを開始しました。反映まで少し時間がかかる場合があります。"),
+    ).toBeInTheDocument();
   });
 });

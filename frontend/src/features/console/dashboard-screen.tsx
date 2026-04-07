@@ -12,7 +12,7 @@ import {
   PageHeader,
   Panel,
 } from "@/components/console-ui";
-import { getDashboard } from "@/lib/console-api";
+import { getDashboard, refreshLatestData } from "@/lib/console-api";
 import type { DashboardResponse } from "@/lib/console-types";
 import { formatCurrency, formatDateLabel, formatPercent } from "@/lib/format";
 
@@ -45,10 +45,17 @@ const KPI_DEFINITIONS = [
   },
 ] as const;
 
-export function DashboardScreen() {
+type DashboardScreenProps = {
+  adminActionsEnabled?: boolean;
+};
+
+export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreenProps) {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   async function loadDashboard() {
     setLoading(true);
@@ -64,6 +71,22 @@ export function DashboardScreen() {
     }
   }
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    setFeedback(null);
+    setActionError(null);
+    try {
+      await refreshLatestData();
+      setFeedback("最新データの取り込みを開始しました。反映まで少し時間がかかる場合があります。");
+      await loadDashboard();
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "最新データの更新に失敗しました。";
+      setActionError(message);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   useEffect(() => {
     void loadDashboard();
   }, []);
@@ -76,12 +99,25 @@ export function DashboardScreen() {
         title="ダッシュボード"
         description={dateLabel}
         actions={
-          <ActionButton onClick={() => void loadDashboard()} disabled={loading}>
-            再読み込み
-          </ActionButton>
+          <>
+            {adminActionsEnabled ? (
+              <ActionButton
+                tone="warning"
+                onClick={() => void handleRefresh()}
+                disabled={loading || refreshing}
+              >
+                更新
+              </ActionButton>
+            ) : null}
+            <ActionButton onClick={() => void loadDashboard()} disabled={loading || refreshing}>
+              再読み込み
+            </ActionButton>
+          </>
         }
       />
 
+      {feedback ? <div className="success-message">{feedback}</div> : null}
+      {actionError ? <ErrorState message={actionError} /> : null}
       {loading && !data ? <LoadingState /> : null}
       {error && !data ? <ErrorState message={error} /> : null}
 
