@@ -75,7 +75,7 @@ function MenuIcon() {
 }
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "ダッシュボード", Icon: DashboardIcon },
+  { href: "/dashboard", label: "フラウドアラート", Icon: DashboardIcon },
   { href: "/alerts", label: "アラート一覧", Icon: AlertsIcon },
   { href: "/algorithm", label: "検知アルゴリズム", Icon: AlgorithmIcon },
 ] as const;
@@ -134,7 +134,6 @@ export function AppFrame({ children }: { children: ReactNode }) {
 
   return (
     <div className={`app-shell${collapsed ? " sidebar-collapsed" : ""}`}>
-      {/* モバイル用トップバー */}
       <div className="mobile-topbar">
         <button
           className="mobile-topbar-btn"
@@ -143,10 +142,9 @@ export function AppFrame({ children }: { children: ReactNode }) {
         >
           <MenuIcon />
         </button>
-        <span>フロードチェッカー</span>
+        <span>フラウドアラート</span>
       </div>
 
-      {/* オーバーレイ背景 */}
       {mobileOpen && (
         <div
           className="sidebar-overlay"
@@ -155,11 +153,10 @@ export function AppFrame({ children }: { children: ReactNode }) {
         />
       )}
 
-      {/* サイドバー */}
       <aside
         ref={sidebarRef}
         className={`sidebar${collapsed ? " sidebar--collapsed" : ""}${mobileOpen ? " sidebar--open" : ""}`}
-        aria-label="主要ナビゲーション"
+        aria-label="主なナビゲーション"
         aria-modal={mobileOpen ? "true" : undefined}
         role={mobileOpen ? "dialog" : undefined}
       >
@@ -170,7 +167,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
               <path d="M5.5 8.5l2 2 3.5-4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-          <span className="sidebar__brand-text">フロードチェッカー</span>
+          <span className="sidebar__brand-text">フラウドアラート</span>
           <button
             ref={mobileCloseButtonRef}
             className="sidebar__mobile-close"
@@ -201,7 +198,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
           <button
             className="sidebar__toggle"
             onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? "サイドバーを展開" : "サイドバーを折り畳む"}
+            aria-label={collapsed ? "サイドバーを広げる" : "サイドバーを折りたたむ"}
           >
             {collapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
           </button>

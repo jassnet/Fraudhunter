@@ -95,9 +95,9 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
     setActionError(null);
     try {
       await syncMasterData();
-      setFeedback("マスターデータ同期ジョブを起動しました。反映まで数分待ってから確認してください。");
+      setFeedback("広告主・案件データの更新を開始しました。反映まで数分待ってから確認してください。");
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "マスターデータ同期の開始に失敗しました。";
+      const message = caughtError instanceof Error ? caughtError.message : "広告主・案件データの更新開始に失敗しました。";
       setActionError(message);
     } finally {
       setSyncingMasters(false);
@@ -133,7 +133,7 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
                   onClick={() => void handleMasterSync()}
                   disabled={loading || refreshing || syncingMasters}
                 >
-                  マスター同期
+                  広告主・案件データを更新
                 </ActionButton>
               </>
             ) : null}

@@ -146,11 +146,11 @@ describe("DashboardScreen", () => {
 
     expect(await screen.findByText("不正率")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "マスター同期" }));
+    await user.click(screen.getByRole("button", { name: "広告主・案件データを更新" }));
 
     await waitFor(() => {
       expect(masterSyncCalls).toBe(1);
     });
-    expect(await screen.findByText("マスターデータ同期ジョブを起動しました。反映まで数分待ってから確認してください。")).toBeInTheDocument();
+    expect(await screen.findByText("広告主・案件データの更新を開始しました。反映まで数分待ってから確認してください。")).toBeInTheDocument();
   });
 });
