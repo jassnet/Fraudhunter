@@ -45,6 +45,8 @@ services:
         value: 22.20.0
       - key: NEXT_PUBLIC_API_URL
         value: https://fraudchecker-backend.onrender.com
+      - key: FC_ADMIN_API_KEY
+        sync: false
       - key: FC_READ_API_KEY
         sync: false
 

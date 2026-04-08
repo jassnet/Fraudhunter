@@ -54,6 +54,7 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
         repo,
         *,
         status: str | None,
+        risk_level: str | None,
         start_date: str | None,
         end_date: str | None,
         search: str | None,
@@ -62,6 +63,7 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
         page_size: int,
     ):
         captured["status"] = status
+        captured["risk_level"] = risk_level
         captured["start_date"] = start_date
         captured["end_date"] = end_date
         captured["search"] = search
@@ -72,6 +74,7 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
             "available_dates": ["2026-04-05"],
             "applied_filters": {
                 "status": status or "all",
+                "risk_level": risk_level,
                 "start_date": start_date,
                 "end_date": end_date,
                 "sort": sort,
@@ -109,6 +112,7 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
     assert response.status_code == 200
     assert captured == {
         "status": "unhandled",
+        "risk_level": None,
         "start_date": None,
         "end_date": None,
         "search": None,
@@ -171,6 +175,7 @@ def test_console_alerts_endpoint_forwards_pagination_params(monkeypatch):
             "available_dates": [],
             "applied_filters": {
                 "status": kwargs["status"] or "all",
+                "risk_level": kwargs.get("risk_level"),
                 "start_date": kwargs["start_date"],
                 "end_date": kwargs["end_date"],
                 "search": kwargs["search"],
