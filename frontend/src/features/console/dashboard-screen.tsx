@@ -152,7 +152,7 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
                   <table aria-label="フラウド率ランキング">
                     <thead>
                       <tr>
-                        <th>アフィリエイター</th>
+                        <th>アフィリエイター名</th>
                         <th>フラウド率</th>
                         <th>件数</th>
                         <th>被害額</th>
@@ -163,7 +163,7 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
                         <tr key={affiliate.affiliate_id}>
                           <td>
                             <div className="table-primary">{affiliate.affiliate_name}</div>
-                            <div className="table-secondary">{affiliate.affiliate_id}</div>
+                            <div className="table-secondary">{`ID: ${affiliate.affiliate_id}`}</div>
                           </td>
                           <td>{formatPercent(affiliate.fraud_rate)}</td>
                           <td>{affiliate.alert_count}</td>

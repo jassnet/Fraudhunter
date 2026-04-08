@@ -91,9 +91,9 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
           <div className="detail-main">
             <section className="detail-header-grid" aria-label="アラート概要">
               <div className="detail-stat detail-stat-wide">
-                <div className="detail-key">アフィリエイト</div>
+                <div className="detail-key">アフィリエイター名</div>
                 <div className="detail-value">{data.affiliate_name}</div>
-                <div className="detail-subvalue">{data.affiliate_id}</div>
+                <div className="detail-subvalue">{`ID: ${data.affiliate_id}`}</div>
               </div>
               <div className="detail-stat">
                 <div className="detail-key">リスク</div>
@@ -116,7 +116,7 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
 
             <Panel
               title="検知理由"
-              description={`${data.outcome_type} / ${data.program_name ?? "プログラム名なし"}`}
+              description={`広告名: ${data.program_name ?? "未設定"} / 成果種別: ${data.outcome_type}`}
             >
               {data.reasons.length === 0 ? (
                 <EmptyState message="検知理由はまだ登録されていません。" />
@@ -209,7 +209,7 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
                   <span className="detail-meta-value">{data.outcome_type}</span>
                 </div>
                 <div className="detail-meta-row">
-                  <span>プログラム</span>
+                  <span>広告名</span>
                   <span className="detail-meta-value">{data.program_name ?? "未設定"}</span>
                 </div>
                 <div className="detail-meta-row">

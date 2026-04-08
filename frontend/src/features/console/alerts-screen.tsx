@@ -18,6 +18,7 @@ import { buildAlertsCsvUrl, getAlerts, reviewAlerts } from "@/lib/console-api";
 import type {
   AlertFilterStatus,
   AlertListItem,
+  AlertRiskFilter,
   AlertsResponse,
   ReviewStatus,
 } from "@/lib/console-types";
@@ -25,6 +26,7 @@ import { formatCurrency, formatDateTime } from "@/lib/format";
 
 type AlertFilters = {
   status: AlertFilterStatus;
+  riskLevel: AlertRiskFilter;
   startDate: string;
   endDate: string;
   search: string;
@@ -35,6 +37,7 @@ type AlertFilters = {
 
 const DEFAULT_FILTERS: AlertFilters = {
   status: "unhandled",
+  riskLevel: "all",
   startDate: "",
   endDate: "",
   search: "",
@@ -57,6 +60,15 @@ type AlertGroup = {
   outcomeSummary: string;
   patternSummary: string;
 };
+
+function renderNamedEntity(name: string, id: string, idLabel = "ID") {
+  return (
+    <>
+      <span className="table-primary">{name}</span>
+      <span className="table-secondary">{`${idLabel}: ${id}`}</span>
+    </>
+  );
+}
 
 type AlertsScreenProps = {
   searchParams?: Record<string, string | string[] | undefined>;
@@ -116,6 +128,7 @@ function buildInitialFilters(searchParams?: Record<string, string | string[] | u
   }
 
   const status = firstSearchParam(searchParams.status);
+  const riskLevel = firstSearchParam(searchParams.risk_level);
   const startDate = firstSearchParam(searchParams.start_date);
   const endDate = firstSearchParam(searchParams.end_date);
   const search = firstSearchParam(searchParams.search);
@@ -125,6 +138,7 @@ function buildInitialFilters(searchParams?: Record<string, string | string[] | u
 
   return {
     status: (status || DEFAULT_FILTERS.status) as AlertFilterStatus,
+    riskLevel: (riskLevel || DEFAULT_FILTERS.riskLevel) as AlertRiskFilter,
     startDate,
     endDate,
     search,
@@ -151,6 +165,9 @@ function toFilterQuery(filters: AlertFilters) {
   query.set("sort", filters.sort);
   query.set("page", String(filters.page));
   query.set("page_size", String(filters.pageSize));
+  if (filters.riskLevel !== "all") {
+    query.set("risk_level", filters.riskLevel);
+  }
   if (filters.startDate) {
     query.set("start_date", filters.startDate);
   }
@@ -166,6 +183,7 @@ function toFilterQuery(filters: AlertFilters) {
 function filtersFromResponse(response: AlertsResponse): AlertFilters {
   return {
     status: response.applied_filters.status as AlertFilterStatus,
+    riskLevel: (response.applied_filters.risk_level ?? "all") as AlertRiskFilter,
     startDate: response.applied_filters.start_date ?? "",
     endDate: response.applied_filters.end_date ?? "",
     search: response.applied_filters.search ?? "",
@@ -263,6 +281,7 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
     try {
       const response = await getAlerts({
         status: nextFilters.status,
+        riskLevel: nextFilters.riskLevel !== "all" ? nextFilters.riskLevel : undefined,
         startDate: nextFilters.startDate,
         endDate: nextFilters.endDate,
         search: nextFilters.search,
@@ -375,6 +394,7 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
   const totalPages = Math.max(1, Math.ceil(total / activeFilters.pageSize));
   const exportUrl = buildAlertsCsvUrl({
     status: activeFilters.status,
+    riskLevel: activeFilters.riskLevel !== "all" ? activeFilters.riskLevel : undefined,
     startDate: activeFilters.startDate,
     endDate: activeFilters.endDate,
     search: activeFilters.search,
@@ -419,8 +439,24 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
               type="search"
               value={draftFilters.search}
               onChange={(event) => setDraftFilter("search", event.target.value)}
-              placeholder="アフィリエイトID、名称、パターン"
+              placeholder="アフィリエイター名、広告名、ID、パターン"
             />
+          </div>
+
+          <div className="form-field">
+            <label htmlFor="alert-risk-level">リスクレベル</label>
+            <select
+              id="alert-risk-level"
+              aria-label="リスクレベル"
+              value={draftFilters.riskLevel}
+              onChange={(event) => setDraftFilter("riskLevel", event.target.value as AlertRiskFilter)}
+            >
+              <option value="all">すべて</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
           </div>
 
           <div className="form-field">
@@ -466,6 +502,7 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
 
       <div className="selection-summary">
         <span>対象期間: {activeFilters.startDate || "自動"} - {activeFilters.endDate || "自動"}</span>
+        <span>リスク: {activeFilters.riskLevel === "all" ? "すべて" : activeFilters.riskLevel}</span>
         <span>検索語: {activeFilters.search || "なし"}</span>
       </div>
 
@@ -527,7 +564,7 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
                   />
                 </th>
                 <th>リスク</th>
-                <th>アフィリエイト / パターン</th>
+                <th>アフィリエイター名 / 広告名</th>
                 <th>レビュー状態</th>
                 <th>成果</th>
                 <th>想定報酬</th>
@@ -572,8 +609,8 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
                     <td>
                       {isGrouped ? (
                         <div className="table-link">
-                          <span className="table-primary">{group.affiliateName}</span>
-                          <span className="table-secondary">{group.affiliateId}</span>
+                          {renderNamedEntity(group.affiliateName, group.affiliateId)}
+                          <span className="table-tertiary">{`広告名: ${group.outcomeSummary}`}</span>
                           <span className="table-tertiary">{group.patternSummary}</span>
                           <Link className="table-tertiary" href={`/alerts/${groupKeys[0]}`}>
                             詳細を見る
@@ -581,8 +618,8 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
                         </div>
                       ) : (
                         <Link className="table-link" href={`/alerts/${groupKeys[0]}`}>
-                          <span className="table-primary">{group.affiliateName}</span>
-                          <span className="table-secondary">{group.affiliateId}</span>
+                          {renderNamedEntity(group.affiliateName, group.affiliateId)}
+                          <span className="table-tertiary">{`広告名: ${group.outcomeSummary}`}</span>
                           <span className="table-tertiary">{group.patternSummary}</span>
                         </Link>
                       )}
@@ -612,8 +649,8 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
                           </td>
                           <td>
                             <Link className="table-link" href={`/alerts/${item.finding_key}`}>
-                              <span className="table-primary">{item.affiliate_name}</span>
-                              <span className="table-secondary">{item.affiliate_id}</span>
+                              {renderNamedEntity(item.affiliate_name, item.affiliate_id)}
+                              <span className="table-tertiary">{`広告名: ${item.outcome_type}`}</span>
                               <span className="table-tertiary">{item.pattern}</span>
                             </Link>
                           </td>

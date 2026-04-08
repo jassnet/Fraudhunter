@@ -24,6 +24,7 @@ describe("AlertsScreen", () => {
   it("loads unhandled alerts, supports bulk review, and refreshes the list", async () => {
     let fetchCount = 0;
     let requestedStatus: string | null = null;
+    let requestedRiskLevel: string | null = null;
     let requestedSearch: string | null = null;
     let reviewRequestBody: unknown = null;
 
@@ -32,6 +33,7 @@ describe("AlertsScreen", () => {
         fetchCount += 1;
         const url = new URL(request.url);
         requestedStatus = url.searchParams.get("status");
+        requestedRiskLevel = url.searchParams.get("risk_level");
         requestedSearch = url.searchParams.get("search");
 
         if (fetchCount > 1) {
@@ -39,6 +41,7 @@ describe("AlertsScreen", () => {
             available_dates: ["2026-04-05"],
             applied_filters: {
               status: "unhandled",
+              risk_level: null,
               start_date: "2026-04-05",
               end_date: "2026-04-05",
               search: "alpha",
@@ -62,6 +65,7 @@ describe("AlertsScreen", () => {
           available_dates: ["2026-04-05", "2026-04-04"],
           applied_filters: {
             status: "unhandled",
+            risk_level: null,
             start_date: "2026-04-05",
             end_date: "2026-04-05",
             search: "alpha",
@@ -129,10 +133,12 @@ describe("AlertsScreen", () => {
     expect(await screen.findByRole("heading", { name: "アラート一覧" })).toBeInTheDocument();
     await waitFor(() => {
       expect(requestedStatus).toBe("unhandled");
+      expect(requestedRiskLevel).toBe(null);
       expect(requestedSearch).toBe("alpha");
     });
 
     expect(screen.getByLabelText("レビュー状態")).toHaveValue("unhandled");
+    expect(screen.getByLabelText("リスクレベル")).toHaveValue("all");
     expect(screen.getByLabelText("検索")).toHaveValue("alpha");
     expect(screen.getByRole("link", { name: "CSVエクスポート" })).toHaveAttribute(
       "href",
@@ -167,6 +173,7 @@ describe("AlertsScreen", () => {
           available_dates: ["2026-04-05"],
           applied_filters: {
             status: "unhandled",
+            risk_level: null,
             start_date: "2026-04-05",
             end_date: "2026-04-05",
             search: null,
@@ -250,16 +257,19 @@ describe("AlertsScreen", () => {
 
   it("applies filters only when the apply button is clicked", async () => {
     const requestedSearches: Array<string | null> = [];
+    const requestedRiskLevels: Array<string | null> = [];
 
     server.use(
       http.get("/api/console/alerts", ({ request }) => {
         const url = new URL(request.url);
         requestedSearches.push(url.searchParams.get("search"));
+        requestedRiskLevels.push(url.searchParams.get("risk_level"));
 
         return HttpResponse.json({
           available_dates: ["2026-04-05"],
           applied_filters: {
             status: url.searchParams.get("status") ?? "unhandled",
+            risk_level: url.searchParams.get("risk_level"),
             start_date: "2026-04-05",
             end_date: "2026-04-05",
             search: url.searchParams.get("search"),
@@ -293,16 +303,18 @@ describe("AlertsScreen", () => {
     replaceMock.mockClear();
 
     await user.type(screen.getByLabelText("検索"), "risky");
+    await user.selectOptions(screen.getByLabelText("リスクレベル"), "critical");
 
     expect(replaceMock).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "絞り込む" }));
 
     expect(replaceMock).toHaveBeenCalledWith(
-      "/alerts?status=unhandled&sort=risk_desc&page=1&page_size=50&search=risky",
+      "/alerts?status=unhandled&sort=risk_desc&page=1&page_size=50&risk_level=critical&search=risky",
       { scroll: false },
     );
     expect(requestedSearches[0]).toBe(null);
+    expect(requestedRiskLevels[0]).toBe(null);
   });
 
   it("requests the next page when pagination is used", async () => {
@@ -319,6 +331,7 @@ describe("AlertsScreen", () => {
             available_dates: ["2026-04-05"],
             applied_filters: {
               status: "unhandled",
+              risk_level: null,
               start_date: "2026-04-05",
               end_date: "2026-04-05",
               search: null,
@@ -358,6 +371,7 @@ describe("AlertsScreen", () => {
           available_dates: ["2026-04-05"],
           applied_filters: {
             status: "unhandled",
+            risk_level: null,
             start_date: "2026-04-05",
             end_date: "2026-04-05",
             search: null,

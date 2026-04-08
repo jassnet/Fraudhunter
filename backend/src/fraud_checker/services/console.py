@@ -139,6 +139,7 @@ def list_alerts(
     repo: ConsoleRepository,
     *,
     status: str | None = "unhandled",
+    risk_level: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
     search: str | None = None,
@@ -155,6 +156,7 @@ def list_alerts(
         repo,
         start_date=resolved_start,
         end_date=resolved_end,
+        risk_level=risk_level,
         search=search,
         status=status,
         sort=sort,
@@ -176,6 +178,7 @@ def list_alerts(
         repo,
         start_date=resolved_start,
         end_date=resolved_end,
+        risk_level=risk_level,
         search=search,
         status=status,
     )
@@ -184,6 +187,7 @@ def list_alerts(
         "available_dates": reporting.get_available_dates(repo),
         "applied_filters": {
             "status": status or "all",
+            "risk_level": (risk_level or "").strip() or None,
             "start_date": resolved_start,
             "end_date": resolved_end,
             "search": (search or "").strip() or None,
@@ -207,6 +211,7 @@ def export_alerts_csv(
     repo: ConsoleRepository,
     *,
     status: str | None = "unhandled",
+    risk_level: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
     search: str | None = None,
@@ -217,6 +222,7 @@ def export_alerts_csv(
         repo,
         start_date=resolved_start,
         end_date=resolved_end,
+        risk_level=risk_level,
         search=search,
         status=status,
         sort=sort,
@@ -321,6 +327,7 @@ def _fetch_alert_rows(
     *,
     start_date: str | None,
     end_date: str | None,
+    risk_level: str | None = None,
     search: str | None = None,
     status: str | None,
     sort: str,
@@ -338,6 +345,9 @@ def _fetch_alert_rows(
     if end_date:
         params["end_date"] = parse_iso_date(end_date)
         conditions.append("f.date <= :end_date")
+    if risk_level and risk_level.strip():
+        params["risk_level"] = risk_level.strip()
+        conditions.append("f.risk_level = :risk_level")
     if search and search.strip():
         params["search"] = f"%{search.strip().lower()}%"
         conditions.append("f.search_text LIKE :search")
@@ -451,6 +461,7 @@ def _count_alert_rows(
     *,
     start_date: str | None,
     end_date: str | None,
+    risk_level: str | None = None,
     search: str | None = None,
     status: str | None,
 ) -> int:
@@ -464,6 +475,9 @@ def _count_alert_rows(
     if end_date:
         params["end_date"] = parse_iso_date(end_date)
         conditions.append("f.date <= :end_date")
+    if risk_level and risk_level.strip():
+        params["risk_level"] = risk_level.strip()
+        conditions.append("f.risk_level = :risk_level")
     if search and search.strip():
         params["search"] = f"%{search.strip().lower()}%"
         conditions.append("f.search_text LIKE :search")

@@ -10,6 +10,7 @@ import type {
 
 type AlertQuery = {
   status: AlertFilterStatus;
+  riskLevel?: string;
   startDate?: string;
   endDate?: string;
   search?: string;
@@ -69,6 +70,9 @@ export function getAlerts(query: AlertQuery) {
     status: query.status,
     sort: query.sort ?? "risk_desc",
   });
+  if (query.riskLevel) {
+    searchParams.set("risk_level", query.riskLevel);
+  }
   if (query.startDate) {
     searchParams.set("start_date", query.startDate);
   }
@@ -92,6 +96,9 @@ export function buildAlertsCsvUrl(query: AlertQuery) {
     status: query.status,
     sort: query.sort ?? "risk_desc",
   });
+  if (query.riskLevel) {
+    searchParams.set("risk_level", query.riskLevel);
+  }
   if (query.startDate) {
     searchParams.set("start_date", query.startDate);
   }

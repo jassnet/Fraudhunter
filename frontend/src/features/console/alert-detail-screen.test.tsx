@@ -60,7 +60,7 @@ describe("AlertDetailScreen", () => {
 
     expect(await screen.findByRole("heading", { name: "アラート詳細" })).toBeInTheDocument();
     expect(screen.getByText("beta-traffic")).toBeInTheDocument();
-    expect(screen.getByText("AFF-145")).toBeInTheDocument();
+    expect(screen.getByText("ID: AFF-145")).toBeInTheDocument();
     expect(screen.getByText("96")).toBeInTheDocument();
     expect(screen.getByText("未対応")).toBeInTheDocument();
     expect(screen.getAllByText("既定単価の推定")).toHaveLength(2);

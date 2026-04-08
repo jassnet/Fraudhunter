@@ -29,6 +29,7 @@ def get_dashboard(target_date: Optional[str] = Query(None)):
 @router.get("/alerts", dependencies=[Depends(require_analyst_access)])
 def get_alerts(
     status: Optional[str] = Query("unhandled"),
+    risk_level: Optional[str] = Query(None),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
@@ -40,6 +41,7 @@ def get_alerts(
         return console_service.list_alerts(
             get_repository(),
             status=status,
+            risk_level=risk_level,
             start_date=start_date,
             end_date=end_date,
             search=search,
@@ -57,6 +59,7 @@ def get_alerts(
 @router.get("/alerts/export", dependencies=[Depends(require_analyst_access)])
 def export_alerts(
     status: Optional[str] = Query("unhandled"),
+    risk_level: Optional[str] = Query(None),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
@@ -66,6 +69,7 @@ def export_alerts(
         csv_text = console_service.export_alerts_csv(
             get_repository(),
             status=status,
+            risk_level=risk_level,
             start_date=start_date,
             end_date=end_date,
             search=search,

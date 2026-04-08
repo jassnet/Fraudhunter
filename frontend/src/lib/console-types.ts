@@ -1,6 +1,7 @@
 export type ReviewStatus = "unhandled" | "investigating" | "confirmed_fraud" | "white";
 export type AlertFilterStatus = ReviewStatus | "all";
 export type RiskLevel = "low" | "medium" | "high" | "critical" | string;
+export type AlertRiskFilter = RiskLevel | "all";
 
 export type DashboardResponse = {
   date: string;
@@ -55,6 +56,7 @@ export type AlertsResponse = {
   available_dates: string[];
   applied_filters: {
     status: string;
+    risk_level: string | null;
     start_date: string | null;
     end_date: string | null;
     search: string | null;
