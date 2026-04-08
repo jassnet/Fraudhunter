@@ -28,10 +28,10 @@ describe("AppFrame", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "メニューを開く" }));
-    expect(screen.getByRole("dialog", { name: "主要ナビゲーション" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "主なナビゲーション" })).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
 
-    expect(screen.queryByRole("dialog", { name: "主要ナビゲーション" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "主なナビゲーション" })).not.toBeInTheDocument();
   });
 });
