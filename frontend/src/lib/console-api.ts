@@ -65,6 +65,12 @@ export function refreshLatestData() {
   });
 }
 
+export function syncMasterData() {
+  return fetchJson<JobActionResponse>("/api/console/sync/masters", {
+    method: "POST",
+  });
+}
+
 export function getAlerts(query: AlertQuery) {
   const searchParams = new URLSearchParams({
     status: query.status,

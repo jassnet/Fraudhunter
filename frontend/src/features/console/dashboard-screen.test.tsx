@@ -53,16 +53,13 @@ describe("DashboardScreen", () => {
     expect(screen.getByRole("link", { name: "アラート一覧" })).toHaveAttribute("href", "/alerts");
 
     expect(screen.getByText("読み込み中...")).toBeInTheDocument();
-    expect(await screen.findByText("全体不正率")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "検知件数推移" })).toBeInTheDocument();
     expect(screen.getByText("12.4%")).toBeInTheDocument();
-    expect(screen.getByText("未対応アラート件数")).toBeInTheDocument();
+    expect(screen.getByText("未対応アラート数")).toBeInTheDocument();
     expect(screen.getByText("19件")).toBeInTheDocument();
-    expect(screen.getByText("被害推定額")).toBeInTheDocument();
+    expect(screen.getAllByText("想定被害額")).toHaveLength(2);
     expect(screen.getByText("¥428,000")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "検知件数推移" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("table", { name: "不正率ランキング" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "不正率ランキング" })).toBeInTheDocument();
     expect(screen.getByText("alpha-media")).toBeInTheDocument();
     expect(screen.getByText("36.7%")).toBeInTheDocument();
   });
@@ -90,7 +87,7 @@ describe("DashboardScreen", () => {
         refreshRequestBody = await request.json();
         return HttpResponse.json({
           success: true,
-          message: "直近1時間の再取得ジョブを登録しました",
+          message: "最新データの取り込みジョブを起動しました",
           details: { job_id: "run-refresh-1", hours: 1, clicks: true, conversions: true },
         });
       }),
@@ -99,7 +96,7 @@ describe("DashboardScreen", () => {
     const user = userEvent.setup();
     render(<DashboardScreen adminActionsEnabled />);
 
-    expect(await screen.findByText("全体不正率")).toBeInTheDocument();
+    expect(await screen.findByText("不正率")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "更新" }));
 
@@ -114,8 +111,46 @@ describe("DashboardScreen", () => {
     await waitFor(() => {
       expect(dashboardFetchCount).toBe(2);
     });
-    expect(
-      await screen.findByText("最新データの取り込みを開始しました。反映まで少々お待ちください。"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("最新データの取り込みを開始しました。反映まで少々お待ちください。")).toBeInTheDocument();
+  });
+
+  it("runs master sync from the admin action area", async () => {
+    let masterSyncCalls = 0;
+
+    server.use(
+      http.get("/api/console/dashboard", () =>
+        HttpResponse.json({
+          date: "2026-04-05",
+          available_dates: ["2026-04-05"],
+          kpis: {
+            fraud_rate: { value: 12.4, unit: "%" },
+            unhandled_alerts: { value: 19, unit: "件" },
+            estimated_damage: { value: 428000, unit: "円" },
+          },
+          trend: [{ date: "2026-04-05", alerts: 14 }],
+          ranking: [],
+        }),
+      ),
+      http.post("/api/console/sync/masters", () => {
+        masterSyncCalls += 1;
+        return HttpResponse.json({
+          success: true,
+          message: "マスターデータ同期ジョブを起動しました",
+          details: { job_id: "master-sync-1" },
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<DashboardScreen adminActionsEnabled />);
+
+    expect(await screen.findByText("不正率")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "マスター同期" }));
+
+    await waitFor(() => {
+      expect(masterSyncCalls).toBe(1);
+    });
+    expect(await screen.findByText("マスターデータ同期ジョブを起動しました。反映まで数分待ってから確認してください。")).toBeInTheDocument();
   });
 });

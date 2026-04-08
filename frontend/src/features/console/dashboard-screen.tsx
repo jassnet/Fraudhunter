@@ -13,7 +13,7 @@ import {
   PageHeader,
   Panel,
 } from "@/components/console-ui";
-import { getDashboard, refreshLatestData } from "@/lib/console-api";
+import { getDashboard, refreshLatestData, syncMasterData } from "@/lib/console-api";
 import type { DashboardResponse } from "@/lib/console-types";
 import { formatCurrency, formatDateLabel, formatPercent } from "@/lib/format";
 
@@ -22,8 +22,8 @@ function resolveKpiTone(key: string, value: number): "danger" | "warning" | "neu
     if (value > 10) return "danger";
     if (value > 5) return "warning";
   }
-  if (key === "unhandled_alerts") {
-    if (value > 20) return "danger";
+  if (key === "unhandled_alerts" && value > 20) {
+    return "danger";
   }
   return "neutral";
 }
@@ -31,17 +31,17 @@ function resolveKpiTone(key: string, value: number): "danger" | "warning" | "neu
 const KPI_DEFINITIONS = [
   {
     key: "fraud_rate",
-    label: "全体不正率",
+    label: "不正率",
     format: (value: number) => formatPercent(value),
   },
   {
     key: "unhandled_alerts",
-    label: "未対応アラート件数",
+    label: "未対応アラート数",
     format: (value: number) => `${value}件`,
   },
   {
     key: "estimated_damage",
-    label: "被害推定額",
+    label: "想定被害額",
     format: (value: number) => formatCurrency(value),
   },
 ] as const;
@@ -55,6 +55,7 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncingMasters, setSyncingMasters] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -88,6 +89,21 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
     }
   }
 
+  async function handleMasterSync() {
+    setSyncingMasters(true);
+    setFeedback(null);
+    setActionError(null);
+    try {
+      await syncMasterData();
+      setFeedback("マスターデータ同期ジョブを起動しました。反映まで数分待ってから確認してください。");
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "マスターデータ同期の開始に失敗しました。";
+      setActionError(message);
+    } finally {
+      setSyncingMasters(false);
+    }
+  }
+
   useEffect(() => {
     void loadDashboard();
   }, []);
@@ -105,15 +121,23 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
               アラート一覧
             </Link>
             {adminActionsEnabled ? (
-              <ActionButton
-                tone="warning"
-                onClick={() => void handleRefresh()}
-                disabled={loading || refreshing}
-              >
-                更新
-              </ActionButton>
+              <>
+                <ActionButton
+                  tone="warning"
+                  onClick={() => void handleRefresh()}
+                  disabled={loading || refreshing || syncingMasters}
+                >
+                  更新
+                </ActionButton>
+                <ActionButton
+                  onClick={() => void handleMasterSync()}
+                  disabled={loading || refreshing || syncingMasters}
+                >
+                  マスター同期
+                </ActionButton>
+              </>
             ) : null}
-            <ActionButton onClick={() => void loadDashboard()} disabled={loading || refreshing}>
+            <ActionButton onClick={() => void loadDashboard()} disabled={loading || refreshing || syncingMasters}>
               再読み込み
             </ActionButton>
           </>
@@ -133,7 +157,7 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
               return {
                 label: definition.label,
                 value: definition.format(metric.value),
-                caption: `${formatDateLabel(data.date)} 集計`,
+                caption: `${formatDateLabel(data.date)} 時点`,
                 tone: resolveKpiTone(definition.key, metric.value),
               };
             })}
@@ -146,7 +170,7 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
 
             <Panel title="不正率ランキング" className="panel--scroll">
               {data.ranking.length === 0 ? (
-                <EmptyState message="対象のアフィリエイターはいません。" />
+                <EmptyState message="対象のアフィリエイターはありません。" />
               ) : (
                 <div className="table-wrap">
                   <table aria-label="不正率ランキング">
@@ -155,7 +179,7 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
                         <th>アフィリエイター名</th>
                         <th>不正率</th>
                         <th>件数</th>
-                        <th>被害額</th>
+                        <th>想定被害額</th>
                       </tr>
                     </thead>
                     <tbody>
