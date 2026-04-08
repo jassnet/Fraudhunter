@@ -23,13 +23,13 @@ type AlertDetailScreenProps = {
 
 function rewardSourceLabel(source: string, estimated: boolean) {
   if (!estimated) {
-    return "実測値";
+    return "実績値";
   }
   if (source === "fallback_default") {
-    return "既定単価の推定";
+    return "既定単価から推定";
   }
   if (source === "mixed") {
-    return "一部推定";
+    return "一部推定あり";
   }
   return "推定値";
 }
@@ -62,7 +62,7 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
     try {
       const result = await reviewAlerts([findingKey], status);
       setData((current) => (current ? { ...current, status: result.status } : current));
-      setFeedback("レビュー状態を更新しました。");
+      setFeedback("判定状態を更新しました。");
     } catch (caughtError) {
       const message =
         caughtError instanceof Error ? caughtError.message : "アラート更新に失敗しました。";
@@ -80,7 +80,7 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
     <div className="screen-page">
       <PageHeader
         title="アラート詳細"
-        description="根拠、関連トランザクション、レビュー状態を確認します。"
+        description="検知理由や関連取引の詳細を確認し、レビューを行います。"
       />
 
       {loading && !data ? <LoadingState /> : null}
@@ -129,12 +129,12 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
               )}
             </Panel>
 
-            <Panel title="関連トランザクション" description="同一アフィリエイトの直近トランザクションを表示します。">
+            <Panel title="関連取引" description="同一アフィリエイターの直近の取引を表示します。">
               {data.transactions.length === 0 ? (
-                <EmptyState message="関連トランザクションはありません。" />
+                <EmptyState message="関連する取引はありません。" />
               ) : (
                 <div className="table-wrap">
-                  <table aria-label="関連トランザクション">
+                  <table aria-label="関連取引">
                     <thead>
                       <tr>
                         <th>取引ID</th>
@@ -163,14 +163,14 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
 
           <div className="detail-sidebar">
             <div className="detail-action-panel">
-              <p className="detail-action-title">レビュー状態</p>
+              <p className="detail-action-title">判定状態</p>
               <div className="detail-status-block">
                 <StatusBadge status={data.status} />
               </div>
             </div>
 
             <div className="detail-action-panel">
-              <p className="detail-action-title">レビュー操作</p>
+              <p className="detail-action-title">判定操作</p>
               <ActionButton
                 tone="danger"
                 className="button-wide"
@@ -213,7 +213,7 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
                   <span className="detail-meta-value">{data.program_name ?? "未設定"}</span>
                 </div>
                 <div className="detail-meta-row">
-                  <span>報酬ソース</span>
+                  <span>報酬算出元</span>
                   <span className="detail-meta-value">
                     {rewardSourceLabel(data.reward_amount_source, data.reward_amount_is_estimated)}
                   </span>

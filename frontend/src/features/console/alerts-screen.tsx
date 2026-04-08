@@ -9,7 +9,6 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
-  PageHeader,
   RiskBadge,
   StatusBadge,
   StatusCountStrip,
@@ -402,24 +401,26 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
   });
 
   return (
-    <div className="screen-page">
-      <PageHeader
-        title="アラート一覧"
-        description="検索、日付、レビュー状態で絞り込みながら不正候補を確認します。"
-        actions={
+    <div className="alerts-page">
+      <div className="alerts-topbar">
+        <div className="alerts-topbar-left">
+          <h1 className="alerts-title">アラート一覧</h1>
+          {data ? <StatusCountStrip counts={data.status_counts} /> : null}
+        </div>
+        <div className="alerts-topbar-right">
           <a className="button button-default" href={exportUrl}>
-            CSVエクスポート
+            CSV出力
           </a>
-        }
-      />
+        </div>
+      </div>
 
-      <div className="control-bar">
-        <div className="controls-grid">
-          <div className="form-field">
-            <label htmlFor="alert-status">レビュー状態</label>
+      <div className="alerts-filters">
+        <div className="alerts-filters-fields">
+          <div className="form-field form-field--compact">
+            <label htmlFor="alert-status">状態</label>
             <select
               id="alert-status"
-              aria-label="レビュー状態"
+              aria-label="判定状態"
               value={draftFilters.status}
               onChange={(event) => setDraftFilter("status", event.target.value as AlertFilterStatus)}
             >
@@ -431,20 +432,8 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
             </select>
           </div>
 
-          <div className="form-field">
-            <label htmlFor="alert-search">検索</label>
-            <input
-              id="alert-search"
-              aria-label="検索"
-              type="search"
-              value={draftFilters.search}
-              onChange={(event) => setDraftFilter("search", event.target.value)}
-              placeholder="アフィリエイター名、広告名、ID、パターン"
-            />
-          </div>
-
-          <div className="form-field">
-            <label htmlFor="alert-risk-level">リスクレベル</label>
+          <div className="form-field form-field--compact">
+            <label htmlFor="alert-risk-level">リスク</label>
             <select
               id="alert-risk-level"
               aria-label="リスクレベル"
@@ -452,15 +441,15 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
               onChange={(event) => setDraftFilter("riskLevel", event.target.value as AlertRiskFilter)}
             >
               <option value="all">すべて</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
+              <option value="critical">最高</option>
+              <option value="high">高</option>
+              <option value="medium">中</option>
+              <option value="low">低</option>
             </select>
           </div>
 
-          <div className="form-field">
-            <label htmlFor="alert-start-date">開始日</label>
+          <div className="form-field form-field--compact">
+            <label htmlFor="alert-start-date">開始</label>
             <input
               id="alert-start-date"
               aria-label="開始日"
@@ -470,8 +459,8 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
             />
           </div>
 
-          <div className="form-field">
-            <label htmlFor="alert-end-date">終了日</label>
+          <div className="form-field form-field--compact">
+            <label htmlFor="alert-end-date">終了</label>
             <input
               id="alert-end-date"
               aria-label="終了日"
@@ -480,33 +469,38 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
               onChange={(event) => setDraftFilter("endDate", event.target.value)}
             />
           </div>
-        </div>
 
-        <div className="controls-actions">
-          <ActionButton
-            onClick={() =>
-              replaceRoute({
-                ...draftFilters,
-                page: 1,
-              })
-            }
-            disabled={loading}
-          >
-            絞り込む
-          </ActionButton>
-          <ActionButton onClick={() => replaceRoute(DEFAULT_FILTERS)} disabled={loading}>
-            リセット
-          </ActionButton>
+          <div className="form-field form-field--compact form-field--grow">
+            <label htmlFor="alert-search">検索</label>
+            <input
+              id="alert-search"
+              aria-label="検索"
+              type="search"
+              value={draftFilters.search}
+              onChange={(event) => setDraftFilter("search", event.target.value)}
+              placeholder="名前、広告名、ID"
+            />
+          </div>
+
+          <div className="alerts-filters-actions">
+            <ActionButton
+              onClick={() =>
+                replaceRoute({
+                  ...draftFilters,
+                  page: 1,
+                })
+              }
+              disabled={loading}
+            >
+              絞り込む
+            </ActionButton>
+            <ActionButton onClick={() => replaceRoute(DEFAULT_FILTERS)} disabled={loading}>
+              リセット
+            </ActionButton>
+          </div>
         </div>
       </div>
 
-      <div className="selection-summary">
-        <span>対象期間: {activeFilters.startDate || "自動"} - {activeFilters.endDate || "自動"}</span>
-        <span>リスク: {activeFilters.riskLevel === "all" ? "すべて" : activeFilters.riskLevel}</span>
-        <span>検索語: {activeFilters.search || "なし"}</span>
-      </div>
-
-      {data ? <StatusCountStrip counts={data.status_counts} /> : null}
       {feedback ? <div className="success-message">{feedback}</div> : null}
       {error && !data ? <ErrorState message={error} /> : null}
 
@@ -540,7 +534,7 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
 
       {loading && !data ? <LoadingState /> : null}
 
-      <div className="table-scroll-container" style={{ maxHeight: "calc(100vh - 320px)" }}>
+      <div className="alerts-table-area">
         {error && data ? <ErrorState message={error} /> : null}
         {loading && data ? <LoadingState message="アラートを更新しています..." /> : null}
         {!loading && items.length === 0 ? (
@@ -553,6 +547,14 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
           />
         ) : (
           <table aria-label="不正アラート一覧" className="table-sticky-head">
+            <colgroup>
+              <col className="col-select" />
+              <col className="col-risk" />
+              <col className="col-name" />
+              <col className="col-status" />
+              <col className="col-reward" />
+              <col className="col-date" />
+            </colgroup>
             <thead>
               <tr>
                 <th>
@@ -565,8 +567,7 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
                 </th>
                 <th>リスク</th>
                 <th>アフィリエイター名 / 広告名</th>
-                <th>レビュー状態</th>
-                <th>成果</th>
+                <th>判定状態</th>
                 <th>想定報酬</th>
                 <th>検知日時</th>
               </tr>
@@ -627,7 +628,6 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
                     <td>
                       {group.status ? <StatusBadge status={group.status} /> : <span className="table-secondary">混在</span>}
                     </td>
-                    <td>{group.outcomeSummary}</td>
                     <td>
                       <RewardAmountCell amount={group.estimatedDamage} estimated={group.rewardAmountIsEstimated} />
                     </td>
@@ -657,7 +657,6 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
                           <td>
                             <StatusBadge status={item.status} />
                           </td>
-                          <td>{item.outcome_type}</td>
                           <td>
                             <RewardAmountCell
                               amount={item.reward_amount}
@@ -676,11 +675,11 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
       </div>
 
       {data ? (
-        <div className="control-bar" aria-label="pagination">
-          <div className="table-secondary">
+        <div className="alerts-pagination">
+          <span className="table-secondary">
             {total}件中 {(activeFilters.page - 1) * activeFilters.pageSize + (items.length > 0 ? 1 : 0)}-
-            {(activeFilters.page - 1) * activeFilters.pageSize + items.length}件を表示
-          </div>
+            {(activeFilters.page - 1) * activeFilters.pageSize + items.length}件
+          </span>
           <div className="selection-bar-actions">
             <ActionButton
               disabled={loading || activeFilters.page <= 1}

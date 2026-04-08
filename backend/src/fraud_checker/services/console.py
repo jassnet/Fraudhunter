@@ -29,6 +29,10 @@ DEFAULT_ALERT_PAGE = 1
 DEFAULT_ALERT_PAGE_SIZE = 50
 MAX_ALERT_PAGE_SIZE = 200
 REWARD_KEYS = {
+    "gross_reward",
+    "net_reward",
+    "gross_action_cost",
+    "net_action_cost",
     "reward",
     "reward_amount",
     "commission",
@@ -971,8 +975,9 @@ def _extract_reward_value(value: Any) -> int | None:
         for key, nested in value.items():
             if key.lower() in REWARD_KEYS:
                 parsed = _coerce_int(nested)
-                if parsed is not None:
+                if parsed is not None and parsed > 0:
                     return parsed
+        for _key, nested in value.items():
             nested_value = _extract_reward_value(nested)
             if nested_value is not None:
                 return nested_value

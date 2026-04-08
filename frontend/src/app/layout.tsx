@@ -6,7 +6,7 @@ import { AppFrame } from "@/components/app-frame";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fraud Checker Console",
+  title: "フロードチェッカー",
   description: "アフィリエイト不正検知システムの管理画面",
 };
 

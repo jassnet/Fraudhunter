@@ -137,10 +137,10 @@ describe("AlertsScreen", () => {
       expect(requestedSearch).toBe("alpha");
     });
 
-    expect(screen.getByLabelText("レビュー状態")).toHaveValue("unhandled");
+    expect(screen.getByLabelText("判定状態")).toHaveValue("unhandled");
     expect(screen.getByLabelText("リスクレベル")).toHaveValue("all");
     expect(screen.getByLabelText("検索")).toHaveValue("alpha");
-    expect(screen.getByRole("link", { name: "CSVエクスポート" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "CSV出力" })).toHaveAttribute(
       "href",
       "/api/console/alerts/export?status=unhandled&sort=risk_desc&start_date=2026-04-05&end_date=2026-04-05&search=alpha",
     );

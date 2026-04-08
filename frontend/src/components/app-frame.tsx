@@ -39,6 +39,17 @@ function AlertsIcon() {
   );
 }
 
+function AlgorithmIcon() {
+  return (
+    <svg className="sidebar__link-icon" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <circle cx="9" cy="4" r="2.5" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="4" cy="14" r="2.5" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="14" cy="14" r="2.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M9 6.5V9M9 9L5.5 11.5M9 9L12.5 11.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function ChevronLeftIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -66,6 +77,7 @@ function MenuIcon() {
 const NAV_ITEMS = [
   { href: "/dashboard", label: "ダッシュボード", Icon: DashboardIcon },
   { href: "/alerts", label: "アラート一覧", Icon: AlertsIcon },
+  { href: "/algorithm", label: "検知アルゴリズム", Icon: AlgorithmIcon },
 ] as const;
 
 export function AppFrame({ children }: { children: ReactNode }) {
@@ -131,7 +143,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
         >
           <MenuIcon />
         </button>
-        <span>Fraud Checker</span>
+        <span>フロードチェッカー</span>
       </div>
 
       {/* オーバーレイ背景 */}
@@ -152,8 +164,13 @@ export function AppFrame({ children }: { children: ReactNode }) {
         role={mobileOpen ? "dialog" : undefined}
       >
         <div className="sidebar__brand">
-          <div className="sidebar__brand-icon">FC</div>
-          <span className="sidebar__brand-text">Fraud Checker</span>
+          <div className="sidebar__brand-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 1L2 5v4c0 3.3 2.6 6.2 6 7 3.4-.8 6-3.7 6-7V5L8 1z" stroke="#fff" strokeWidth="1.4" fill="none" />
+              <path d="M5.5 8.5l2 2 3.5-4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <span className="sidebar__brand-text">フロードチェッカー</span>
           <button
             ref={mobileCloseButtonRef}
             className="sidebar__mobile-close"

@@ -315,6 +315,10 @@ class SuspiciousFindingsReadRepository(RepositoryBase):
 
 
 REWARD_KEYS = {
+    "gross_reward",
+    "net_reward",
+    "gross_action_cost",
+    "net_action_cost",
     "reward",
     "reward_amount",
     "commission",
@@ -335,11 +339,14 @@ def _reward_from_payload(raw_payload) -> int:
 
 def _extract_reward_value(value) -> int | None:
     if isinstance(value, dict):
+        # First pass: find a positive value from reward keys
         for key, nested in value.items():
             if key.lower() in REWARD_KEYS:
                 parsed = _coerce_int(nested)
-                if parsed is not None:
+                if parsed is not None and parsed > 0:
                     return parsed
+        # Second pass: recurse into nested structures
+        for _key, nested in value.items():
             nested_value = _extract_reward_value(nested)
             if nested_value is not None:
                 return nested_value

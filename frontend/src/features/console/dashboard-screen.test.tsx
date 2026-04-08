@@ -53,7 +53,7 @@ describe("DashboardScreen", () => {
     expect(screen.getByRole("link", { name: "アラート一覧" })).toHaveAttribute("href", "/alerts");
 
     expect(screen.getByText("読み込み中...")).toBeInTheDocument();
-    expect(await screen.findByText("全体フラウド率")).toBeInTheDocument();
+    expect(await screen.findByText("全体不正率")).toBeInTheDocument();
     expect(screen.getByText("12.4%")).toBeInTheDocument();
     expect(screen.getByText("未対応アラート件数")).toBeInTheDocument();
     expect(screen.getByText("19件")).toBeInTheDocument();
@@ -61,7 +61,7 @@ describe("DashboardScreen", () => {
     expect(screen.getByText("¥428,000")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "検知件数推移" })).toBeInTheDocument();
     expect(
-      screen.getByRole("table", { name: "フラウド率ランキング" }),
+      screen.getByRole("table", { name: "不正率ランキング" }),
     ).toBeInTheDocument();
     expect(screen.getByText("alpha-media")).toBeInTheDocument();
     expect(screen.getByText("36.7%")).toBeInTheDocument();
@@ -99,7 +99,7 @@ describe("DashboardScreen", () => {
     const user = userEvent.setup();
     render(<DashboardScreen adminActionsEnabled />);
 
-    expect(await screen.findByText("全体フラウド率")).toBeInTheDocument();
+    expect(await screen.findByText("全体不正率")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "更新" }));
 
@@ -115,7 +115,7 @@ describe("DashboardScreen", () => {
       expect(dashboardFetchCount).toBe(2);
     });
     expect(
-      await screen.findByText("最新データの取り込みを開始しました。反映まで少し時間がかかる場合があります。"),
+      await screen.findByText("最新データの取り込みを開始しました。反映まで少々お待ちください。"),
     ).toBeInTheDocument();
   });
 });

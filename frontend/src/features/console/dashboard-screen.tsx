@@ -31,7 +31,7 @@ function resolveKpiTone(key: string, value: number): "danger" | "warning" | "neu
 const KPI_DEFINITIONS = [
   {
     key: "fraud_rate",
-    label: "全体フラウド率",
+    label: "全体不正率",
     format: (value: number) => formatPercent(value),
   },
   {
@@ -78,7 +78,7 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
     setActionError(null);
     try {
       await refreshLatestData();
-      setFeedback("最新データの取り込みを開始しました。反映まで少し時間がかかる場合があります。");
+      setFeedback("最新データの取り込みを開始しました。反映まで少々お待ちください。");
       await loadDashboard();
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "最新データの更新に失敗しました。";
@@ -144,16 +144,16 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
               <LineChart data={data.trend} />
             </Panel>
 
-            <Panel title="フラウド率ランキング" className="panel--scroll">
+            <Panel title="不正率ランキング" className="panel--scroll">
               {data.ranking.length === 0 ? (
-                <EmptyState message="ランキング対象のアフィリエイターはありません。" />
+                <EmptyState message="対象のアフィリエイターはいません。" />
               ) : (
                 <div className="table-wrap">
-                  <table aria-label="フラウド率ランキング">
+                  <table aria-label="不正率ランキング">
                     <thead>
                       <tr>
                         <th>アフィリエイター名</th>
-                        <th>フラウド率</th>
+                        <th>不正率</th>
                         <th>件数</th>
                         <th>被害額</th>
                       </tr>

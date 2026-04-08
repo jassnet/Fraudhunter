@@ -63,9 +63,9 @@ describe("AlertDetailScreen", () => {
     expect(screen.getByText("ID: AFF-145")).toBeInTheDocument();
     expect(screen.getByText("96")).toBeInTheDocument();
     expect(screen.getByText("未対応")).toBeInTheDocument();
-    expect(screen.getAllByText("既定単価の推定")).toHaveLength(2);
+    expect(screen.getAllByText("既定単価から推定")).toHaveLength(2);
     expect(screen.getByText("同一IPから24時間で47件のCV")).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "関連トランザクション" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "関連取引" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "調査中にする" }));
 
@@ -76,7 +76,7 @@ describe("AlertDetailScreen", () => {
       });
     });
 
-    expect(await screen.findByText("レビュー状態を更新しました。")).toBeInTheDocument();
+    expect(await screen.findByText("判定状態を更新しました。")).toBeInTheDocument();
     expect(await screen.findByText("調査中")).toBeInTheDocument();
   });
 });
