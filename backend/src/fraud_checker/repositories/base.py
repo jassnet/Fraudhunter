@@ -5,7 +5,7 @@ from contextlib import contextmanager
 import sqlalchemy as sa
 
 from ..db.session import normalize_database_url
-from ..ip_filters import BROWSER_UA_INCLUDES, BOT_UA_MARKERS, DATACENTER_IP_PREFIXES
+from ..ip_filters import BROWSER_UA_INCLUDES, BOT_UA_MARKERS, DATACENTER_IP_CIDRS, DATACENTER_IP_PREFIXES
 
 
 class RepositoryBase:
@@ -42,6 +42,13 @@ class RepositoryBase:
             """
 
     def _datacenter_filter_sql(self, prefixes: tuple[str, ...] = DATACENTER_IP_PREFIXES) -> str:
+        database_url = getattr(self, "database_url", "")
+        if database_url.startswith(("postgresql", "postgres")) and DATACENTER_IP_CIDRS:
+            cidr_array = ", ".join(f"'{cidr}'" for cidr in DATACENTER_IP_CIDRS)
+            return (
+                "\n                AND (NULLIF(ipaddress, '') IS NULL OR NOT "
+                f"(inet(ipaddress) <<= ANY(ARRAY[{cidr_array}]::cidr[])))"
+            )
         if not prefixes:
             return ""
         return "\n                " + "\n                ".join(

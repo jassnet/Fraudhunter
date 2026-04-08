@@ -50,6 +50,7 @@ describe("DashboardScreen", () => {
     );
 
     render(<DashboardScreen />);
+    expect(screen.getByRole("link", { name: "アラート一覧" })).toHaveAttribute("href", "/alerts");
 
     expect(screen.getByText("読み込み中...")).toBeInTheDocument();
     expect(await screen.findByText("全体フラウド率")).toBeInTheDocument();

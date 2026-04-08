@@ -26,6 +26,7 @@ def test_health_requires_admin_token(monkeypatch):
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Unauthorized"
+    assert response.json()["error_code"] == "AUTH_FAILED"
 
 
 def test_public_health_is_available_without_auth(monkeypatch):
@@ -37,6 +38,41 @@ def test_public_health_is_available_without_auth(monkeypatch):
     assert response.status_code == 200
     assert response.json()["service"] == "fraud-checker-api"
     assert response.json()["storage"] == "postgresql"
+
+
+def test_validation_errors_include_error_code_for_console_filters(monkeypatch):
+    monkeypatch.setenv("FC_ALLOW_PUBLIC_READ", "true")
+    client = TestClient(api.app)
+
+    response = client.get("/api/console/alerts", params={"page": 0})
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "Request validation failed",
+        "error_code": "VALIDATION_ERROR",
+    }
+
+
+def test_rate_limit_returns_429_with_error_code(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "rate_limiter",
+        type(
+            "AlwaysRejectLimiter",
+            (),
+            {"allow": lambda self, key, rule: (False, 7)},
+        )(),
+    )
+    client = TestClient(api.app)
+
+    response = client.get("/api/health/public")
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "7"
+    assert response.json() == {
+        "detail": "Too many requests",
+        "error_code": "RATE_LIMITED",
+    }
 
 
 def test_ingest_clicks_returns_japanese_message_for_invalid_date(monkeypatch):
@@ -745,6 +781,76 @@ def test_health_returns_warning_when_data_is_missing(monkeypatch):
     assert len(payload["issues"]) >= 1
     assert payload["config"]["database_url_configured"] is True
     assert payload["config"]["read_access_mode"] == "public"
+
+
+    def test_health_metrics_include_acs_api_status(monkeypatch):
+        class DummyRepo:
+            def fetch_one(self, query, params=None):
+                if "COUNT(*)" in query:
+                    return {"cnt": 10}
+                if "click_ipua_daily" in query:
+                    return {"last_date": datetime(2026, 4, 5).date()}
+                if "conversion_ipua_daily" in query:
+                    return {"last_date": datetime(2026, 4, 5).date()}
+                return {"cnt": 10}
+
+        def get_click_ipua_coverage(self, target_date):
+            return {"covered_rows": 10, "coverage_ratio": 1.0}
+
+        def get_conversion_click_enrichment(self, target_date):
+            return {"covered_rows": 5, "coverage_ratio": 1.0}
+
+        def get_all_masters(self):
+            return {"media_count": 10, "promotion_count": 10, "user_count": 10, "last_synced_at": None}
+
+    monkeypatch.setenv("FC_ADMIN_API_KEY", "secret")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example/db")
+    monkeypatch.setenv("ACS_BASE_URL", "https://acs.example.com")
+    monkeypatch.setenv("ACS_TOKEN", "a:b")
+    monkeypatch.setattr(health_router, "get_repository", lambda: DummyRepo())
+    monkeypatch.setattr(
+        health_router,
+        "get_job_store",
+        lambda: type(
+            "DummyStore",
+            (),
+            {
+                "get_latest_successful_finished_at": lambda self, job_types: None,
+                "get_queue_metrics": lambda self: {
+                    "queued_jobs_count": 0,
+                    "retry_scheduled_jobs_count": 0,
+                    "running_jobs_count": 0,
+                    "failed_jobs_count": 0,
+                    "oldest_queued_at": None,
+                    "oldest_queued_age_seconds": None,
+                },
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        health_router.reporting,
+        "get_summary",
+        lambda repo, target_date: {
+            "quality": {
+                "findings": {
+                    "findings_last_computed_at": "2026-04-05T00:00:00+09:00",
+                    "stale": False,
+                    "stale_reasons": [],
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(
+        health_router,
+        "get_acs_client",
+        lambda: type("HealthyAcsClient", (), {"ping": lambda self: {"ok": True, "latency_ms": 12.5}})(),
+    )
+    client = TestClient(api.app)
+
+    response = client.get("/api/health", headers={"X-API-Key": "secret"})
+
+    assert response.status_code == 200
+    assert response.json()["metrics"]["acs_api"] == {"ok": True, "latency_ms": 12.5}
 
 
 def test_settings_endpoints_return_service_payloads(monkeypatch):

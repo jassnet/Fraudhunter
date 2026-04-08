@@ -7,7 +7,7 @@ import { server } from "@/test/msw/server";
 import { AlertDetailScreen } from "./alert-detail-screen";
 
 describe("AlertDetailScreen", () => {
-  it("shows evidence, transactions, and review actions for the selected alert", async () => {
+  it("shows evidence, transactions, reward source, and review actions", async () => {
     let reviewRequestBody: unknown = null;
 
     server.use(
@@ -20,26 +20,28 @@ describe("AlertDetailScreen", () => {
           risk_level: "critical",
           status: "unhandled",
           reward_amount: 36000,
+          reward_amount_source: "fallback_default",
+          reward_amount_is_estimated: true,
           detected_at: "2026-04-05T08:55:00+09:00",
-          outcome_type: "カード申込",
-          program_name: "クレジットカードA",
+          outcome_type: "Program B",
+          program_name: "クレジットカード",
           reasons: [
-            "同一IPから24時間以内に47件のCV",
-            "CV間隔が平均2.3秒",
-            "直近7日平均の6.2倍の急増",
+            "同一IPから24時間で47件のCV",
+            "CV間隔が極端に短い",
+            "同日中に複数端末から発生",
           ],
           transactions: [
             {
               transaction_id: "tx-981",
               occurred_at: "2026-04-05T08:52:03+09:00",
-              outcome_type: "カード申込",
+              outcome_type: "Program B",
               reward_amount: 6000,
               state: "approved",
             },
             {
               transaction_id: "tx-977",
               occurred_at: "2026-04-05T08:49:38+09:00",
-              outcome_type: "カード申込",
+              outcome_type: "Program B",
               reward_amount: 6000,
               state: "pending",
             },
@@ -61,9 +63,8 @@ describe("AlertDetailScreen", () => {
     expect(screen.getByText("AFF-145")).toBeInTheDocument();
     expect(screen.getByText("96")).toBeInTheDocument();
     expect(screen.getByText("未対応")).toBeInTheDocument();
-    expect(screen.getByText("¥36,000")).toBeInTheDocument();
-    expect(screen.getByText("同一IPから24時間以内に47件のCV")).toBeInTheDocument();
-    expect(screen.getByText("CV間隔が平均2.3秒")).toBeInTheDocument();
+    expect(screen.getAllByText("既定単価の推定")).toHaveLength(2);
+    expect(screen.getByText("同一IPから24時間で47件のCV")).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "関連トランザクション" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "調査中にする" }));
@@ -75,6 +76,7 @@ describe("AlertDetailScreen", () => {
       });
     });
 
+    expect(await screen.findByText("レビュー状態を更新しました。")).toBeInTheDocument();
     expect(await screen.findByText("調査中")).toBeInTheDocument();
   });
 });

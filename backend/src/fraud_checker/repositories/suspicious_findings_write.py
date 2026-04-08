@@ -11,6 +11,33 @@ from .base import RepositoryBase
 
 
 class SuspiciousFindingsWriteRepository(RepositoryBase):
+    def apply_alert_reviews(self, finding_keys: list[str], *, status: str, updated_at) -> int:
+        if not finding_keys:
+            return 0
+        statement = sa.text(
+            """
+            INSERT INTO fraud_alert_reviews (finding_key, review_status, updated_at)
+            VALUES (:finding_key, :review_status, :updated_at)
+            ON CONFLICT (finding_key)
+            DO UPDATE SET
+                review_status = excluded.review_status,
+                updated_at = excluded.updated_at
+            """
+        )
+        with self._connect() as conn:
+            conn.execute(
+                statement,
+                [
+                    {
+                        "finding_key": finding_key,
+                        "review_status": status,
+                        "updated_at": updated_at,
+                    }
+                    for finding_key in finding_keys
+                ],
+            )
+        return len(finding_keys)
+
     def replace_conversion_findings(
         self,
         target_date: date,

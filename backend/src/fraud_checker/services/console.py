@@ -1,18 +1,26 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections import Counter, defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 import sqlalchemy as sa
 
 from ..api_parsers import parse_iso_date
 from ..api_presenters import format_reasons
+from ..console_service_support import (
+    build_alert_csv,
+    normalize_reward_amount_source,
+    reward_amount_is_estimated,
+)
+from ..constants import DEFAULT_REWARD_YEN
+from ..service_protocols import ConsoleRepository
 from ..time_utils import now_local
 from . import reporting
 
-DEFAULT_REWARD_YEN = 3000
+logger = logging.getLogger(__name__)
 ALERT_REVIEW_STATUSES = {"unhandled", "investigating", "confirmed_fraud", "white"}
 DEFAULT_AFFILIATE_ID = "unassigned"
 DEFAULT_AFFILIATE_NAME = "Unassigned"
@@ -33,7 +41,51 @@ REWARD_KEYS = {
 }
 
 
-def get_dashboard(repo, target_date: str | None = None) -> dict[str, Any]:
+def _findings_column_exists(repo: ConsoleRepository, column_name: str) -> bool:
+    exists = getattr(repo, "_column_exists", None)
+    if not callable(exists):
+        return False
+    try:
+        return bool(exists("suspicious_conversion_findings", column_name))
+    except Exception:
+        logger.exception("Failed to inspect suspicious_conversion_findings column '%s'", column_name)
+        return False
+
+
+def _optional_findings_column(repo: ConsoleRepository, column_name: str, sql_type: str) -> str:
+    if _findings_column_exists(repo, column_name):
+        return f"f.{column_name}"
+    return f"CAST(NULL AS {sql_type}) AS {column_name}"
+
+
+def _findings_select_columns(repo: ConsoleRepository) -> str:
+    return ",\n                ".join(
+        [
+            "f.finding_key",
+            "f.date",
+            "f.ipaddress",
+            "f.useragent",
+            "f.program_ids_json",
+            "f.program_names_json",
+            _optional_findings_column(repo, "affiliate_ids_json", "TEXT"),
+            "f.affiliate_names_json",
+            "f.risk_level",
+            "f.risk_score",
+            "f.reasons_json",
+            "f.reasons_formatted_json",
+            "f.metrics_json",
+            "f.total_conversions",
+            "f.first_time",
+            "f.last_time",
+            "f.computed_at",
+            _optional_findings_column(repo, "estimated_damage_yen", "INTEGER"),
+            _optional_findings_column(repo, "damage_unit_price_source", "TEXT"),
+            _optional_findings_column(repo, "damage_evidence_json", "TEXT"),
+        ]
+    )
+
+
+def get_dashboard(repo: ConsoleRepository, target_date: str | None = None) -> dict[str, Any]:
     summary = reporting.get_summary(repo, target_date)
     resolved_date = summary["date"]
     available_dates = reporting.get_available_dates(repo)
@@ -84,11 +136,12 @@ def get_dashboard(repo, target_date: str | None = None) -> dict[str, Any]:
 
 
 def list_alerts(
-    repo,
+    repo: ConsoleRepository,
     *,
     status: str | None = "unhandled",
     start_date: str | None = None,
     end_date: str | None = None,
+    search: str | None = None,
     sort: str = "risk_desc",
     page: int = DEFAULT_ALERT_PAGE,
     page_size: int = DEFAULT_ALERT_PAGE_SIZE,
@@ -102,6 +155,7 @@ def list_alerts(
         repo,
         start_date=resolved_start,
         end_date=resolved_end,
+        search=search,
         status=status,
         sort=sort,
         limit=resolved_page_size,
@@ -122,6 +176,7 @@ def list_alerts(
         repo,
         start_date=resolved_start,
         end_date=resolved_end,
+        search=search,
         status=status,
     )
 
@@ -131,6 +186,7 @@ def list_alerts(
             "status": status or "all",
             "start_date": resolved_start,
             "end_date": resolved_end,
+            "search": (search or "").strip() or None,
             "sort": sort,
         },
         "status_counts": {
@@ -147,7 +203,33 @@ def list_alerts(
     }
 
 
-def get_alert_detail(repo, finding_key: str) -> dict[str, Any] | None:
+def export_alerts_csv(
+    repo: ConsoleRepository,
+    *,
+    status: str | None = "unhandled",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    search: str | None = None,
+    sort: str = "risk_desc",
+) -> str:
+    resolved_start, resolved_end = _resolve_alert_window(repo, start_date, end_date)
+    rows = _fetch_alert_rows(
+        repo,
+        start_date=resolved_start,
+        end_date=resolved_end,
+        search=search,
+        status=status,
+        sort=sort,
+    )
+    transaction_summary = _fetch_alert_transaction_summary(
+        repo,
+        [row for row in rows if _requires_summary_fallback(row)],
+    )
+    items = [_build_alert_item(row, transaction_summary.get(str(row["finding_key"]))) for row in rows]
+    return build_alert_csv(items, exported_at=now_local().isoformat())
+
+
+def get_alert_detail(repo: ConsoleRepository, finding_key: str) -> dict[str, Any] | None:
     row = _fetch_alert_detail_row(repo, finding_key)
     if row is None:
         return None
@@ -183,13 +265,15 @@ def get_alert_detail(repo, finding_key: str) -> dict[str, Any] | None:
         "detected_at": _iso(row.get("computed_at")),
         "outcome_type": summary["outcome_type"],
         "program_name": summary["outcome_type"],
+        "reward_amount_source": summary["reward_amount_source"],
+        "reward_amount_is_estimated": summary["reward_amount_is_estimated"],
         "reasons": reasons,
         "transactions": [_present_transaction(item) for item in recent_transactions],
         "actions": ["confirmed_fraud", "white", "investigating"],
     }
 
 
-def apply_review_action(repo, finding_keys: list[str], status: str) -> dict[str, Any]:
+def apply_review_action(repo: ConsoleRepository, finding_keys: list[str], status: str) -> dict[str, Any]:
     if status not in ALERT_REVIEW_STATUSES:
         raise ValueError(f"Unsupported review status: {status}")
 
@@ -197,36 +281,12 @@ def apply_review_action(repo, finding_keys: list[str], status: str) -> dict[str,
     if not unique_keys:
         return {"updated_count": 0, "status": status}
 
-    now = now_local()
-    statement = sa.text(
-        """
-        INSERT INTO fraud_alert_reviews (finding_key, review_status, updated_at)
-        VALUES (:finding_key, :review_status, :updated_at)
-        ON CONFLICT (finding_key)
-        DO UPDATE SET
-            review_status = excluded.review_status,
-            updated_at = excluded.updated_at
-        """
-    )
-
-    with repo.engine.begin() as conn:
-        conn.execute(
-            statement,
-            [
-                {
-                    "finding_key": finding_key,
-                    "review_status": status,
-                    "updated_at": now,
-                }
-                for finding_key in unique_keys
-            ],
-        )
-
-    return {"updated_count": len(unique_keys), "status": status}
+    updated_count = repo.apply_alert_reviews(unique_keys, status=status, updated_at=now_local())
+    return {"updated_count": updated_count, "status": status}
 
 
 def _resolve_alert_window(
-    repo,
+    repo: ConsoleRepository,
     start_date: str | None,
     end_date: str | None,
 ) -> tuple[str | None, str | None]:
@@ -246,6 +306,7 @@ def _resolve_alert_window(
             """
         )
     except sa.exc.SQLAlchemyError:
+        logger.exception("Failed to resolve latest alert window")
         latest_finding_date = None
     value = latest_finding_date.get("latest_date") if latest_finding_date else None
     if value is None:
@@ -256,15 +317,17 @@ def _resolve_alert_window(
 
 
 def _fetch_alert_rows(
-    repo,
+    repo: ConsoleRepository,
     *,
     start_date: str | None,
     end_date: str | None,
+    search: str | None = None,
     status: str | None,
     sort: str,
     limit: int | None = None,
     offset: int | None = None,
 ) -> list[dict[str, Any]]:
+    select_columns = _findings_select_columns(repo)
     params: dict[str, object] = {}
     conditions = ["f.is_current = TRUE"]
     review_status_sql = "COALESCE(r.review_status, 'unhandled')"
@@ -275,6 +338,9 @@ def _fetch_alert_rows(
     if end_date:
         params["end_date"] = parse_iso_date(end_date)
         conditions.append("f.date <= :end_date")
+    if search and search.strip():
+        params["search"] = f"%{search.strip().lower()}%"
+        conditions.append("f.search_text LIKE :search")
     if status and status != "all":
         params["review_status"] = status
         conditions.append(f"{review_status_sql} = :review_status")
@@ -297,26 +363,7 @@ def _fetch_alert_rows(
         rows = repo.fetch_all(
             f"""
             SELECT
-                f.finding_key,
-                f.date,
-                f.ipaddress,
-                f.useragent,
-                f.program_ids_json,
-                f.program_names_json,
-                f.affiliate_ids_json,
-                f.affiliate_names_json,
-                f.risk_level,
-                f.risk_score,
-                f.reasons_json,
-                f.reasons_formatted_json,
-                f.metrics_json,
-                f.total_conversions,
-                f.first_time,
-                f.last_time,
-                f.computed_at,
-                f.estimated_damage_yen,
-                f.damage_unit_price_source,
-                f.damage_evidence_json,
+                {select_columns},
                 {review_status_sql} AS review_status
             FROM suspicious_conversion_findings f
             LEFT JOIN fraud_alert_reviews r
@@ -328,34 +375,18 @@ def _fetch_alert_rows(
             params,
         )
     except sa.exc.SQLAlchemyError:
+        logger.exception("Failed to fetch console alert rows")
         return []
     return [_deserialize_alert_row(row) for row in rows]
 
 
-def _fetch_alert_detail_row(repo, finding_key: str) -> dict[str, Any] | None:
+def _fetch_alert_detail_row(repo: ConsoleRepository, finding_key: str) -> dict[str, Any] | None:
+    select_columns = _findings_select_columns(repo)
     try:
         rows = repo.fetch_all(
-            """
+            f"""
             SELECT
-                f.finding_key,
-                f.date,
-                f.ipaddress,
-                f.useragent,
-                f.program_names_json,
-                f.affiliate_ids_json,
-                f.affiliate_names_json,
-                f.risk_level,
-                f.risk_score,
-                f.reasons_json,
-                f.reasons_formatted_json,
-                f.metrics_json,
-                f.first_time,
-                f.last_time,
-                f.computed_at,
-                f.total_conversions,
-                f.estimated_damage_yen,
-                f.damage_unit_price_source,
-                f.damage_evidence_json,
+                {select_columns},
                 COALESCE(r.review_status, 'unhandled') AS review_status
             FROM suspicious_conversion_findings f
             LEFT JOIN fraud_alert_reviews r
@@ -367,6 +398,7 @@ def _fetch_alert_detail_row(repo, finding_key: str) -> dict[str, Any] | None:
             {"finding_key": finding_key},
         )
     except sa.exc.SQLAlchemyError:
+        logger.exception("Failed to fetch console alert detail row")
         return None
     if not rows:
         return None
@@ -374,7 +406,7 @@ def _fetch_alert_detail_row(repo, finding_key: str) -> dict[str, Any] | None:
 
 
 def _fetch_alert_status_counts(
-    repo,
+    repo: ConsoleRepository,
     *,
     start_date: str | None,
     end_date: str | None,
@@ -404,6 +436,7 @@ def _fetch_alert_status_counts(
             params,
         )
     except sa.exc.SQLAlchemyError:
+        logger.exception("Failed to fetch console alert status counts")
         return {}
 
     return {
@@ -414,10 +447,11 @@ def _fetch_alert_status_counts(
 
 
 def _count_alert_rows(
-    repo,
+    repo: ConsoleRepository,
     *,
     start_date: str | None,
     end_date: str | None,
+    search: str | None = None,
     status: str | None,
 ) -> int:
     params: dict[str, object] = {}
@@ -430,6 +464,9 @@ def _count_alert_rows(
     if end_date:
         params["end_date"] = parse_iso_date(end_date)
         conditions.append("f.date <= :end_date")
+    if search and search.strip():
+        params["search"] = f"%{search.strip().lower()}%"
+        conditions.append("f.search_text LIKE :search")
     if status and status != "all":
         params["review_status"] = status
         conditions.append(f"{review_status_sql} = :review_status")
@@ -446,25 +483,37 @@ def _count_alert_rows(
             params,
         )
     except sa.exc.SQLAlchemyError:
+        logger.exception("Failed to count console alert rows")
         return 0
 
     return int((row or {}).get("row_count") or 0)
 
 
-def _fetch_alert_transaction_summary(repo, rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def _fetch_alert_transaction_summary(repo: ConsoleRepository, rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     findings = rows
     if not findings or not repo._table_exists("conversion_raw"):
         return {}
 
-    keys = [(row["finding_key"], row["date"], row["ipaddress"], row["useragent"]) for row in findings]
+    keys = [
+        (
+            row["finding_key"],
+            row["date"],
+            *_date_time_bounds(row["date"]),
+            row["ipaddress"],
+            row["useragent"],
+        )
+        for row in findings
+    ]
     placeholders = ", ".join(
-        f"(:finding_key{idx}, :target_date{idx}, :ipaddress{idx}, :useragent{idx})"
+        f"(:finding_key{idx}, :target_date{idx}, :target_start{idx}, :target_end{idx}, :ipaddress{idx}, :useragent{idx})"
         for idx in range(len(keys))
     )
     params: dict[str, object] = {}
-    for idx, (finding_key, target_date, ipaddress, useragent) in enumerate(keys):
+    for idx, (finding_key, target_date, target_start, target_end, ipaddress, useragent) in enumerate(keys):
         params[f"finding_key{idx}"] = finding_key
         params[f"target_date{idx}"] = target_date
+        params[f"target_start{idx}"] = target_start
+        params[f"target_end{idx}"] = target_end
         params[f"ipaddress{idx}"] = ipaddress
         params[f"useragent{idx}"] = useragent
 
@@ -473,7 +522,7 @@ def _fetch_alert_transaction_summary(repo, rows: list[dict[str, Any]]) -> dict[s
         WITH target_entities AS (
             SELECT *
             FROM (VALUES {placeholders})
-            AS t(finding_key, target_date, ipaddress, useragent)
+            AS t(finding_key, target_date, target_start, target_end, ipaddress, useragent)
         )
         SELECT
             t.finding_key,
@@ -487,7 +536,8 @@ def _fetch_alert_transaction_summary(repo, rows: list[dict[str, Any]]) -> dict[s
             COALESCE(p.name, c.program_id, :default_outcome_type) AS promotion_name
         FROM target_entities t
         JOIN conversion_raw c
-          ON CAST(c.conversion_time AS date) = t.target_date
+          ON c.conversion_time >= t.target_start
+         AND c.conversion_time < t.target_end
          AND c.entry_ipaddress = t.ipaddress
          AND c.entry_useragent = t.useragent
         LEFT JOIN master_user u
@@ -524,7 +574,7 @@ def _fetch_alert_transaction_summary(repo, rows: list[dict[str, Any]]) -> dict[s
     return summaries
 
 
-def _fetch_program_unit_prices(repo, findings: list[dict[str, Any]]) -> dict[tuple[date, str], int]:
+def _fetch_program_unit_prices(repo: ConsoleRepository, findings: list[dict[str, Any]]) -> dict[tuple[date, str], int]:
     requested_dates = sorted({row["date"] for row in findings if isinstance(row.get("date"), date)})
     requested_program_ids = sorted(
         {
@@ -537,20 +587,24 @@ def _fetch_program_unit_prices(repo, findings: list[dict[str, Any]]) -> dict[tup
     if not requested_dates or not requested_program_ids:
         return {}
 
-    date_placeholders = ", ".join(f":target_date_{idx}" for idx in range(len(requested_dates)))
     program_placeholders = ", ".join(f":program_id_{idx}" for idx in range(len(requested_program_ids)))
+    date_ranges = {value: _date_time_bounds(value) for value in requested_dates}
+    overall_start = min(bounds[0] for bounds in date_ranges.values())
+    overall_end = max(bounds[1] for bounds in date_ranges.values())
     params: dict[str, object] = {
-        **{f"target_date_{idx}": value for idx, value in enumerate(requested_dates)},
+        "overall_start": overall_start,
+        "overall_end": overall_end,
         **{f"program_id_{idx}": value for idx, value in enumerate(requested_program_ids)},
     }
     rows = repo.fetch_all(
         f"""
         SELECT
-            CAST(conversion_time AS date) AS target_date,
+            conversion_time,
             program_id,
             raw_payload
         FROM conversion_raw
-        WHERE CAST(conversion_time AS date) IN ({date_placeholders})
+        WHERE conversion_time >= :overall_start
+          AND conversion_time < :overall_end
           AND program_id IN ({program_placeholders})
         """,
         params,
@@ -558,9 +612,10 @@ def _fetch_program_unit_prices(repo, findings: list[dict[str, Any]]) -> dict[tup
 
     grouped_prices: dict[tuple[date, str], list[int]] = defaultdict(list)
     for row in rows:
-        target_date = row.get("target_date")
+        conversion_time = row.get("conversion_time")
+        target_date = conversion_time.date() if isinstance(conversion_time, datetime) else None
         program_id = row.get("program_id")
-        if not isinstance(target_date, date) or not program_id:
+        if not isinstance(target_date, date) or target_date not in date_ranges or not program_id:
             continue
         grouped_prices[(target_date, str(program_id))].append(_reward_from_payload(row.get("raw_payload")))
 
@@ -591,6 +646,7 @@ def _merge_summary_with_fallback(
             "affiliate_id": DEFAULT_AFFILIATE_ID,
             "affiliate_name": _first_non_empty(finding.get("affiliate_names_json")) or DEFAULT_AFFILIATE_NAME,
             "outcome_type": _first_non_empty(finding.get("program_names_json")) or DEFAULT_OUTCOME_TYPE,
+            "reward_amount_source": "unknown",
         }
 
     summary["transaction_count"] = resolved_count
@@ -609,6 +665,7 @@ def _merge_summary_with_fallback(
         fallback_unit_price = DEFAULT_REWARD_YEN
 
     summary["reward_amount"] += fallback_unit_price * missing_count
+    summary["reward_amount_source"] = "mixed" if matched_count > 0 else "fallback_default"
     return summary
 
 
@@ -643,30 +700,38 @@ def _first_non_empty(values: Any) -> str | None:
     return None
 
 
-def _fetch_affiliate_conversion_totals(repo, target_date: date) -> dict[str, int]:
+def _date_time_bounds(target_date: date) -> tuple[datetime, datetime]:
+    start = datetime.combine(target_date, time.min)
+    return start, start + timedelta(days=1)
+
+
+def _fetch_affiliate_conversion_totals(repo: ConsoleRepository, target_date: date) -> dict[str, int]:
     if not repo._table_exists("conversion_raw"):
         return {}
+    target_start, target_end = _date_time_bounds(target_date)
     rows = repo.fetch_all(
         """
         SELECT user_id, COUNT(*) AS total_conversions
         FROM conversion_raw
-        WHERE CAST(conversion_time AS date) = :target_date
+        WHERE conversion_time >= :target_start
+          AND conversion_time < :target_end
           AND user_id IS NOT NULL
         GROUP BY user_id
         """,
-        {"target_date": target_date},
+        {"target_start": target_start, "target_end": target_end},
     )
     return {str(row["user_id"]): int(row["total_conversions"] or 0) for row in rows}
 
 
 def _fetch_entity_transactions(
-    repo,
+    repo: ConsoleRepository,
     target_date: date,
     ipaddress: str,
     useragent: str,
 ) -> list[dict[str, Any]]:
     if not repo._table_exists("conversion_raw"):
         return []
+    target_start, target_end = _date_time_bounds(target_date)
     return repo.fetch_all(
         """
         SELECT
@@ -683,13 +748,15 @@ def _fetch_entity_transactions(
           ON u.id = c.user_id
         LEFT JOIN master_promotion p
           ON p.id = c.program_id
-        WHERE CAST(c.conversion_time AS date) = :target_date
+        WHERE c.conversion_time >= :target_start
+          AND c.conversion_time < :target_end
           AND c.entry_ipaddress = :ipaddress
           AND c.entry_useragent = :useragent
         ORDER BY c.conversion_time DESC
         """,
         {
-            "target_date": target_date,
+            "target_start": target_start,
+            "target_end": target_end,
             "ipaddress": ipaddress,
             "useragent": useragent,
             "default_affiliate_name": DEFAULT_AFFILIATE_NAME,
@@ -698,7 +765,7 @@ def _fetch_entity_transactions(
     )
 
 
-def _fetch_recent_affiliate_transactions(repo, user_id: str) -> list[dict[str, Any]]:
+def _fetch_recent_affiliate_transactions(repo: ConsoleRepository, user_id: str) -> list[dict[str, Any]]:
     if not user_id or user_id == DEFAULT_AFFILIATE_ID or not repo._table_exists("conversion_raw"):
         return []
     return repo.fetch_all(
@@ -790,6 +857,8 @@ def _build_alert_item(row: dict[str, Any], transaction_summary: dict[str, Any] |
         "pattern": reasons[0] if reasons else "No pattern available",
         "status": row["review_status"],
         "reward_amount": summary["reward_amount"],
+        "reward_amount_source": summary["reward_amount_source"],
+        "reward_amount_is_estimated": summary["reward_amount_is_estimated"],
         "transaction_count": summary["transaction_count"],
     }
 
@@ -816,10 +885,16 @@ def _resolve_alert_summary(
     reward_amount = row.get("estimated_damage_yen")
     if reward_amount is None:
         reward_amount = fallback_summary["reward_amount"] if fallback_summary else 0
+    reward_amount_source = normalize_reward_amount_source(
+        row.get("damage_unit_price_source")
+        or (fallback_summary.get("reward_amount_source") if fallback_summary else None)
+    )
 
     return {
         "transaction_count": int(row.get("total_conversions") or (fallback_summary["transaction_count"] if fallback_summary else 0)),
         "reward_amount": int(reward_amount or 0),
+        "reward_amount_source": reward_amount_source,
+        "reward_amount_is_estimated": reward_amount_is_estimated(reward_amount_source),
         "latest_occurred_at": _iso(row.get("last_time")) or _iso(row.get("computed_at")),
         "affiliate_id": affiliate_id,
         "affiliate_name": affiliate_name,
@@ -861,6 +936,7 @@ def _summarize_transactions(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "transaction_count": len(rows),
         "reward_amount": reward_amount,
+        "reward_amount_source": "observed_transactions",
         "latest_occurred_at": latest_occurred_at,
         "affiliate_id": affiliate_id,
         "affiliate_name": affiliate_name,

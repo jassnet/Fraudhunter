@@ -56,6 +56,7 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
         status: str | None,
         start_date: str | None,
         end_date: str | None,
+        search: str | None,
         sort: str,
         page: int,
         page_size: int,
@@ -63,6 +64,7 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
         captured["status"] = status
         captured["start_date"] = start_date
         captured["end_date"] = end_date
+        captured["search"] = search
         captured["sort"] = sort
         captured["page"] = page
         captured["page_size"] = page_size
@@ -109,6 +111,7 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
         "status": "unhandled",
         "start_date": None,
         "end_date": None,
+        "search": None,
         "sort": "risk_desc",
         "page": 1,
         "page_size": 50,
@@ -170,6 +173,7 @@ def test_console_alerts_endpoint_forwards_pagination_params(monkeypatch):
                 "status": kwargs["status"] or "all",
                 "start_date": kwargs["start_date"],
                 "end_date": kwargs["end_date"],
+                "search": kwargs["search"],
                 "sort": kwargs["sort"],
             },
             "status_counts": {
@@ -191,13 +195,40 @@ def test_console_alerts_endpoint_forwards_pagination_params(monkeypatch):
 
     response = client.get(
         "/api/console/alerts",
-        params={"status": "all", "start_date": "2026-04-01", "end_date": "2026-04-05", "page": 3, "page_size": 25},
+        params={
+            "status": "all",
+            "start_date": "2026-04-01",
+            "end_date": "2026-04-05",
+            "search": "alpha",
+            "page": 3,
+            "page_size": 25,
+        },
     )
 
     assert response.status_code == 200
     assert captured["status"] == "all"
+    assert captured["search"] == "alpha"
     assert captured["page"] == 3
     assert captured["page_size"] == 25
+
+
+def test_console_export_endpoint_returns_csv(monkeypatch):
+    from fraud_checker.api_routers import console as console_router
+
+    monkeypatch.setattr(console_router, "get_repository", lambda: object())
+    monkeypatch.setattr(
+        console_router.console_service,
+        "export_alerts_csv",
+        lambda repo, **kwargs: "finding_key,affiliate_name\nfk-001,Alpha\n",
+    )
+    client = TestClient(api.app)
+
+    response = client.get("/api/console/alerts/export", params={"start_date": "2026-04-05"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert 'fraud-alerts-2026-04-05.csv' in response.headers["content-disposition"]
+    assert "fk-001" in response.text
 
 
 def test_console_review_endpoint_requires_admin_and_returns_mutation_result(monkeypatch):
@@ -365,10 +396,10 @@ def test_alert_transaction_summary_falls_back_to_program_unit_price_times_total_
         def fetch_all(self, query, params=None):
             if "WITH target_entities" in query:
                 return []
-            if "CAST(conversion_time AS date) AS target_date" in query:
+            if "SELECT\n            conversion_time," in query:
                 return [
                     {
-                        "target_date": date(2026, 4, 5),
+                        "conversion_time": datetime(2026, 4, 5, 9, 30, 0),
                         "program_id": "program-1",
                         "raw_payload": {"reward_amount": 12000},
                     }
@@ -422,7 +453,7 @@ def test_alert_transaction_summary_backfills_missing_matches_with_direct_unit_pr
                         "promotion_name": "Program Alpha",
                     }
                 ]
-            if "CAST(conversion_time AS date) AS target_date" in query:
+            if "SELECT\n            conversion_time," in query:
                 return []
             raise AssertionError(f"Unexpected query: {query}")
 
@@ -447,3 +478,26 @@ def test_alert_transaction_summary_backfills_missing_matches_with_direct_unit_pr
     assert summary["finding-001"]["transaction_count"] == 3
     assert summary["finding-001"]["reward_amount"] == 24000
     assert summary["finding-001"]["affiliate_id"] == "aff-1"
+
+
+def test_fetch_alert_rows_logs_sqlalchemy_errors(monkeypatch):
+    from fraud_checker.services import console as console_service
+
+    captured: list[str] = []
+
+    class DummyRepo:
+        def fetch_all(self, query, params=None):
+            raise console_service.sa.exc.SQLAlchemyError("boom")
+
+    monkeypatch.setattr(console_service.logger, "exception", lambda message: captured.append(message))
+
+    rows = console_service._fetch_alert_rows(
+        DummyRepo(),
+        start_date="2026-04-05",
+        end_date="2026-04-05",
+        status="unhandled",
+        sort="risk_desc",
+    )
+
+    assert rows == []
+    assert captured == ["Failed to fetch console alert rows"]

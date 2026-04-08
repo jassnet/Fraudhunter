@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-from .ip_filters import BROWSER_UA_INCLUDES, BOT_UA_MARKERS, DATACENTER_IP_PREFIXES
+from .ip_filters import BROWSER_UA_INCLUDES, BOT_UA_MARKERS, is_datacenter_ip
 from .models import ConversionIpUaRollup, SuspiciousConversionFinding
 from .repository_pg import PostgresRepository
 
@@ -24,9 +24,7 @@ def _is_browser_useragent(ua: str) -> bool:
 
 
 def _is_datacenter_ip_conversion(ip: str) -> bool:
-    if not ip:
-        return False
-    return ip.startswith(DATACENTER_IP_PREFIXES)
+    return is_datacenter_ip(ip)
 
 
 @dataclass

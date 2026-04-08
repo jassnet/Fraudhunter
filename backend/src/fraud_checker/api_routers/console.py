@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from ..api_dependencies import require_admin, require_analyst_access
 from ..api_models import ConsoleReviewRequest, ConsoleReviewResponse
+from ..console_service_support import date_to_filename_fragment
 from ..service_dependencies import get_repository
 from ..services import console as console_service
 
@@ -30,6 +31,7 @@ def get_alerts(
     status: Optional[str] = Query("unhandled"),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
     sort: str = Query("risk_desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -40,6 +42,7 @@ def get_alerts(
             status=status,
             start_date=start_date,
             end_date=end_date,
+            search=search,
             sort=sort,
             page=page,
             page_size=page_size,
@@ -49,6 +52,38 @@ def get_alerts(
     except Exception:
         logger.exception("Error getting console alerts")
         raise HTTPException(status_code=500, detail="アラート一覧の取得に失敗しました") from None
+
+
+@router.get("/alerts/export", dependencies=[Depends(require_analyst_access)])
+def export_alerts(
+    status: Optional[str] = Query("unhandled"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    sort: str = Query("risk_desc"),
+):
+    try:
+        csv_text = console_service.export_alerts_csv(
+            get_repository(),
+            status=status,
+            start_date=start_date,
+            end_date=end_date,
+            search=search,
+            sort=sort,
+        )
+        filename_date = date_to_filename_fragment(start_date or end_date)
+        return Response(
+            content=csv_text,
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="fraud-alerts-{filename_date}.csv"',
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error exporting console alerts")
+        raise HTTPException(status_code=500, detail="CSV エクスポートに失敗しました") from None
 
 
 @router.get("/alerts/{finding_key}", dependencies=[Depends(require_analyst_access)])

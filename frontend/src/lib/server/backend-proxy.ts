@@ -55,11 +55,13 @@ export async function proxyToBackend({
       cache: "no-store",
     });
     const contentType = response.headers.get("content-type") ?? "application/json; charset=utf-8";
+    const contentDisposition = response.headers.get("content-disposition");
 
     return new Response(await response.text(), {
       status: response.status,
       headers: {
         "content-type": contentType,
+        ...(contentDisposition ? { "content-disposition": contentDisposition } : {}),
       },
     });
   } catch (caughtError) {

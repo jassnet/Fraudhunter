@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 import os
 
 
 PRODUCTION_ENVS = {"prod", "production"}
 LOCAL_ENVS = {"dev", "development", "local", "test"}
+logger = logging.getLogger(__name__)
 
 
 def current_env() -> str:
@@ -60,6 +62,8 @@ def validate_runtime_guards() -> None:
         raise RuntimeError("FC_ALLOW_INSECURE_ADMIN must not be enabled in production.")
     if env in PRODUCTION_ENVS and allow_insecure_acs:
         raise RuntimeError("ACS_ALLOW_INSECURE must not be enabled in production.")
+    if env not in LOCAL_ENVS and allow_insecure_admin:
+        logger.warning("FC_ALLOW_INSECURE_ADMIN is enabled outside local/test environments.")
     if env in PRODUCTION_ENVS and read_access_mode() == "unset":
         raise RuntimeError(
             "Production must declare a read-access posture. Set exactly one of "

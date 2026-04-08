@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 import { LineChart } from "@/components/line-chart";
 import {
@@ -100,6 +101,9 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
         description={dateLabel}
         actions={
           <>
+            <Link className="button button-default" href="/alerts">
+              アラート一覧
+            </Link>
             {adminActionsEnabled ? (
               <ActionButton
                 tone="warning"

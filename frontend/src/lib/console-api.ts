@@ -12,6 +12,7 @@ type AlertQuery = {
   status: AlertFilterStatus;
   startDate?: string;
   endDate?: string;
+  search?: string;
   sort?: string;
   page?: number;
   pageSize?: number;
@@ -74,6 +75,9 @@ export function getAlerts(query: AlertQuery) {
   if (query.endDate) {
     searchParams.set("end_date", query.endDate);
   }
+  if (query.search) {
+    searchParams.set("search", query.search);
+  }
   if (query.page) {
     searchParams.set("page", String(query.page));
   }
@@ -81,6 +85,23 @@ export function getAlerts(query: AlertQuery) {
     searchParams.set("page_size", String(query.pageSize));
   }
   return fetchJson<AlertsResponse>(`/api/console/alerts?${searchParams.toString()}`);
+}
+
+export function buildAlertsCsvUrl(query: AlertQuery) {
+  const searchParams = new URLSearchParams({
+    status: query.status,
+    sort: query.sort ?? "risk_desc",
+  });
+  if (query.startDate) {
+    searchParams.set("start_date", query.startDate);
+  }
+  if (query.endDate) {
+    searchParams.set("end_date", query.endDate);
+  }
+  if (query.search) {
+    searchParams.set("search", query.search);
+  }
+  return `/api/console/alerts/export?${searchParams.toString()}`;
 }
 
 export function getAlertDetail(findingKey: string) {

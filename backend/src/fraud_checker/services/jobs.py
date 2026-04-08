@@ -16,7 +16,7 @@ from ..config import resolve_acs_settings
 from ..ingestion import ClickLogIngestor, ConversionIngestor
 from ..job_status_pg import JobRun, JobStatusStorePG
 from ..logging_utils import log_event, log_timed
-from ..runtime_guards import current_env
+from ..runtime_guards import _env_truthy, current_env
 from ..service_dependencies import (
     RuntimeDependencies,
     get_acs_client as default_get_acs_client,
@@ -73,10 +73,6 @@ def get_runtime_dependencies() -> RuntimeDependencies:
         acs_client_factory=get_acs_client,
         now_provider=now_local,
     )
-
-
-def _env_truthy(name: str) -> bool:
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _deps(deps: RuntimeDependencies | None = None) -> RuntimeDependencies:

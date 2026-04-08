@@ -1,21 +1,22 @@
 from __future__ import annotations
 
+import hmac
 import os
 from dataclasses import dataclass
 
 from fastapi import Header, HTTPException
 
-from .runtime_guards import current_env
-
-
-def _env_truthy(name: str) -> bool:
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+from .runtime_guards import _env_truthy, current_env
 
 
 @dataclass(frozen=True)
 class AccessContext:
     level: str
     token_source: str
+
+
+def _matches_secret(token: str | None, expected: str | None) -> bool:
+    return token is not None and expected is not None and hmac.compare_digest(token, expected)
 
 
 def extract_bearer(authorization: str | None) -> str | None:
@@ -40,7 +41,7 @@ def _resolve_admin_access_context(
         raise HTTPException(status_code=500, detail="FC_ADMIN_API_KEY is not configured")
 
     token = x_api_key or extract_bearer(authorization)
-    if token != expected:
+    if not _matches_secret(token, expected):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     return AccessContext(
@@ -74,7 +75,7 @@ def require_test_key(x_test_key: str | None = Header(None, alias="X-Test-Key")) 
     expected = os.getenv("FC_E2E_TEST_KEY")
     if not expected:
         raise HTTPException(status_code=500, detail="FC_E2E_TEST_KEY is not configured")
-    if x_test_key != expected:
+    if not _matches_secret(x_test_key, expected):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -96,15 +97,16 @@ def _resolve_analyst_access_context(
         )
 
     token = x_read_api_key or x_api_key or extract_bearer(authorization)
-    allowed = {value for value in (expected_read, expected_admin) if value}
-    if token not in allowed:
+    matched_read = _matches_secret(token, expected_read)
+    matched_admin = _matches_secret(token, expected_admin)
+    if not matched_read and not matched_admin:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    if x_read_api_key and expected_read and x_read_api_key == expected_read:
+    if x_read_api_key and matched_read:
         return AccessContext(level="analyst", token_source="x_read_api_key")
 
     return AccessContext(
-        level="admin" if expected_admin and token == expected_admin else "analyst",
+        level="admin" if matched_admin else "analyst",
         token_source="x_api_key" if x_api_key else "bearer",
     )
 

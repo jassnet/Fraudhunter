@@ -21,6 +21,19 @@ type AlertDetailScreenProps = {
   findingKey: string;
 };
 
+function rewardSourceLabel(source: string, estimated: boolean) {
+  if (!estimated) {
+    return "実測値";
+  }
+  if (source === "fallback_default") {
+    return "既定単価の推定";
+  }
+  if (source === "mixed") {
+    return "一部推定";
+  }
+  return "推定値";
+}
+
 export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
   const [data, setData] = useState<AlertDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,7 +48,8 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
       const result = await getAlertDetail(findingKey);
       setData(result);
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "アラート詳細の取得に失敗しました。";
+      const message =
+        caughtError instanceof Error ? caughtError.message : "アラート詳細の取得に失敗しました。";
       setError(message);
     } finally {
       setLoading(false);
@@ -48,9 +62,10 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
     try {
       const result = await reviewAlerts([findingKey], status);
       setData((current) => (current ? { ...current, status: result.status } : current));
-      setFeedback("ステータスを更新しました。");
+      setFeedback("レビュー状態を更新しました。");
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "アラート更新に失敗しました。";
+      const message =
+        caughtError instanceof Error ? caughtError.message : "アラート更新に失敗しました。";
       setError(message);
     } finally {
       setSubmittingStatus(null);
@@ -63,42 +78,48 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
 
   return (
     <div className="screen-page">
-      <PageHeader title="アラート詳細" description="" />
+      <PageHeader
+        title="アラート詳細"
+        description="根拠、関連トランザクション、レビュー状態を確認します。"
+      />
 
       {loading && !data ? <LoadingState /> : null}
       {error && !data ? <ErrorState message={error} /> : null}
 
       {data ? (
         <div className="detail-layout">
-          {/* 左カラム: 情報エリア */}
           <div className="detail-main">
-            {/* 概要統計グリッド */}
             <section className="detail-header-grid" aria-label="アラート概要">
               <div className="detail-stat detail-stat-wide">
-                <div className="detail-key">アフィリエイトID / 名称</div>
+                <div className="detail-key">アフィリエイト</div>
                 <div className="detail-value">{data.affiliate_name}</div>
                 <div className="detail-subvalue">{data.affiliate_id}</div>
               </div>
               <div className="detail-stat">
-                <div className="detail-key">リスクスコア</div>
+                <div className="detail-key">リスク</div>
                 <div className="detail-value">
                   <RiskBadge score={data.risk_score} level={data.risk_level} emphasized />
                 </div>
               </div>
               <div className="detail-stat">
-                <div className="detail-key">被害推定額</div>
+                <div className="detail-key">想定報酬</div>
                 <div className="detail-value">{formatCurrency(data.reward_amount)}</div>
+                <div className="detail-subvalue">
+                  {rewardSourceLabel(data.reward_amount_source, data.reward_amount_is_estimated)}
+                </div>
               </div>
               <div className="detail-stat">
                 <div className="detail-key">検知日時</div>
-                <div className="detail-value" style={{ fontSize: "15px" }}>{formatDateTime(data.detected_at)}</div>
+                <div className="detail-value detail-value-small">{formatDateTime(data.detected_at)}</div>
               </div>
             </section>
 
-            {/* 検知根拠 */}
-            <Panel title="検知根拠" description={`${data.outcome_type} / ${data.program_name ?? "案件未設定"}`}>
+            <Panel
+              title="検知理由"
+              description={`${data.outcome_type} / ${data.program_name ?? "プログラム名なし"}`}
+            >
               {data.reasons.length === 0 ? (
-                <EmptyState message="判定根拠はまだ記録されていません。" />
+                <EmptyState message="検知理由はまだ登録されていません。" />
               ) : (
                 <ul className="reasons-list">
                   {data.reasons.map((reason) => (
@@ -108,19 +129,18 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
               )}
             </Panel>
 
-            {/* 関連トランザクション */}
-            <Panel title="関連トランザクション" description="同一アフィリエイターの直近成果">
+            <Panel title="関連トランザクション" description="同一アフィリエイトの直近トランザクションを表示します。">
               {data.transactions.length === 0 ? (
-                <EmptyState message="関連するトランザクションはありません。" />
+                <EmptyState message="関連トランザクションはありません。" />
               ) : (
                 <div className="table-wrap">
                   <table aria-label="関連トランザクション">
                     <thead>
                       <tr>
-                        <th>成果ID</th>
+                        <th>取引ID</th>
                         <th>発生日時</th>
-                        <th>成果種別</th>
-                        <th>報酬額</th>
+                        <th>成果</th>
+                        <th>報酬</th>
                         <th>状態</th>
                       </tr>
                     </thead>
@@ -141,26 +161,23 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
             </Panel>
           </div>
 
-          {/* 右カラム: アクションエリア（sticky） */}
           <div className="detail-sidebar">
-            {/* 現在のステータス */}
             <div className="detail-action-panel">
-              <p className="detail-action-title">現在のステータス</p>
+              <p className="detail-action-title">レビュー状態</p>
               <div className="detail-status-block">
                 <StatusBadge status={data.status} />
               </div>
             </div>
 
-            {/* アクションボタン */}
             <div className="detail-action-panel">
-              <p className="detail-action-title">対処アクション</p>
+              <p className="detail-action-title">レビュー操作</p>
               <ActionButton
                 tone="danger"
                 className="button-wide"
                 disabled={submittingStatus !== null}
                 onClick={() => void handleReview("confirmed_fraud")}
               >
-                確定不正にする
+                不正にする
               </ActionButton>
               <ActionButton
                 className="button-wide"
@@ -177,35 +194,35 @@ export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
               >
                 調査中にする
               </ActionButton>
-              <ActionButton
-                className="button-wide"
-                onClick={() => void loadDetail()}
-                disabled={loading}
-              >
-                再取得
+              <ActionButton className="button-wide" onClick={() => void loadDetail()} disabled={loading}>
+                再読み込み
               </ActionButton>
               {feedback ? <div className="success-message">{feedback}</div> : null}
               {error ? <ErrorState message={error} /> : null}
             </div>
 
-            {/* メタデータ */}
             <div className="detail-action-panel">
-              <p className="detail-action-title">詳細情報</p>
+              <p className="detail-action-title">補足情報</p>
               <div className="detail-meta-block">
                 <div className="detail-meta-row">
-                  <span>成果種別</span>
+                  <span>成果</span>
                   <span className="detail-meta-value">{data.outcome_type}</span>
                 </div>
                 <div className="detail-meta-row">
-                  <span>案件名</span>
+                  <span>プログラム</span>
                   <span className="detail-meta-value">{data.program_name ?? "未設定"}</span>
+                </div>
+                <div className="detail-meta-row">
+                  <span>報酬ソース</span>
+                  <span className="detail-meta-value">
+                    {rewardSourceLabel(data.reward_amount_source, data.reward_amount_is_estimated)}
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* 戻るリンク */}
             <Link className="top-link" href="/alerts">
-              ← アラート一覧に戻る
+              アラート一覧に戻る
             </Link>
           </div>
         </div>

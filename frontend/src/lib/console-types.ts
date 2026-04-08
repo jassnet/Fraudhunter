@@ -46,6 +46,8 @@ export type AlertListItem = {
   pattern: string;
   status: ReviewStatus;
   reward_amount: number;
+  reward_amount_source: string;
+  reward_amount_is_estimated: boolean;
   transaction_count: number;
 };
 
@@ -55,6 +57,7 @@ export type AlertsResponse = {
     status: string;
     start_date: string | null;
     end_date: string | null;
+    search: string | null;
     sort: string;
   };
   status_counts: Record<ReviewStatus, number>;
@@ -81,6 +84,8 @@ export type AlertDetailResponse = {
   risk_level: RiskLevel;
   status: ReviewStatus;
   reward_amount: number;
+  reward_amount_source: string;
+  reward_amount_is_estimated: boolean;
   detected_at: string;
   outcome_type: string;
   program_name: string | null;

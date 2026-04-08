@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from fraud_checker import runtime_guards
@@ -49,3 +51,14 @@ def test_read_access_mode_accepts_exactly_one_configuration(monkeypatch):
     monkeypatch.delenv("FC_ALLOW_PUBLIC_READ", raising=False)
 
     assert runtime_guards.read_access_mode() == "read_auth"
+
+
+def test_validate_runtime_guards_warns_when_insecure_admin_is_enabled_outside_local(monkeypatch, caplog):
+    monkeypatch.setenv("FC_ENV", "staging")
+    monkeypatch.setenv("FC_ALLOW_INSECURE_ADMIN", "true")
+    monkeypatch.delenv("ACS_ALLOW_INSECURE", raising=False)
+
+    with caplog.at_level(logging.WARNING):
+        runtime_guards.validate_runtime_guards()
+
+    assert "FC_ALLOW_INSECURE_ADMIN is enabled outside local/test environments." in caplog.text

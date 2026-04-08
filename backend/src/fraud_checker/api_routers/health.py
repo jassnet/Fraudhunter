@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..api_dependencies import require_admin
 from ..runtime_guards import read_access_mode
-from ..service_dependencies import get_job_store, get_repository
+from ..service_dependencies import get_acs_client, get_job_store, get_repository
 from ..services import reporting
 from ..services.jobs import (
     JOB_TYPE_CLICK_INGEST,
@@ -55,6 +55,10 @@ def _serialize_health_metrics(repo) -> dict:
     queue_metrics = job_store.get_queue_metrics()
     if isinstance(queue_metrics.get("oldest_queued_at"), datetime):
         queue_metrics["oldest_queued_at"] = queue_metrics["oldest_queued_at"].isoformat()
+    try:
+        acs_api = get_acs_client().ping()
+    except Exception as exc:
+        acs_api = {"ok": False, "error": str(exc)}
 
     return {
         "latest_data_date": latest_date_obj.isoformat() if latest_date_obj else None,
@@ -67,6 +71,7 @@ def _serialize_health_metrics(repo) -> dict:
             "age_hours": master_sync_age_hours,
         },
         "jobs": queue_metrics,
+        "acs_api": acs_api,
     }
 
 

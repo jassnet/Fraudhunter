@@ -100,11 +100,49 @@ def test_fetch_click_logs_raises_http_error_when_status_is_not_200():
         access_key="access",
         secret_key="secret",
         session=session,
+        retry_attempts=1,
     )
 
     # When / Then
     with pytest.raises(requests.HTTPError):
         list(client.fetch_click_logs(date(2026, 1, 1), page=1, limit=100))
+
+
+def test_fetch_click_logs_retries_then_succeeds():
+    session = _DummySession(
+        [
+            _DummyResponse(500, {"error": "ng"}, text="internal error"),
+            _DummyResponse(200, {"records": []}),
+        ]
+    )
+    client = AcsHttpClient(
+        base_url="https://acs.example.com",
+        access_key="access",
+        secret_key="secret",
+        session=session,
+        retry_attempts=2,
+        retry_backoff_seconds=0,
+    )
+
+    rows = list(client.fetch_click_logs(date(2026, 1, 1), page=1, limit=100))
+
+    assert rows == []
+    assert len(session.calls) == 2
+
+
+def test_ping_returns_latency_payload():
+    session = _DummySession([_DummyResponse(200, {"records": []})])
+    client = AcsHttpClient(
+        base_url="https://acs.example.com",
+        access_key="access",
+        secret_key="secret",
+        session=session,
+    )
+
+    payload = client.ping()
+
+    assert payload["ok"] is True
+    assert isinstance(payload["latency_ms"], float)
 
 
 def test_fetch_conversion_logs_maps_entry_fields():

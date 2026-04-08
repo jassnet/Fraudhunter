@@ -7,6 +7,7 @@ from .repositories import (
     MasterRepository,
     ReportingReadRepository,
     SettingsRepository,
+    SuspiciousFindingsWriteRepository,
     SuspiciousReadRepository,
 )
 
@@ -15,6 +16,7 @@ class PostgresRepository(
     IngestionRepository,
     ReportingReadRepository,
     SuspiciousReadRepository,
+    SuspiciousFindingsWriteRepository,
     MasterRepository,
     SettingsRepository,
 ):

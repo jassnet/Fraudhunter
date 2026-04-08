@@ -5,6 +5,7 @@ from datetime import date
 
 import sqlalchemy as sa
 
+from ..constants import DEFAULT_REWARD_YEN
 from .base import RepositoryBase
 
 
@@ -324,9 +325,6 @@ REWARD_KEYS = {
     "price",
     "cv_price",
 }
-DEFAULT_REWARD_YEN = 3000
-
-
 def _reward_from_payload(raw_payload) -> int:
     parsed = _parse_json(raw_payload)
     extracted = _extract_reward_value(parsed)

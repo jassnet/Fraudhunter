@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from ..api_presenters import calculate_risk_level, format_reasons
+from ..constants import DEFAULT_REWARD_YEN
 from ..logging_utils import log_event, log_timed
 from ..service_protocols import FindingsRepository
 from ..suspicious import ConversionSuspiciousDetector
@@ -15,7 +16,6 @@ from ..time_utils import now_local
 from . import settings as settings_service
 
 logger = logging.getLogger(__name__)
-DEFAULT_REWARD_YEN = 3000
 
 
 def _hash_text(value: str) -> str:

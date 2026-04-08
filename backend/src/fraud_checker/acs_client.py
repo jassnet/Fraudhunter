@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from datetime import date, datetime
 from typing import Iterable
 from urllib.parse import urljoin
@@ -24,12 +25,16 @@ class AcsHttpClient:
         endpoint_path: str = "track_log/search",
         session: requests.Session | None = None,
         timeout: int = 30,
+        retry_attempts: int = 3,
+        retry_backoff_seconds: float = 0.25,
     ):
         self.base_url = base_url.rstrip("/") + "/"
         self.session = session or requests.Session()
         self.token = f"{access_key}:{secret_key}"
         self.endpoint_path = endpoint_path.lstrip("/")
         self.timeout = timeout
+        self.retry_attempts = max(1, retry_attempts)
+        self.retry_backoff_seconds = max(0.0, retry_backoff_seconds)
 
     def fetch_click_logs(self, target_date: date, page: int, limit: int) -> Iterable[ClickLog]:
         records = self._fetch_records(
@@ -122,6 +127,14 @@ class AcsHttpClient:
     def fetch_all_user_master(self) -> list[dict]:
         return self._fetch_all_paged(self.fetch_user_master)
 
+    def ping(self) -> dict[str, object]:
+        started = time.perf_counter()
+        self._request_json("media/search", {"limit": 1, "offset": 0})
+        return {
+            "ok": True,
+            "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+        }
+
     def _fetch_all_paged(self, fetch_page) -> list[dict]:
         records: list[dict] = []
         page = 1
@@ -152,20 +165,40 @@ class AcsHttpClient:
     def _request_json(self, endpoint_path: str, params: dict[str, object]) -> dict:
         url = urljoin(self.base_url, endpoint_path.lstrip("/"))
         logger.info("ACS request %s params=%s", url, params)
-        response = self.session.get(
-            url,
-            headers={"X-Auth-Token": self.token},
-            params=params,
-            timeout=self.timeout,
-        )
-        if response.status_code != 200:
-            logger.error("ACS returned %s for %s: %s", response.status_code, response.url, response.text)
-            response.raise_for_status()
-        try:
-            return response.json()
-        except ValueError:
-            logger.error("ACS response was not JSON: %s", response.text)
-            raise
+        last_error: Exception | None = None
+        for attempt in range(1, self.retry_attempts + 1):
+            try:
+                response = self.session.get(
+                    url,
+                    headers={"X-Auth-Token": self.token},
+                    params=params,
+                    timeout=self.timeout,
+                )
+                if response.status_code != 200:
+                    logger.error("ACS returned %s for %s: %s", response.status_code, response.url, response.text)
+                    response.raise_for_status()
+                try:
+                    return response.json()
+                except ValueError:
+                    logger.error("ACS response was not JSON: %s", response.text)
+                    raise
+            except (requests.RequestException, ValueError) as exc:
+                last_error = exc
+                if attempt >= self.retry_attempts:
+                    raise
+                sleep_seconds = self.retry_backoff_seconds * (2 ** (attempt - 1))
+                logger.warning(
+                    "ACS request failed on attempt %s/%s, retrying in %.2fs: %s",
+                    attempt,
+                    self.retry_attempts,
+                    sleep_seconds,
+                    exc,
+                )
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("ACS request failed without an explicit error")
 
     @staticmethod
     def _between_date_params(

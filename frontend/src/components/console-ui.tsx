@@ -9,7 +9,7 @@ function classNames(...values: Array<string | false | null | undefined>) {
 const STATUS_LABELS: Record<ReviewStatus, string> = {
   unhandled: "未対応",
   investigating: "調査中",
-  confirmed_fraud: "確定不正",
+  confirmed_fraud: "不正",
   white: "ホワイト",
 };
 
@@ -173,7 +173,7 @@ export function StatusCountStrip({ counts }: StatusCountStripProps) {
   ];
 
   return (
-    <div className="status-count-strip" aria-label="ステータス件数">
+    <div className="status-count-strip" aria-label="レビュー状態ごとの件数">
       {items.map((item) => (
         <div key={item.key} className="status-count-item">
           <StatusBadge status={item.key} />
