@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import time
 from typing import Mapping
 
 from alembic import command
@@ -11,6 +12,8 @@ import sqlalchemy as sa
 from .db.session import normalize_database_url
 
 ALEMBIC_HEAD_REVISION = "0013_add_damage_snapshot"
+DEFAULT_DB_CONNECT_MAX_ATTEMPTS = 20
+DEFAULT_DB_CONNECT_RETRY_SECONDS = 3.0
 
 
 def infer_legacy_schema_revision(
@@ -49,11 +52,43 @@ def infer_legacy_schema_revision(
     return None
 
 
-def prepare_database_for_current_head(database_url: str | None = None) -> None:
+def prepare_database_for_current_head(
+    database_url: str | None = None,
+    *,
+    max_attempts: int | None = None,
+    retry_delay_seconds: float | None = None,
+) -> None:
     url = normalize_database_url(database_url or os.getenv("DATABASE_URL", ""))
     if not url:
         raise RuntimeError("DATABASE_URL is required to prepare the database")
 
+    max_attempts = _get_retry_attempts() if max_attempts is None else max_attempts
+    retry_delay_seconds = _get_retry_delay_seconds() if retry_delay_seconds is None else retry_delay_seconds
+    if max_attempts < 1:
+        raise RuntimeError("max_attempts must be at least 1")
+    if retry_delay_seconds < 0:
+        raise RuntimeError("retry_delay_seconds must be non-negative")
+    last_error: sa.exc.OperationalError | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            _prepare_database_for_current_head_once(url)
+            return
+        except sa.exc.OperationalError as exc:
+            last_error = exc
+            if attempt >= max_attempts:
+                break
+            print(
+                "[migrations] database unavailable during prepare "
+                f"(attempt {attempt}/{max_attempts}); retrying in {retry_delay_seconds:.1f}s"
+            )
+            time.sleep(retry_delay_seconds)
+
+    if last_error is not None:
+        raise last_error
+
+
+def _prepare_database_for_current_head_once(url: str) -> None:
     engine = sa.create_engine(url, pool_pre_ping=True)
     inspector = sa.inspect(engine)
     table_names = set(inspector.get_table_names())
@@ -74,6 +109,26 @@ def prepare_database_for_current_head(database_url: str | None = None) -> None:
 
     if current_revision != ALEMBIC_HEAD_REVISION:
         command.upgrade(alembic_cfg, "head")
+
+
+def _get_retry_attempts() -> int:
+    value = os.getenv("FC_DB_CONNECT_MAX_ATTEMPTS")
+    if value is None:
+        return DEFAULT_DB_CONNECT_MAX_ATTEMPTS
+    attempts = int(value)
+    if attempts < 1:
+        raise RuntimeError("FC_DB_CONNECT_MAX_ATTEMPTS must be at least 1")
+    return attempts
+
+
+def _get_retry_delay_seconds() -> float:
+    value = os.getenv("FC_DB_CONNECT_RETRY_SECONDS")
+    if value is None:
+        return DEFAULT_DB_CONNECT_RETRY_SECONDS
+    seconds = float(value)
+    if seconds < 0:
+        raise RuntimeError("FC_DB_CONNECT_RETRY_SECONDS must be non-negative")
+    return seconds
 
 
 def _read_current_revision(engine: sa.Engine) -> str | None:

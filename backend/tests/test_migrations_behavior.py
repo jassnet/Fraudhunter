@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+import sqlalchemy as sa
+
 from fraud_checker.migrations import infer_legacy_schema_revision
 
 
@@ -132,6 +135,47 @@ def test_head_revision_fits_alembic_version_column_limit() -> None:
     from fraud_checker.migrations import ALEMBIC_HEAD_REVISION
 
     assert len(ALEMBIC_HEAD_REVISION) <= 32
+
+
+def test_prepare_database_retries_operational_error_until_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fraud_checker import migrations
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example/db")
+    attempts: list[str] = []
+    sleeps: list[float] = []
+
+    def fake_prepare(url: str) -> None:
+        attempts.append(url)
+        if len(attempts) < 3:
+            raise sa.exc.OperationalError("SELECT 1", {}, RuntimeError("connection refused"))
+
+    monkeypatch.setattr(migrations, "_prepare_database_for_current_head_once", fake_prepare)
+    monkeypatch.setattr(migrations.time, "sleep", sleeps.append)
+
+    migrations.prepare_database_for_current_head(max_attempts=3, retry_delay_seconds=0.25)
+
+    assert attempts == ["postgresql+psycopg://example/db"] * 3
+    assert sleeps == [0.25, 0.25]
+
+
+def test_prepare_database_raises_after_exhausting_operational_error_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fraud_checker import migrations
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example/db")
+    sleeps: list[float] = []
+
+    def fake_prepare(url: str) -> None:
+        raise sa.exc.OperationalError("SELECT 1", {}, RuntimeError(f"down:{url}"))
+
+    monkeypatch.setattr(migrations, "_prepare_database_for_current_head_once", fake_prepare)
+    monkeypatch.setattr(migrations.time, "sleep", sleeps.append)
+
+    with pytest.raises(sa.exc.OperationalError):
+        migrations.prepare_database_for_current_head(max_attempts=2, retry_delay_seconds=0.5)
+
+    assert sleeps == [0.5]
 
 
 def test_findings_search_index_migration_enables_pg_trgm_for_current_findings() -> None:
