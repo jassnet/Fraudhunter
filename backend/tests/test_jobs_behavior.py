@@ -154,11 +154,10 @@ def test_run_refresh_enqueues_findings_recompute_jobs_per_date(monkeypatch):
         "valid_entry": 2,
         "click_enriched": 2,
     }
-    assert captured["dates"] == ["2025-12-31", "2026-01-01", "2026-01-02"]
+    assert captured["dates"] == ["2026-01-01"]
     assert captured["kwargs"]["trigger"] == "refresh"
     assert result["findings_recompute"]["mode"] == "queued"
-    assert result["findings_recompute"]["job_ids"] == ["job-1", "job-2", "job-3"]
-    assert result["findings_recompute"]["detect_requested"] is True
+    assert result["findings_recompute"]["job_ids"] == ["job-1"]
 
 
 def test_enqueue_job_allows_queueing_when_another_job_is_active(monkeypatch):

@@ -129,9 +129,10 @@ def review_alerts(
     try:
         payload = console_service.apply_review_action(
             get_repository(),
-            request.finding_keys,
+            request.case_keys,
             request.status,
             access_context=access_context,
+            reason=request.reason,
         )
         return ConsoleReviewResponse(**payload)
     except ValueError as exc:

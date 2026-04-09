@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Iterable, Protocol
 
 from .models import ClickLog, ConversionLog
@@ -43,14 +43,9 @@ class ClickLogIngestor:
         self.repository = repository
         self.page_size = page_size
         self.store_raw = store_raw
+        self.last_affected_dates: list[date] = []
 
     def run_for_date(self, target_date: date) -> int:
-        """
-        Fetch click logs for a single date and persist them.
-
-        Policy: any client or DB exception aborts the run so operators can rerun after fixing
-        the root cause. Retries can be layered outside this class if needed.
-        """
         page = 1
         all_clicks: list[ClickLog] = []
         while True:
@@ -58,16 +53,16 @@ class ClickLogIngestor:
             if not batch:
                 break
             all_clicks.extend(batch)
-            # Stop when the API returns less than a full page, assuming no further data.
             if len(batch) < self.page_size:
                 break
             page += 1
 
         if not all_clicks:
-            # Still clear the date to support reruns that intentionally wipe a day.
             self.repository.clear_date(target_date, store_raw=self.store_raw)
+            self.last_affected_dates = [target_date]
             return 0
 
+        self.last_affected_dates = sorted({click.click_time.date() for click in all_clicks})
         return self.repository.ingest_clicks(
             all_clicks, target_date=target_date, store_raw=self.store_raw
         )
@@ -75,18 +70,9 @@ class ClickLogIngestor:
     def run_for_time_range(
         self, start_time: datetime, end_time: datetime
     ) -> tuple[int, int]:
-        """
-        指定された時間範囲のクリックログを取得し、既存データとマージする。
-        
-        日次バッチとの重複を避けるため、IDベースで重複チェックを行い、
-        新規データのみを追加する。
-        
-        Returns:
-            tuple[int, int]: (新規追加件数, スキップ件数)
-        """
         page = 1
         all_clicks: list[ClickLog] = []
-        
+
         while True:
             batch = list(
                 self.client.fetch_click_logs_for_time_range(
@@ -96,7 +82,6 @@ class ClickLogIngestor:
             if not batch:
                 break
 
-            # 時刻フィルタを適用
             filtered = [
                 click for click in batch if start_time <= click.click_time <= end_time
             ]
@@ -114,23 +99,21 @@ class ClickLogIngestor:
         )
 
         if not all_clicks:
+            self.last_affected_dates = []
             return 0, 0
 
-        # マージ処理（重複チェック付き）
-        return self.repository.merge_clicks(all_clicks, store_raw=self.store_raw)
+        new_count, skip_count = self.repository.merge_clicks(all_clicks, store_raw=self.store_raw)
+        affected_dates = getattr(self.repository, "last_merged_click_dates", None)
+        if isinstance(affected_dates, list):
+            self.last_affected_dates = list(affected_dates)
+        elif new_count > 0:
+            self.last_affected_dates = sorted({click.click_time.date() for click in all_clicks})
+        else:
+            self.last_affected_dates = []
+        return new_count, skip_count
 
 
 class ConversionIngestor:
-    """
-    成果ログを取り込む。
-
-    フロー:
-    1. ACSから成果ログ（action_log_raw）を取得
-    2. entry_ipaddress/entry_useragent（実ユーザーIP/UA）を使用して集計
-    
-    Note: クリックログとの突合は不要。成果ログに直接ユーザーのIP/UAが含まれている。
-    """
-
     def __init__(
         self,
         client: AcsClient,
@@ -141,16 +124,9 @@ class ConversionIngestor:
         self.client = client
         self.repository = repository
         self.page_size = page_size
+        self.last_affected_dates: list[date] = []
 
     def run_for_date(self, target_date: date) -> tuple[int, int, int]:
-        """
-        指定日の成果ログを取得して保存する。
-
-        Returns:
-            tuple[int, int]: (取得した成果数, entry_ipaddress/entry_useragentが有効な成果数)
-        """
-
-        # 1. 成果ログを全て取得
         page = 1
         all_conversions: list[ConversionLog] = []
         while True:
@@ -169,42 +145,33 @@ class ConversionIngestor:
         )
 
         if not all_conversions:
+            self.last_affected_dates = []
             return 0, 0, 0
 
-        # 2. entry_ipaddress/entry_useragentが有効な成果をカウント
         valid_entry_count = sum(
-            1 for c in all_conversions 
-            if c.entry_ipaddress and c.entry_useragent
+            1 for conversion in all_conversions if conversion.entry_ipaddress and conversion.entry_useragent
         )
         logger.info(
             "Found %d conversions with valid entry IP/UA out of %d total",
-            valid_entry_count, len(all_conversions)
+            valid_entry_count,
+            len(all_conversions),
         )
 
-        click_enriched_count = len(self.repository.enrich_conversions_with_click_info(all_conversions))
-
-        # 3. 保存（entry IP/UAが有効なものは集計にも追加される）
+        click_enriched_count = len(
+            self.repository.enrich_conversions_with_click_info(all_conversions)
+        )
         total_count = self.repository.ingest_conversions(
             all_conversions, target_date=target_date
         )
-
+        self.last_affected_dates = [target_date] if total_count > 0 else []
         return total_count, valid_entry_count, click_enriched_count
 
     def run_for_time_range(
         self, start_time: datetime, end_time: datetime
     ) -> tuple[int, int, int, int]:
-        """
-        指定された時間範囲の成果ログを取得し、既存データとマージする。
-        
-        日次バッチとの重複を避けるため、IDベースで重複チェックを行い、
-        新規データのみを追加する。
-        
-        Returns:
-            tuple[int, int, int]: (新規追加件数, スキップ件数, entry IP/UA有効件数)
-        """
         page = 1
         all_conversions: list[ConversionLog] = []
-        
+
         while True:
             batch = list(
                 self.client.fetch_conversion_logs_for_time_range(
@@ -214,9 +181,10 @@ class ConversionIngestor:
             if not batch:
                 break
 
-            # 時刻フィルタを適用
             filtered = [
-                conv for conv in batch if start_time <= conv.conversion_time <= end_time
+                conversion
+                for conversion in batch
+                if start_time <= conversion.conversion_time <= end_time
             ]
             all_conversions.extend(filtered)
 
@@ -232,17 +200,23 @@ class ConversionIngestor:
         )
 
         if not all_conversions:
+            self.last_affected_dates = []
             return 0, 0, 0, 0
 
-        # entry IP/UAが有効な件数をカウント
         valid_entry_count = sum(
-            1 for c in all_conversions 
-            if c.entry_ipaddress and c.entry_useragent
+            1 for conversion in all_conversions if conversion.entry_ipaddress and conversion.entry_useragent
         )
-
-        click_enriched_count = len(self.repository.enrich_conversions_with_click_info(all_conversions))
-
-        # マージ処理（重複チェック付き）
+        click_enriched_count = len(
+            self.repository.enrich_conversions_with_click_info(all_conversions)
+        )
         new_count, skip_count = self.repository.merge_conversions(all_conversions)
-        
+        affected_dates = getattr(self.repository, "last_merged_conversion_dates", None)
+        if isinstance(affected_dates, list):
+            self.last_affected_dates = list(affected_dates)
+        elif new_count > 0:
+            self.last_affected_dates = sorted(
+                {conversion.conversion_time.date() for conversion in all_conversions}
+            )
+        else:
+            self.last_affected_dates = []
         return new_count, skip_count, valid_entry_count, click_enriched_count

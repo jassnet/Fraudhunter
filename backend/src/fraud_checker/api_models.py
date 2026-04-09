@@ -96,10 +96,14 @@ class SettingsModel(BaseModel):
 
 
 class ConsoleReviewRequest(BaseModel):
-    finding_keys: list[str]
+    case_keys: list[str]
     status: str
+    reason: str
 
 
 class ConsoleReviewResponse(BaseModel):
+    requested_count: int
+    matched_current_count: int
     updated_count: int
+    missing_keys: list[str]
     status: str

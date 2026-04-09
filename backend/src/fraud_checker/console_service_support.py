@@ -10,11 +10,15 @@ def build_alert_csv(rows: list[dict], *, exported_at: str | None = None) -> str:
     writer = csv.writer(output)
     writer.writerow(
         [
-            "finding_key",
-            "detected_at",
-            "affiliate_id",
-            "affiliate_name",
-            "outcome_type",
+            "case_key",
+            "latest_detected_at",
+            "environment_date",
+            "environment_ipaddress",
+            "environment_useragent",
+            "affected_affiliate_count",
+            "affected_affiliates",
+            "affected_program_count",
+            "affected_programs",
             "risk_score",
             "risk_level",
             "status",
@@ -22,17 +26,39 @@ def build_alert_csv(rows: list[dict], *, exported_at: str | None = None) -> str:
             "reward_amount_source",
             "reward_amount_is_estimated",
             "transaction_count",
-            "pattern",
+            "primary_reason",
         ]
     )
     for row in rows:
         writer.writerow(
             [
-                row.get("finding_key", ""),
-                row.get("detected_at", ""),
-                row.get("affiliate_id", ""),
-                row.get("affiliate_name", ""),
-                row.get("outcome_type", ""),
+                row.get("case_key", ""),
+                row.get("latest_detected_at", ""),
+                (row.get("environment") or {}).get("date", ""),
+                (row.get("environment") or {}).get("ipaddress", ""),
+                (row.get("environment") or {}).get("useragent", ""),
+                row.get("affected_affiliate_count", 0),
+                ", ".join(
+                    filter(
+                        None,
+                        [
+                            item.get("name") or item.get("id")
+                            for item in row.get("affected_affiliates", [])
+                            if isinstance(item, dict)
+                        ],
+                    )
+                ),
+                row.get("affected_program_count", 0),
+                ", ".join(
+                    filter(
+                        None,
+                        [
+                            item.get("name") or item.get("id")
+                            for item in row.get("affected_programs", [])
+                            if isinstance(item, dict)
+                        ],
+                    )
+                ),
                 row.get("risk_score", ""),
                 row.get("risk_level", ""),
                 row.get("status", ""),
@@ -40,7 +66,7 @@ def build_alert_csv(rows: list[dict], *, exported_at: str | None = None) -> str:
                 row.get("reward_amount_source", ""),
                 "true" if row.get("reward_amount_is_estimated") else "false",
                 row.get("transaction_count", 0),
-                row.get("pattern", ""),
+                row.get("primary_reason", ""),
             ]
         )
     if exported_at:

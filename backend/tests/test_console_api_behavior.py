@@ -279,8 +279,11 @@ def test_console_review_endpoint_requires_admin_and_returns_mutation_result(monk
     monkeypatch.setattr(
         console_router.console_service,
         "apply_review_action",
-        lambda repo, finding_keys, status, access_context=None: {
+        lambda repo, finding_keys, status, access_context=None, reason=None: {
+            "requested_count": len(finding_keys),
+            "matched_current_count": len(finding_keys),
             "updated_count": len(finding_keys),
+            "missing_keys": [],
             "status": status,
         },
     )
@@ -288,18 +291,24 @@ def test_console_review_endpoint_requires_admin_and_returns_mutation_result(monk
 
     unauthorized = client.post(
         "/api/console/alerts/review",
-        json={"finding_keys": ["finding-001", "finding-002"], "status": "confirmed_fraud"},
+        json={"case_keys": ["case-001", "case-002"], "status": "confirmed_fraud", "reason": "bulk review"},
         headers=console_headers("analyst"),
     )
     authorized = client.post(
         "/api/console/alerts/review",
         headers=console_headers("admin"),
-        json={"finding_keys": ["finding-001", "finding-002"], "status": "confirmed_fraud"},
+        json={"case_keys": ["case-001", "case-002"], "status": "confirmed_fraud", "reason": "bulk review"},
     )
 
     assert unauthorized.status_code == 403
     assert authorized.status_code == 200
-    assert authorized.json() == {"updated_count": 2, "status": "confirmed_fraud"}
+    assert authorized.json() == {
+        "requested_count": 2,
+        "matched_current_count": 2,
+        "updated_count": 2,
+        "missing_keys": [],
+        "status": "confirmed_fraud",
+    }
 
 
 def test_console_endpoints_require_signed_viewer_headers(monkeypatch):
@@ -388,16 +397,10 @@ def test_console_dashboard_uses_migrated_review_table(tmp_path, monkeypatch):
             {"date": "2026-04-05", "suspicious_conversions": 1},
         ],
     )
-    monkeypatch.setattr(
-        console_service,
-        "_fetch_affiliate_conversion_totals",
-        lambda repo, target_date: {"aff-001": 10},
-    )
-
     payload = console_service.get_dashboard(repo, target_date="2026-04-05")
 
     assert payload["kpis"]["unhandled_alerts"]["value"] == 1
-    assert payload["ranking"][0]["affiliate_id"] == "aff-001"
+    assert payload["case_ranking"][0]["case_key"] == "finding-001"
     assert payload["kpis"]["estimated_damage"]["value"] == 3000
 
 
@@ -511,8 +514,10 @@ def test_build_alert_item_prefers_snapshot_damage_and_affiliate_fields():
         },
     )
 
-    assert item["affiliate_id"] == "aff-001"
-    assert item["affiliate_name"] == "Affiliate Alpha"
+    assert item["case_key"] == "finding-001"
+    assert item["affected_affiliate_count"] == 1
+    assert item["affected_affiliates"][0]["id"] == "aff-001"
+    assert item["affected_affiliates"][0]["name"] == "Affiliate Alpha"
     assert item["outcome_type"] == "Program Alpha"
     assert item["reward_amount"] == 42000
     assert item["transaction_count"] == 7
@@ -529,7 +534,7 @@ def test_alert_transaction_summary_falls_back_to_program_unit_price_times_total_
         def fetch_all(self, query, params=None):
             if "WITH target_entities" in query:
                 return []
-            if "SELECT\n            conversion_time," in query:
+            if "SELECT conversion_time, program_id, raw_payload" in " ".join(query.split()):
                 return [
                     {
                         "conversion_time": datetime(2026, 4, 5, 9, 30, 0),
@@ -586,7 +591,7 @@ def test_alert_transaction_summary_backfills_missing_matches_with_direct_unit_pr
                         "promotion_name": "Program Alpha",
                     }
                 ]
-            if "SELECT\n            conversion_time," in query:
+            if "SELECT conversion_time, program_id, raw_payload" in " ".join(query.split()):
                 return []
             raise AssertionError(f"Unexpected query: {query}")
 

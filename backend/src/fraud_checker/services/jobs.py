@@ -100,6 +100,9 @@ def _default_priority(job_type: str) -> int:
 
 
 def _dedupe_key(job_type: str, params: dict[str, Any] | None) -> str:
+    params = params or {}
+    if job_type == JOB_TYPE_RECOMPUTE_FINDINGS_DATE and params.get("date"):
+        return f"{job_type}:{params['date']}"
     canonical_params = json.dumps(params or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"{job_type}:{canonical_params}"
 
@@ -599,10 +602,7 @@ def run_refresh(
             )
             click_new, click_skip = click_ingestor.run_for_time_range(start_time, end_time)
             result["clicks"] = {"new": click_new, "skipped": click_skip}
-            current = start_time.date()
-            while current <= end_time.date():
-                dates_to_recompute.add(current)
-                current += timedelta(days=1)
+            dates_to_recompute.update(getattr(click_ingestor, "last_affected_dates", []))
 
         if conversions:
             conv_ingestor = ConversionIngestor(
@@ -619,12 +619,9 @@ def run_refresh(
                 "valid_entry": conv_valid,
                 "click_enriched": click_enriched,
             }
-            current = start_time.date()
-            while current <= end_time.date():
-                dates_to_recompute.add(current)
-                current += timedelta(days=1)
+            dates_to_recompute.update(getattr(conv_ingestor, "last_affected_dates", []))
 
-        if dates_to_recompute:
+        if detect and dates_to_recompute:
             generation_id = f"refresh-{job_run_id or uuid.uuid4().hex[:12]}"
             recompute_jobs = enqueue_findings_recompute_jobs(
                 sorted(dates_to_recompute),
@@ -638,7 +635,6 @@ def run_refresh(
                 "generation_id": generation_id,
                 "job_ids": [job.id for job in recompute_jobs],
                 "target_dates": [target_date.isoformat() for target_date in sorted(dates_to_recompute)],
-        "detect_requested": detect,
             }
 
     return result, f"Refresh completed for last {hours} hours"

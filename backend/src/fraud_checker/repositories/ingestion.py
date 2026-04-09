@@ -308,6 +308,7 @@ class IngestionRepository(RepositoryBase):
     def merge_clicks(self, clicks: Iterable[ClickLog], *, store_raw: bool) -> tuple[int, int]:
         new_count = 0
         skip_count = 0
+        affected_dates: set[date] = set()
         with self._connect() as conn:
             for click in clicks:
                 if store_raw:
@@ -339,11 +340,14 @@ class IngestionRepository(RepositoryBase):
                         continue
                 self._upsert_click_aggregate(conn, click)
                 new_count += 1
+                affected_dates.add(click.click_time.date())
+        self.last_merged_click_dates = sorted(affected_dates)
         return new_count, skip_count
 
     def merge_conversions(self, conversions: Iterable[ConversionLog]) -> tuple[int, int]:
         new_count = 0
         skip_count = 0
+        affected_dates: set[date] = set()
         with self._connect() as conn:
             for conv in conversions:
                 table = Base.metadata.tables["conversion_raw"]
@@ -382,6 +386,8 @@ class IngestionRepository(RepositoryBase):
                 if conv.entry_ipaddress and conv.entry_useragent:
                     self._upsert_conversion_aggregate(conn, conv)
                 new_count += 1
+                affected_dates.add(conv.conversion_time.date())
+        self.last_merged_conversion_dates = sorted(affected_dates)
         return new_count, skip_count
 
     def purge_raw_before(self, cutoff: datetime, *, execute: bool) -> dict[str, int]:

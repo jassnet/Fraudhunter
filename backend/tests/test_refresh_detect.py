@@ -7,16 +7,18 @@ def test_run_refresh_includes_detect(monkeypatch):
 
     class DummyClickIngestor:
         def __init__(self, *args, **kwargs):
-            pass
+            self.last_affected_dates = []
 
         def run_for_time_range(self, start_time, end_time):
+            self.last_affected_dates = [start_time.date()]
             return 1, 0
 
     class DummyConversionIngestor:
         def __init__(self, *args, **kwargs):
-            pass
+            self.last_affected_dates = []
 
         def run_for_time_range(self, start_time, end_time):
+            self.last_affected_dates = [start_time.date()]
             return 2, 0, 2, 1
 
     class DummyRepo:
@@ -65,7 +67,48 @@ def test_run_refresh_includes_detect(monkeypatch):
     assert result["conversions"]["new"] == 2
     assert result["conversions"]["click_enriched"] == 1
     assert result["findings_recompute"]["mode"] == "queued"
-    assert result["findings_recompute"]["detect_requested"] is True
+    assert len(result["findings_recompute"]["target_dates"]) == 1
+
+
+def test_run_refresh_skips_recompute_when_detect_is_false(monkeypatch):
+    class DummySettings:
+        page_size = 10
+
+    class DummyClickIngestor:
+        def __init__(self, *args, **kwargs):
+            self.last_affected_dates = []
+
+        def run_for_time_range(self, start_time, end_time):
+            self.last_affected_dates = [start_time.date()]
+            return 1, 0
+
+    class DummyConversionIngestor:
+        def __init__(self, *args, **kwargs):
+            self.last_affected_dates = []
+
+        def run_for_time_range(self, start_time, end_time):
+            self.last_affected_dates = [start_time.date()]
+            return 2, 0, 2, 1
+
+    class DummyRepo:
+        pass
+
+    captured: list[list] = []
+    monkeypatch.setattr(jobs, "resolve_acs_settings", lambda: DummySettings())
+    monkeypatch.setattr(jobs, "get_repository", lambda: DummyRepo())
+    monkeypatch.setattr(jobs, "get_acs_client", lambda: object())
+    monkeypatch.setattr(jobs, "ClickLogIngestor", DummyClickIngestor)
+    monkeypatch.setattr(jobs, "ConversionIngestor", DummyConversionIngestor)
+    monkeypatch.setattr(
+        jobs,
+        "enqueue_findings_recompute_jobs",
+        lambda dates, **kwargs: captured.append(dates) or [],
+    )
+
+    result, _message = jobs.run_refresh(1, clicks=True, conversions=True, detect=False)
+
+    assert "findings_recompute" not in result
+    assert captured == []
 
 
 def test_run_master_sync_ensures_master_schema_before_upserts(monkeypatch):
