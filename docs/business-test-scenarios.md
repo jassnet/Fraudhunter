@@ -1,139 +1,100 @@
 # Business Test Scenarios
 
-この文書は current console UI と backend の主要 business scenario をまとめた正本です。  
-存在しない E2E や削除済み画面は参照せず、現在 repo にあるテストだけを対応表へ載せます。
-
 ## Backend
 
-### SC-01 短時間に集中したコンバージョンを不正候補として検知する
+### SC-04 Alerts list honors filters, pagination, and scoped status counts
 
-- 業務上の意味: 同一 IP / UA に集中する不自然な CV を検知し、調査対象へ回す。
-- 入力条件: 同一 IP / UA で conversion threshold や burst 条件を超える。
-- 期待結果: suspicious conversion finding が作られ、理由とリスクが付く。
-- 主な保証レイヤー: backend unit
-- 対応テスト: `backend/tests/test_suspicious_behavior.py`
+- Goal: keep triage counts aligned with the rows the operator is currently looking at.
+- Input: call the alerts list API with `status`, `risk`, `start_date`, `end_date`, `search`, `page`, and `page_size`.
+- Expected: the response returns case-centric rows, pagination metadata, and `status_counts` computed for the same filter scope except for the selected status.
+- Primary layer: backend API.
+- Covered by: `backend/tests/test_console_api_behavior.py`
 
-### SC-02 findings 再計算時に lineage と damage snapshot を保存する
+### SC-05 Review requires admin role, case keys, and a reason
 
-- 業務上の意味: 後から見ても「どの条件で検知され、どの程度の被害見積もりだったか」を説明できる。
-- 入力条件: recompute が対象日の findings を再生成する。
-- 期待結果: `computed_by_job_id`, `generation_id`, `estimated_damage_yen`, `damage_evidence_json` が保存される。
-- 主な保証レイヤー: backend unit
-- 対応テスト: `backend/tests/test_findings_lineage_behavior.py`
+- Goal: restrict triage mutations to admin users and preserve an auditable reason.
+- Input: send a review request with `case_keys`, `status`, and `reason`.
+- Expected: analyst users are rejected, admin users receive `requested_count`, `matched_current_count`, `updated_count`, `missing_keys`, and the applied `status`.
+- Primary layer: backend API.
+- Covered by: `backend/tests/test_console_api_behavior.py`
 
-### SC-03 ダッシュボードで最新日の KPI を返す
+### SC-06 Refresh only enqueues findings recompute when detection is requested
 
-- 業務上の意味: 運用担当者が開いた瞬間に今日のフラウド状況を把握できる。
-- 入力条件: summary と current alert rows が存在する。
-- 期待結果: fraud rate、未対応件数、被害推定額、trend、ranking を返す。
-- 主な保証レイヤー: backend API, backend service
-- 対応テスト: `backend/tests/test_console_api_behavior.py`, `backend/tests/test_reporting_behavior.py`
+- Goal: keep ingest-only refresh runs from creating unnecessary findings work.
+- Input: execute refresh with and without `detect=true`.
+- Expected: only affected dates are enqueued, and `detect=false` performs ingestion without creating findings recompute jobs.
+- Primary layer: backend API and backend service.
+- Covered by: `backend/tests/test_jobs_behavior.py`, `backend/tests/test_refresh_detect.py`
 
-### SC-04 alerts 一覧は filter / pagination / review status を扱える
+### SC-07 Console read and write permissions are split by role
 
-- 業務上の意味: triage 対象を絞り込み、必要な単位でレビューを進められる。
-- 入力条件: status、date range、page、page_size を指定して一覧を引く。
-- 期待結果: filter が適用され、`total`, `page`, `page_size`, `has_next`, `status_counts` が返る。
-- 主な保証レイヤー: backend API
-- 対応テスト: `backend/tests/test_console_api_behavior.py`
-
-### SC-05 review 操作は admin 権限でだけ更新できる
-
-- 業務上の意味: triage 判定を権限境界の内側に閉じる。
-- 入力条件: finding keys と review status を送る。
-- 期待結果: admin 以外は拒否され、admin は bulk update 結果を受け取る。
-- 主な保証レイヤー: backend API
-- 対応テスト: `backend/tests/test_console_api_behavior.py`
-
-### SC-06 refresh は queue へ積み、競合時は競合として扱う
-
-- 業務上の意味: 重い再取得処理を request 内で実行せず、安全に再計算を始める。
-- 入力条件: refresh を起動する。
-- 期待結果: queued job id を返し、競合時は `409` を返す。
-- 主な保証レイヤー: backend API, backend service
-- 対応テスト: `backend/tests/test_api_behavior.py`, `backend/tests/test_jobs_behavior.py`
-
-### SC-07 read posture は analyst/admin/public の設定に従う
-
-- 業務上の意味: read API の露出範囲を環境ごとに制御する。
-- 入力条件: `FC_REQUIRE_READ_AUTH` などの posture を設定する。
-- 期待結果: read token なしの呼び出しは拒否され、権限別の endpoint matrix が保たれる。
-- 主な保証レイヤー: backend API, backend unit
-- 対応テスト: `backend/tests/test_api_behavior.py`, `backend/tests/test_runtime_guards_behavior.py`
+- Goal: enforce analyst/admin boundaries on the console surface itself.
+- Input: call console endpoints with anonymous, analyst, and admin viewer headers.
+- Expected: analysts can read console data, while review, refresh, and master sync mutations remain admin-only.
+- Primary layer: backend API.
+- Covered by: `backend/tests/test_console_api_behavior.py`
 
 ## Frontend
 
-### FC-01 ダッシュボードで KPI とランキングを表示する
+### FC-01 Dashboard shows KPI, freshness, queue summary, and case ranking
 
-- 業務上の意味: 現在のフラウド状況を一画面で把握できる。
-- 入力条件: console dashboard API が payload を返す。
-- 期待結果: KPI card、trend、ranking が表示される。
-- 主な保証レイヤー: frontend component
-- 対応テスト: `frontend/src/features/console/dashboard-screen.test.tsx`
+- Goal: let operators distinguish stale data from active background processing.
+- Input: render the dashboard from the console dashboard payload.
+- Expected: KPI cards, freshness timestamps, stale warning state, queue summary, and case ranking are visible.
+- Primary layer: frontend component.
+- Covered by: `frontend/src/features/console/dashboard-screen.test.tsx`
 
-### FC-02 ダッシュボードから更新を開始できる
+### FC-02 Dashboard admin actions surface job progress
 
-- 業務上の意味: 運用者が UI から最新データ取り込みを開始できる。
-- 入力条件: admin action が有効で、利用者が更新ボタンを押す。
-- 期待結果: refresh API を呼び、完了後に dashboard を再取得する。
-- 主な保証レイヤー: frontend component
-- 対応テスト: `frontend/src/features/console/dashboard-screen.test.tsx`
+- Goal: make refresh and master sync actions observable after the click.
+- Input: trigger refresh or master sync from the dashboard as an admin user.
+- Expected: the UI stores the returned `job_id`, polls job status, and shows queued or running progress until completion.
+- Primary layer: frontend component.
+- Covered by: `frontend/src/features/console/dashboard-screen.test.tsx`
 
-### FC-03 alerts 一覧は grouped row と bulk review を扱える
+### FC-03 Alerts list is case-centric and bulk review requires a reason
 
-- 業務上の意味: 同一アフィリエイター・同一検知時刻のアラートをまとめて判断できる。
-- 入力条件: alerts payload に grouped 対象の item が含まれる。
-- 期待結果: まとめ行が表示され、展開・選択・一括 review ができる。
-- 主な保証レイヤー: frontend component
-- 対応テスト: `frontend/src/features/console/alerts-screen.test.tsx`
+- Goal: remove client-side grouping accidents and force explicit review context.
+- Input: render alerts rows that contain `case_key`, environment data, and affected entity counts, then execute bulk review.
+- Expected: each row represents one environment case and bulk review requires a non-empty reason before submission.
+- Primary layer: frontend component.
+- Covered by: `frontend/src/features/console/alerts-screen.test.tsx`
 
-### FC-04 alerts 一覧は URL と同期した filter / pagination を扱える
+### FC-04 Alerts filters and pagination stay synchronized with the URL
 
-- 業務上の意味: 「この条件で見て」と URL 共有できる。
-- 入力条件: status/date/page を持つ search params で画面を開く、またはページ移動する。
-- 期待結果: URL と画面状態が同期し、次ページ取得時も query が更新される。
-- 主な保証レイヤー: frontend component
-- 対応テスト: `frontend/src/features/console/alerts-screen.test.tsx`
+- Goal: preserve sharable triage links and back/forward navigation.
+- Input: change filters and page controls in the alerts view.
+- Expected: the URL reflects the active filters, and a reload restores the same query state.
+- Primary layer: frontend component.
+- Covered by: `frontend/src/features/console/alerts-screen.test.tsx`
 
-### FC-05 alert detail は理由・被害推定額・transaction evidence を表示する
+### FC-05 Alert detail shows environment, evidence, and review history
 
-- 業務上の意味: 一覧から詳細調査へ無駄なく進める。
-- 入力条件: finding key を指定して detail 画面を開く。
-- 期待結果: affiliate 名、status、理由、被害推定額、transactions が表示される。
-- 主な保証レイヤー: frontend component
-- 対応テスト: `frontend/src/features/console/alert-detail-screen.test.tsx`
+- Goal: ensure the detail screen presents the actual suspicious evidence for the selected case.
+- Input: open a detail page by `caseKey`.
+- Expected: the page shows environment conditions, affected affiliates and programs, evidence transactions, optional affiliate recent transactions, and review history.
+- Primary layer: frontend component.
+- Covered by: `frontend/src/features/console/alert-detail-screen.test.tsx`
 
-### FC-06 frontend proxy は read 用 key を必須とする
+### FC-06 Frontend proxy forwards signed console viewer identity
 
-- 業務上の意味: read 経路で admin token を使い回さない。
-- 入力条件: frontend server proxy が read API を呼ぶ。
-- 期待結果: `FC_READ_API_KEY` が使われ、未設定時は 502 を返す。
-- 主な保証レイヤー: frontend server unit
-- 対応テスト: `frontend/src/lib/server/backend-proxy.test.ts`
-
-### FC-07 mobile drawer は Escape で閉じられる
-
-- 業務上の意味: モバイルでも迷わずナビゲーションを閉じられる。
-- 入力条件: mobile menu を開いた状態で Escape を押す。
-- 期待結果: drawer が閉じる。
-- 主な保証レイヤー: frontend component
-- 対応テスト: `frontend/src/components/app-frame.test.tsx`
+- Goal: preserve trusted gateway identity from the Next.js server to the backend.
+- Input: proxy a console request through the frontend server.
+- Expected: the backend request includes signed viewer headers, and missing internal proxy configuration fails closed.
+- Primary layer: frontend server unit.
+- Covered by: `frontend/src/lib/server/backend-proxy.test.ts`
 
 ## Scenario Mapping
 
-| Scenario ID | 主な保証レイヤー | 対応テスト |
+| Scenario ID | Primary layer | Coverage |
 | --- | --- | --- |
-| SC-01 | backend unit | `backend/tests/test_suspicious_behavior.py` |
-| SC-02 | backend unit | `backend/tests/test_findings_lineage_behavior.py` |
-| SC-03 | backend API / service | `backend/tests/test_console_api_behavior.py`, `backend/tests/test_reporting_behavior.py` |
 | SC-04 | backend API | `backend/tests/test_console_api_behavior.py` |
 | SC-05 | backend API | `backend/tests/test_console_api_behavior.py` |
-| SC-06 | backend API / service | `backend/tests/test_api_behavior.py`, `backend/tests/test_jobs_behavior.py` |
-| SC-07 | backend API / unit | `backend/tests/test_api_behavior.py`, `backend/tests/test_runtime_guards_behavior.py` |
+| SC-06 | backend API / service | `backend/tests/test_jobs_behavior.py`, `backend/tests/test_refresh_detect.py` |
+| SC-07 | backend API | `backend/tests/test_console_api_behavior.py` |
 | FC-01 | frontend component | `frontend/src/features/console/dashboard-screen.test.tsx` |
 | FC-02 | frontend component | `frontend/src/features/console/dashboard-screen.test.tsx` |
 | FC-03 | frontend component | `frontend/src/features/console/alerts-screen.test.tsx` |
 | FC-04 | frontend component | `frontend/src/features/console/alerts-screen.test.tsx` |
 | FC-05 | frontend component | `frontend/src/features/console/alert-detail-screen.test.tsx` |
 | FC-06 | frontend server unit | `frontend/src/lib/server/backend-proxy.test.ts` |
-| FC-07 | frontend component | `frontend/src/components/app-frame.test.tsx` |

@@ -31,11 +31,13 @@ Check these fields:
 
 ### Console smoke check
 
-1. Open the alerts screen.
-2. Apply a narrow date range and a search term.
-3. Confirm the list loads.
-4. Trigger `CSVエクスポート`.
-5. Confirm the response includes a CSV attachment and rows match the visible filters.
+1. Open the dashboard and confirm freshness timestamps render.
+2. Confirm stale state, if present, matches `metrics.findings.stale`.
+3. Open the alerts screen.
+4. Apply a narrow date range and a search term.
+5. Confirm the list loads and the status count strip matches the current filter scope.
+6. Trigger CSV export.
+7. Confirm the response includes a CSV attachment and rows match the visible filters.
 
 ## Incident: Background Job Is Stuck
 
@@ -47,17 +49,19 @@ Symptoms:
 
 Steps:
 
-1. Call `GET /api/job/status`.
-2. If the job is still `running`, compare `started_at` with the expected job duration.
-3. Check application logs for the current `job_id`.
-4. Check `GET /api/health` and confirm whether ACS or database access is degraded.
-5. If a worker is wedged, restart the backend process.
-6. Re-run the intended operation from the console or the corresponding admin endpoint.
+1. Capture the `job_id` shown in the console after refresh or master sync.
+2. Call `GET /api/console/job-status/{job_id}`.
+3. If the job is still `running`, compare `started_at` with the expected job duration.
+4. Check application logs for the same `job_id`.
+5. Check `GET /api/health` and confirm whether ACS or database access is degraded.
+6. If a worker is wedged, restart the backend process.
+7. Re-run the intended operation from the console or the corresponding admin endpoint.
 
 Recovery criteria:
 
 - `queued_jobs_count` trends back to zero
 - a new refresh job finishes successfully
+- the console job status endpoint reports `completed`
 - `findings.stale` becomes `false`
 
 ## Incident: ACS API Degradation
@@ -115,7 +119,8 @@ Checks:
 2. Download the CSV again.
 3. Confirm the request query contains the same `status`, `start_date`, `end_date`, and `search`.
 4. Confirm the response has `Content-Disposition` and `Content-Type: text/csv`.
-5. Spot check `reward_amount_source` and `reward_amount_is_estimated`.
+5. Spot check `case_key`, environment columns, and affected affiliate counts.
+6. Spot check `reward_amount_source` and `reward_amount_is_estimated`.
 
 If the export is wrong:
 
