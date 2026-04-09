@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -46,78 +46,10 @@ const DEFAULT_FILTERS: AlertFilters = {
   pageSize: 50,
 };
 
-type AlertGroup = {
-  groupKey: string;
-  affiliateId: string;
-  affiliateName: string;
-  detectedAtLabel: string;
-  items: AlertListItem[];
-  riskScore: number;
-  riskLevel: AlertListItem["risk_level"];
-  status: ReviewStatus | null;
-  estimatedDamage: number;
-  rewardAmountIsEstimated: boolean;
-  outcomeSummary: string;
-  patternSummary: string;
-};
-
-function renderNamedEntity(name: string, id: string, idLabel = "ID") {
-  return (
-    <>
-      <span className="table-primary">{name}</span>
-      <span className="table-secondary">{`${idLabel}: ${id}`}</span>
-    </>
-  );
-}
-
 type AlertsScreenProps = {
   searchParams?: Record<string, string | string[] | undefined>;
   viewerRole: ConsoleViewerRole;
 };
-
-type SelectionCheckboxProps = {
-  checked: boolean;
-  indeterminate: boolean;
-  ariaLabel: string;
-  onChange: () => void;
-};
-
-function SelectionCheckbox({ checked, indeterminate, ariaLabel, onChange }: SelectionCheckboxProps) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.indeterminate = indeterminate;
-    }
-  }, [indeterminate]);
-
-  return (
-    <input
-      ref={inputRef}
-      aria-label={ariaLabel}
-      type="checkbox"
-      checked={checked}
-      onChange={onChange}
-    />
-  );
-}
-
-function RewardAmountCell({
-  amount,
-  estimated,
-}: {
-  amount: number;
-  estimated: boolean;
-}) {
-  return (
-    <div className="amount-cell">
-      <span>{formatCurrency(amount)}</span>
-      <span className={`meta-badge ${estimated ? "meta-badge-warning" : "meta-badge-muted"}`}>
-        {estimated ? "推定" : "実測"}
-      </span>
-    </div>
-  );
-}
 
 function firstSearchParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
@@ -127,37 +59,18 @@ function buildInitialFilters(searchParams?: Record<string, string | string[] | u
   if (!searchParams) {
     return DEFAULT_FILTERS;
   }
-
-  const status = firstSearchParam(searchParams.status);
-  const riskLevel = firstSearchParam(searchParams.risk_level);
-  const startDate = firstSearchParam(searchParams.start_date);
-  const endDate = firstSearchParam(searchParams.end_date);
-  const search = firstSearchParam(searchParams.search);
-  const sort = firstSearchParam(searchParams.sort);
   const page = Number(firstSearchParam(searchParams.page) || DEFAULT_FILTERS.page);
   const pageSize = Number(firstSearchParam(searchParams.page_size) || DEFAULT_FILTERS.pageSize);
-
   return {
-    status: (status || DEFAULT_FILTERS.status) as AlertFilterStatus,
-    riskLevel: (riskLevel || DEFAULT_FILTERS.riskLevel) as AlertRiskFilter,
-    startDate,
-    endDate,
-    search,
-    sort: sort || DEFAULT_FILTERS.sort,
+    status: (firstSearchParam(searchParams.status) || DEFAULT_FILTERS.status) as AlertFilterStatus,
+    riskLevel: (firstSearchParam(searchParams.risk_level) || DEFAULT_FILTERS.riskLevel) as AlertRiskFilter,
+    startDate: firstSearchParam(searchParams.start_date),
+    endDate: firstSearchParam(searchParams.end_date),
+    search: firstSearchParam(searchParams.search),
+    sort: firstSearchParam(searchParams.sort) || DEFAULT_FILTERS.sort,
     page: Number.isFinite(page) && page > 0 ? page : DEFAULT_FILTERS.page,
     pageSize: Number.isFinite(pageSize) && pageSize > 0 ? pageSize : DEFAULT_FILTERS.pageSize,
   };
-}
-
-function parseSearchParamsKey(key: string): Record<string, string | string[] | undefined> {
-  if (!key) {
-    return {};
-  }
-  try {
-    return JSON.parse(key) as Record<string, string | string[] | undefined>;
-  } catch {
-    return {};
-  }
 }
 
 function toFilterQuery(filters: AlertFilters) {
@@ -194,125 +107,68 @@ function filtersFromResponse(response: AlertsResponse): AlertFilters {
   };
 }
 
-function summarizeOutcomes(items: AlertListItem[]) {
-  const uniqueOutcomeTypes = Array.from(new Set(items.map((item) => item.outcome_type)));
-  if (uniqueOutcomeTypes.length === 0) {
-    return "不明";
+function namedPreview(items: AlertListItem["affected_affiliates"]) {
+  if (items.length === 0) {
+    return "なし";
   }
-  if (uniqueOutcomeTypes.length <= 2) {
-    return uniqueOutcomeTypes.join(" / ");
+  if (items.length === 1) {
+    return items[0]?.name ?? items[0]?.id ?? "なし";
   }
-  return `${uniqueOutcomeTypes.slice(0, 2).join(" / ")} ほか${uniqueOutcomeTypes.length - 2}件`;
+  return `${items[0]?.name ?? items[0]?.id} ほか${items.length - 1}件`;
 }
 
-function buildAlertGroups(items: AlertListItem[]) {
-  const groups: AlertGroup[] = [];
-  const groupMap = new Map<string, AlertGroup>();
-
-  for (const item of items) {
-    const groupKey = `${item.affiliate_id}::${item.detected_at}`;
-    const existing = groupMap.get(groupKey);
-
-    if (existing) {
-      existing.items.push(item);
-      existing.estimatedDamage += item.reward_amount;
-      existing.rewardAmountIsEstimated = existing.rewardAmountIsEstimated || item.reward_amount_is_estimated;
-      if (item.risk_score > existing.riskScore) {
-        existing.riskScore = item.risk_score;
-        existing.riskLevel = item.risk_level;
-      }
-      if (existing.status !== item.status) {
-        existing.status = null;
-      }
-      continue;
-    }
-
-    const group: AlertGroup = {
-      groupKey,
-      affiliateId: item.affiliate_id,
-      affiliateName: item.affiliate_name,
-      detectedAtLabel: formatDateTime(item.detected_at),
-      items: [item],
-      riskScore: item.risk_score,
-      riskLevel: item.risk_level,
-      status: item.status,
-      estimatedDamage: item.reward_amount,
-      rewardAmountIsEstimated: item.reward_amount_is_estimated,
-      outcomeSummary: item.outcome_type,
-      patternSummary: item.pattern,
-    };
-    groups.push(group);
-    groupMap.set(groupKey, group);
+function programPreview(item: AlertListItem) {
+  if (item.affected_programs.length === 0) {
+    return "なし";
   }
-
-  for (const group of groups) {
-    group.outcomeSummary = summarizeOutcomes(group.items);
-    group.patternSummary =
-      group.items.length > 1 ? `${group.items.length}件のアラートをまとめて表示` : group.items[0]?.pattern ?? "";
+  if (item.affected_programs.length === 1) {
+    return item.affected_programs[0]?.name ?? item.affected_programs[0]?.id ?? "なし";
   }
+  return `${item.affected_programs[0]?.name ?? item.affected_programs[0]?.id} ほか${item.affected_programs.length - 1}件`;
+}
 
-  return groups;
+function promptReviewReason() {
+  const reason = globalThis.prompt?.("レビュー理由を入力してください。");
+  return reason?.trim() ?? "";
 }
 
 export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
-  const searchParamsKey = JSON.stringify(searchParams ?? {});
-  const { replace } = useRouter();
-  const pathname = usePathname();
-  const tableId = useId();
-  const routeFilters = useMemo(
-    () => buildInitialFilters(parseSearchParamsKey(searchParamsKey)),
-    [searchParamsKey],
-  );
-  const [draftFilters, setDraftFilters] = useState<AlertFilters>(() => buildInitialFilters(searchParams));
+  const routeFilters = useMemo(() => buildInitialFilters(searchParams), [searchParams]);
+  const [draftFilters, setDraftFilters] = useState(routeFilters);
   const [data, setData] = useState<AlertsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [submittingStatus, setSubmittingStatus] = useState<ReviewStatus | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
-  const latestRequestId = useRef(0);
+  const [warning, setWarning] = useState<string | null>(null);
+  const { replace } = useRouter();
+  const pathname = usePathname();
 
-  const loadAlerts = useCallback(async (nextFilters: AlertFilters) => {
-    const requestId = latestRequestId.current + 1;
-    latestRequestId.current = requestId;
+  const loadAlerts = useCallback(async (filters: AlertFilters) => {
     setLoading(true);
     setError(null);
-
     try {
       const response = await getAlerts({
-        status: nextFilters.status,
-        riskLevel: nextFilters.riskLevel !== "all" ? nextFilters.riskLevel : undefined,
-        startDate: nextFilters.startDate,
-        endDate: nextFilters.endDate,
-        search: nextFilters.search,
-        sort: nextFilters.sort,
-        page: nextFilters.page,
-        pageSize: nextFilters.pageSize,
+        status: filters.status,
+        riskLevel: filters.riskLevel !== "all" ? filters.riskLevel : undefined,
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        search: filters.search,
+        sort: filters.sort,
+        page: filters.page,
+        pageSize: filters.pageSize,
       });
-      if (latestRequestId.current !== requestId) {
-        return;
-      }
-
       setData(response);
       setSelectedKeys([]);
-      setExpandedGroups([]);
-
       const canonicalFilters = filtersFromResponse(response);
-      if (toFilterQuery(nextFilters) !== toFilterQuery(canonicalFilters)) {
+      if (toFilterQuery(filters) !== toFilterQuery(canonicalFilters)) {
         replace(`${pathname}?${toFilterQuery(canonicalFilters)}`, { scroll: false });
       }
     } catch (caughtError) {
-      if (latestRequestId.current !== requestId) {
-        return;
-      }
-      const message =
-        caughtError instanceof Error ? caughtError.message : "アラート一覧の取得に失敗しました。";
-      setError(message);
+      setError(caughtError instanceof Error ? caughtError.message : "アラート一覧の取得に失敗しました。");
     } finally {
-      if (latestRequestId.current === requestId) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   }, [pathname, replace]);
 
@@ -322,74 +178,42 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
   }, [loadAlerts, routeFilters]);
 
   function setDraftFilter<K extends keyof AlertFilters>(key: K, value: AlertFilters[K]) {
-    setDraftFilters((current) => ({
-      ...current,
-      [key]: value,
-    }));
+    setDraftFilters((current) => ({ ...current, [key]: value }));
   }
 
   function replaceRoute(nextFilters: AlertFilters) {
     setFeedback(null);
+    setWarning(null);
     replace(`${pathname}?${toFilterQuery(nextFilters)}`, { scroll: false });
-  }
-
-  function toggleSelection(findingKey: string) {
-    setSelectedKeys((current) =>
-      current.includes(findingKey)
-        ? current.filter((value) => value !== findingKey)
-        : [...current, findingKey],
-    );
-  }
-
-  function toggleSelectAll(items: AlertListItem[]) {
-    if (selectedKeys.length === items.length) {
-      setSelectedKeys([]);
-      return;
-    }
-    setSelectedKeys(items.map((item) => item.finding_key));
-  }
-
-  function toggleGroup(groupKey: string) {
-    setExpandedGroups((current) =>
-      current.includes(groupKey) ? current.filter((value) => value !== groupKey) : [...current, groupKey],
-    );
-  }
-
-  function toggleGroupSelection(group: AlertGroup) {
-    const groupKeys = group.items.map((item) => item.finding_key);
-    const allSelected = groupKeys.every((key) => selectedKeys.includes(key));
-
-    setSelectedKeys((current) => {
-      if (allSelected) {
-        return current.filter((key) => !groupKeys.includes(key));
-      }
-      return Array.from(new Set([...current, ...groupKeys]));
-    });
   }
 
   async function handleBulkAction(status: ReviewStatus) {
     if (selectedKeys.length === 0) {
       return;
     }
+    const reason = promptReviewReason();
+    if (!reason) {
+      setWarning("レビュー理由を入力しない限り更新できません。");
+      return;
+    }
 
     setSubmittingStatus(status);
     setError(null);
+    setWarning(null);
     try {
-      const result = await reviewAlerts(selectedKeys, status);
-      setSelectedKeys([]);
-      setFeedback(`${result.updated_count}件のアラートを更新しました。`);
+      const result = await reviewAlerts(selectedKeys, status, reason);
+      setFeedback(`${result.updated_count}件のケースを更新しました。`);
+      setWarning(result.missing_keys.length > 0 ? `見つからないケース: ${result.missing_keys.join(", ")}` : null);
       await loadAlerts(routeFilters);
     } catch (caughtError) {
-      const message =
-        caughtError instanceof Error ? caughtError.message : "アラート更新に失敗しました。";
-      setError(message);
+      setError(caughtError instanceof Error ? caughtError.message : "レビュー更新に失敗しました。");
     } finally {
       setSubmittingStatus(null);
     }
   }
 
   const items = data?.items ?? [];
-  const groups = buildAlertGroups(items);
+  const allSelected = items.length > 0 && selectedKeys.length === items.length;
   const activeFilters = data ? filtersFromResponse(data) : routeFilters;
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / activeFilters.pageSize));
@@ -408,6 +232,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
         <div className="alerts-topbar-left">
           <h1 className="alerts-title">アラート一覧</h1>
           {data ? <StatusCountStrip counts={data.status_counts} /> : null}
+          <p className="table-secondary">件数は現在の絞り込み条件内です。</p>
         </div>
         <div className="alerts-topbar-right">
           <a className="button button-default" href={exportUrl}>
@@ -422,7 +247,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
             <label htmlFor="alert-status">状態</label>
             <select
               id="alert-status"
-              aria-label="判定状態"
+              aria-label="状態"
               value={draftFilters.status}
               onChange={(event) => setDraftFilter("status", event.target.value as AlertFilterStatus)}
             >
@@ -443,7 +268,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
               onChange={(event) => setDraftFilter("riskLevel", event.target.value as AlertRiskFilter)}
             >
               <option value="all">すべて</option>
-              <option value="critical">最高</option>
+              <option value="critical">最優先</option>
               <option value="high">高</option>
               <option value="medium">中</option>
               <option value="low">低</option>
@@ -451,7 +276,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
           </div>
 
           <div className="form-field form-field--compact">
-            <label htmlFor="alert-start-date">開始</label>
+            <label htmlFor="alert-start-date">開始日</label>
             <input
               id="alert-start-date"
               aria-label="開始日"
@@ -462,7 +287,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
           </div>
 
           <div className="form-field form-field--compact">
-            <label htmlFor="alert-end-date">終了</label>
+            <label htmlFor="alert-end-date">終了日</label>
             <input
               id="alert-end-date"
               aria-label="終了日"
@@ -480,20 +305,12 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
               type="search"
               value={draftFilters.search}
               onChange={(event) => setDraftFilter("search", event.target.value)}
-              placeholder="名前、広告名、ID"
+              placeholder="affiliate、IP、UA"
             />
           </div>
 
           <div className="alerts-filters-actions">
-            <ActionButton
-              onClick={() =>
-                replaceRoute({
-                  ...draftFilters,
-                  page: 1,
-                })
-              }
-              disabled={loading}
-            >
+            <ActionButton onClick={() => replaceRoute({ ...draftFilters, page: 1 })} disabled={loading}>
               絞り込む
             </ActionButton>
             <ActionButton onClick={() => replaceRoute(DEFAULT_FILTERS)} disabled={loading}>
@@ -503,12 +320,17 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
         </div>
       </div>
 
-      {feedback ? <div className="success-message">{feedback}</div> : null}
+      {feedback ? (
+        <div className="success-message" role="status" aria-live="polite">
+          {feedback}
+        </div>
+      ) : null}
+      {warning ? <ErrorState message={warning} /> : null}
       {error && !data ? <ErrorState message={error} /> : null}
 
       {viewerRole === "admin" && selectedKeys.length > 0 ? (
         <div className="selection-bar">
-          <span className="selection-bar-count">{selectedKeys.length}件を選択中</span>
+          <span className="selection-bar-count">{selectedKeys.length}件選択中</span>
           <div className="selection-bar-actions">
             <ActionButton
               tone="danger"
@@ -541,137 +363,77 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
         {loading && data ? <LoadingState message="アラートを更新しています..." /> : null}
         {!loading && items.length === 0 ? (
           <EmptyState
-            message={
-              activeFilters.search
-                ? "条件に一致するアラートはありません。"
-                : "対象期間のアラートはありません。"
-            }
+            message={activeFilters.search ? "条件に一致するアラートはありません。" : "対象期間のアラートはありません。"}
           />
         ) : (
           <table aria-label="不正アラート一覧" className="table-sticky-head">
-            <colgroup>
-              <col className="col-select" />
-              <col className="col-risk" />
-              <col className="col-name" />
-              <col className="col-status" />
-              <col className="col-reward" />
-              <col className="col-date" />
-            </colgroup>
             <thead>
               <tr>
                 <th>
-                  <SelectionCheckbox
-                    ariaLabel="すべて選択"
-                    checked={items.length > 0 && selectedKeys.length === items.length}
-                    indeterminate={selectedKeys.length > 0 && selectedKeys.length < items.length}
-                    onChange={() => toggleSelectAll(items)}
+                  <input
+                    aria-label="すべて選択"
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={() => setSelectedKeys(allSelected ? [] : items.map((item) => item.case_key))}
                   />
                 </th>
                 <th>リスク</th>
-                <th>アフィリエイター名 / 広告名</th>
-                <th>判定状態</th>
-                <th>想定報酬</th>
+                <th>影響affiliate</th>
+                <th>環境</th>
+                <th>状態</th>
+                <th>想定被害</th>
                 <th>検知日時</th>
               </tr>
             </thead>
-            {groups.map((group, index) => {
-              const detailsId = `${tableId}-group-${index}`;
-              const groupKeys = group.items.map((item) => item.finding_key);
-              const selectedCount = groupKeys.filter((key) => selectedKeys.includes(key)).length;
-              const allSelected = groupKeys.length > 0 && selectedCount === groupKeys.length;
-              const isGrouped = group.items.length > 1;
-              const isExpanded = expandedGroups.includes(group.groupKey);
-
-              return (
-                <tbody key={group.groupKey} id={isGrouped ? detailsId : undefined}>
-                  <tr className={isGrouped ? "alert-group-summary" : undefined}>
-                    <td>
-                      <div className="alert-row-controls">
-                        <SelectionCheckbox
-                          ariaLabel={`${group.affiliateName} を選択`}
-                          checked={allSelected}
-                          indeterminate={!allSelected && selectedCount > 0}
-                          onChange={() => (isGrouped ? toggleGroupSelection(group) : toggleSelection(groupKeys[0]))}
-                        />
-                        {isGrouped ? (
-                          <button
-                            className="table-toggle"
-                            type="button"
-                            aria-expanded={isExpanded}
-                            aria-controls={detailsId}
-                            onClick={() => toggleGroup(group.groupKey)}
-                          >
-                            {isExpanded ? "折りたたむ" : `${group.items.length}件を表示`}
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td>
-                      <RiskBadge score={group.riskScore} level={group.riskLevel} />
-                    </td>
-                    <td>
-                      {isGrouped ? (
-                        <div className="table-link">
-                          {renderNamedEntity(group.affiliateName, group.affiliateId)}
-                          <span className="table-tertiary">{`広告名: ${group.outcomeSummary}`}</span>
-                          <span className="table-tertiary">{group.patternSummary}</span>
-                          <Link className="table-tertiary" href={`/alerts/${groupKeys[0]}`}>
-                            詳細を見る
-                          </Link>
-                        </div>
-                      ) : (
-                        <Link className="table-link" href={`/alerts/${groupKeys[0]}`}>
-                          {renderNamedEntity(group.affiliateName, group.affiliateId)}
-                          <span className="table-tertiary">{`広告名: ${group.outcomeSummary}`}</span>
-                          <span className="table-tertiary">{group.patternSummary}</span>
-                        </Link>
-                      )}
-                    </td>
-                    <td>
-                      {group.status ? <StatusBadge status={group.status} /> : <span className="table-secondary">混在</span>}
-                    </td>
-                    <td>
-                      <RewardAmountCell amount={group.estimatedDamage} estimated={group.rewardAmountIsEstimated} />
-                    </td>
-                    <td>{group.detectedAtLabel}</td>
-                  </tr>
-                  {isGrouped && isExpanded
-                    ? group.items.map((item) => (
-                        <tr key={item.finding_key} className="alert-group-child">
-                          <td>
-                            <input
-                              aria-label={`${item.affiliate_name} のアラートを選択`}
-                              type="checkbox"
-                              checked={selectedKeys.includes(item.finding_key)}
-                              onChange={() => toggleSelection(item.finding_key)}
-                            />
-                          </td>
-                          <td>
-                            <RiskBadge score={item.risk_score} level={item.risk_level} />
-                          </td>
-                          <td>
-                            <Link className="table-link" href={`/alerts/${item.finding_key}`}>
-                              {renderNamedEntity(item.affiliate_name, item.affiliate_id)}
-                              <span className="table-tertiary">{`広告名: ${item.outcome_type}`}</span>
-                              <span className="table-tertiary">{item.pattern}</span>
-                            </Link>
-                          </td>
-                          <td>
-                            <StatusBadge status={item.status} />
-                          </td>
-                          <td>
-                            <RewardAmountCell
-                              amount={item.reward_amount}
-                              estimated={item.reward_amount_is_estimated}
-                            />
-                          </td>
-                          <td>{formatDateTime(item.detected_at)}</td>
-                        </tr>
-                      ))
-                    : null}
-                </tbody>
-              );
-            })}
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.case_key}>
+                  <td>
+                    <input
+                      aria-label={`${namedPreview(item.affected_affiliates)} を選択`}
+                      type="checkbox"
+                      checked={selectedKeys.includes(item.case_key)}
+                      onChange={() =>
+                        setSelectedKeys((current) =>
+                          current.includes(item.case_key)
+                            ? current.filter((value) => value !== item.case_key)
+                            : [...current, item.case_key],
+                        )
+                      }
+                    />
+                  </td>
+                  <td>
+                    <RiskBadge score={item.risk_score} level={item.risk_level} />
+                  </td>
+                  <td>
+                    <Link className="table-link" href={`/alerts/${item.case_key}`}>
+                      <span className="table-primary">{namedPreview(item.affected_affiliates)}</span>
+                      <span className="table-secondary">{`${item.affected_affiliate_count}件 / ${programPreview(item)}`}</span>
+                      <span className="table-tertiary">{item.primary_reason}</span>
+                    </Link>
+                  </td>
+                  <td>
+                    <div className="table-link">
+                      <span className="table-primary">{item.environment.ipaddress ?? "IPなし"}</span>
+                      <span className="table-secondary">{item.environment.useragent ?? "UAなし"}</span>
+                      <span className="table-tertiary">{item.environment.date ?? "日付なし"}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
+                  <td>
+                    <div className="amount-cell">
+                      <span>{formatCurrency(item.reward_amount)}</span>
+                      <span className={`meta-badge ${item.reward_amount_is_estimated ? "meta-badge-warning" : "meta-badge-muted"}`}>
+                        {item.reward_amount_is_estimated ? "推定" : "実測"}
+                      </span>
+                    </div>
+                  </td>
+                  <td>{item.latest_detected_at ? formatDateTime(item.latest_detected_at) : "-"}</td>
+                </tr>
+              ))}
+            </tbody>
           </table>
         )}
       </div>

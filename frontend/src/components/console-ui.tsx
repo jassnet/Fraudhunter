@@ -117,15 +117,27 @@ export function ActionButton({ tone = "default", className, type, ...props }: Ac
 }
 
 export function LoadingState({ message = "読み込み中..." }: { message?: string }) {
-  return <div className="loading-state">{message}</div>;
+  return (
+    <div className="loading-state" role="status" aria-live="polite">
+      {message}
+    </div>
+  );
 }
 
 export function ErrorState({ message }: { message: string }) {
-  return <div className="error-state">{message}</div>;
+  return (
+    <div className="error-state" role="alert" aria-live="assertive">
+      {message}
+    </div>
+  );
 }
 
 export function EmptyState({ message }: { message: string }) {
-  return <div className="empty-state">{message}</div>;
+  return (
+    <div className="empty-state" role="status" aria-live="polite">
+      {message}
+    </div>
+  );
 }
 
 export function StatusBadge({ status }: { status: ReviewStatus }) {

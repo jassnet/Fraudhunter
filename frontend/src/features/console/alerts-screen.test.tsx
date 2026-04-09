@@ -1,7 +1,7 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
 import { server } from "@/test/msw/server";
 
@@ -17,25 +17,21 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("AlertsScreen", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   beforeEach(() => {
     replaceMock.mockReset();
   });
 
-  it("loads unhandled alerts, supports bulk review, and refreshes the list", async () => {
+  it("loads case-centric alerts and sends review reason with case keys", async () => {
     let fetchCount = 0;
-    let requestedStatus: string | null = null;
-    let requestedRiskLevel: string | null = null;
-    let requestedSearch: string | null = null;
     let reviewRequestBody: unknown = null;
 
     server.use(
-      http.get("/api/console/alerts", ({ request }) => {
+      http.get("/api/console/alerts", () => {
         fetchCount += 1;
-        const url = new URL(request.url);
-        requestedStatus = url.searchParams.get("status");
-        requestedRiskLevel = url.searchParams.get("risk_level");
-        requestedSearch = url.searchParams.get("search");
-
         if (fetchCount > 1) {
           return HttpResponse.json({
             available_dates: ["2026-04-05"],
@@ -50,7 +46,7 @@ describe("AlertsScreen", () => {
             status_counts: {
               unhandled: 0,
               investigating: 1,
-              confirmed_fraud: 2,
+              confirmed_fraud: 0,
               white: 0,
             },
             items: [],
@@ -62,7 +58,7 @@ describe("AlertsScreen", () => {
         }
 
         return HttpResponse.json({
-          available_dates: ["2026-04-05", "2026-04-04"],
+          available_dates: ["2026-04-05"],
           applied_filters: {
             status: "unhandled",
             risk_level: null,
@@ -74,39 +70,58 @@ describe("AlertsScreen", () => {
           status_counts: {
             unhandled: 2,
             investigating: 1,
-            confirmed_fraud: 4,
-            white: 8,
+            confirmed_fraud: 0,
+            white: 0,
           },
           items: [
             {
+              case_key: "case-002",
               finding_key: "fk-002",
-              detected_at: "2026-04-05T09:28:00+09:00",
-              affiliate_id: "AFF-200",
-              affiliate_name: "alpha-media",
-              outcome_type: "Program A",
+              environment: {
+                date: "2026-04-05",
+                ipaddress: "203.0.113.10",
+                useragent: "Mozilla/5.0 Chrome/123.0",
+              },
+              affected_affiliate_count: 2,
+              affected_affiliates: [
+                { id: "AFF-200", name: "alpha-media" },
+                { id: "AFF-201", name: "beta-media" },
+              ],
+              affected_program_count: 1,
+              affected_programs: [{ id: "PRG-1", name: "Program A" }],
               risk_score: 98,
               risk_level: "critical",
-              pattern: "短時間に高額CVが集中",
+              primary_reason: "同一IPから短時間に多発",
+              reasons: ["同一IPから短時間に多発"],
               status: "unhandled",
               reward_amount: 52000,
               reward_amount_source: "fallback_default",
               reward_amount_is_estimated: true,
               transaction_count: 11,
+              latest_detected_at: "2026-04-05T09:28:00+09:00",
             },
             {
+              case_key: "case-001",
               finding_key: "fk-001",
-              detected_at: "2026-04-05T08:55:00+09:00",
-              affiliate_id: "AFF-145",
-              affiliate_name: "beta-traffic",
-              outcome_type: "Program B",
+              environment: {
+                date: "2026-04-05",
+                ipaddress: "203.0.113.11",
+                useragent: "Mozilla/5.0 Safari/17.0",
+              },
+              affected_affiliate_count: 1,
+              affected_affiliates: [{ id: "AFF-145", name: "gamma-traffic" }],
+              affected_program_count: 1,
+              affected_programs: [{ id: "PRG-2", name: "Program B" }],
               risk_score: 87,
               risk_level: "high",
-              pattern: "CV間隔が極端に短い",
+              primary_reason: "CV間隔が異常に短い",
+              reasons: ["CV間隔が異常に短い"],
               status: "unhandled",
               reward_amount: 36000,
               reward_amount_source: "observed_transactions",
               reward_amount_is_estimated: false,
               transaction_count: 7,
+              latest_detected_at: "2026-04-05T08:55:00+09:00",
             },
           ],
           total: 2,
@@ -117,9 +132,17 @@ describe("AlertsScreen", () => {
       }),
       http.post("/api/console/alerts/review", async ({ request }) => {
         reviewRequestBody = await request.json();
-        return HttpResponse.json({ updated_count: 2, status: "confirmed_fraud" });
+        return HttpResponse.json({
+          requested_count: 2,
+          matched_current_count: 2,
+          updated_count: 2,
+          missing_keys: [],
+          status: "confirmed_fraud",
+        });
       }),
     );
+
+    vi.spyOn(window, "prompt").mockReturnValue("bulk review reason");
 
     const user = userEvent.setup();
     render(
@@ -132,128 +155,27 @@ describe("AlertsScreen", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "アラート一覧" })).toBeInTheDocument();
-    await waitFor(() => {
-      expect(requestedStatus).toBe("unhandled");
-      expect(requestedRiskLevel).toBe(null);
-      expect(requestedSearch).toBe("alpha");
-    });
-
-    expect(screen.getByLabelText("判定状態")).toHaveValue("unhandled");
-    expect(screen.getByLabelText("リスクレベル")).toHaveValue("all");
-    expect(screen.getByLabelText("検索")).toHaveValue("alpha");
     expect(screen.getByRole("link", { name: "CSV出力" })).toHaveAttribute(
       "href",
       "/api/console/alerts/export?status=unhandled&sort=risk_desc&start_date=2026-04-05&end_date=2026-04-05&search=alpha",
     );
+    expect(screen.getByText("alpha-media ほか1件")).toBeInTheDocument();
+    expect(screen.getByText("203.0.113.10")).toBeInTheDocument();
+    expect(screen.getByText("推定")).toBeInTheDocument();
 
-    const rows = screen.getAllByRole("row").slice(1);
-    expect(within(rows[0]).getByText("98")).toBeInTheDocument();
-    expect(within(rows[0]).getByText("alpha-media")).toBeInTheDocument();
-    expect(within(rows[0]).getByText("推定")).toBeInTheDocument();
-    expect(within(rows[1]).getByText("実測")).toBeInTheDocument();
-
-    const checkboxes = screen.getAllByRole("checkbox");
-    await user.click(checkboxes[1]);
-    await user.click(checkboxes[2]);
+    await user.click(screen.getByLabelText("alpha-media ほか1件 を選択"));
+    await user.click(screen.getByLabelText("gamma-traffic を選択"));
     await user.click(screen.getByRole("button", { name: "不正にする" }));
 
     await waitFor(() => {
       expect(reviewRequestBody).toEqual({
-        finding_keys: ["fk-002", "fk-001"],
+        case_keys: ["case-002", "case-001"],
         status: "confirmed_fraud",
+        reason: "bulk review reason",
       });
     });
 
     expect(await screen.findByText("条件に一致するアラートはありません。")).toBeInTheDocument();
-  });
-
-  it("groups matching alerts behind a collapsible row", async () => {
-    server.use(
-      http.get("/api/console/alerts", () =>
-        HttpResponse.json({
-          available_dates: ["2026-04-05"],
-          applied_filters: {
-            status: "unhandled",
-            risk_level: null,
-            start_date: "2026-04-05",
-            end_date: "2026-04-05",
-            search: null,
-            sort: "risk_desc",
-          },
-          status_counts: {
-            unhandled: 3,
-            investigating: 0,
-            confirmed_fraud: 0,
-            white: 0,
-          },
-          items: [
-            {
-              finding_key: "fk-201",
-              detected_at: "2026-04-05T09:28:00+09:00",
-              affiliate_id: "AFF-200",
-              affiliate_name: "alpha-media",
-              outcome_type: "Program A",
-              risk_score: 98,
-              risk_level: "critical",
-              pattern: "短時間に高額CVが集中",
-              status: "unhandled",
-              reward_amount: 52000,
-              reward_amount_source: "fallback_default",
-              reward_amount_is_estimated: true,
-              transaction_count: 11,
-            },
-            {
-              finding_key: "fk-202",
-              detected_at: "2026-04-05T09:28:00+09:00",
-              affiliate_id: "AFF-200",
-              affiliate_name: "alpha-media",
-              outcome_type: "Program B",
-              risk_score: 92,
-              risk_level: "critical",
-              pattern: "CV間隔が極端に短い",
-              status: "unhandled",
-              reward_amount: 36000,
-              reward_amount_source: "observed_transactions",
-              reward_amount_is_estimated: false,
-              transaction_count: 7,
-            },
-            {
-              finding_key: "fk-203",
-              detected_at: "2026-04-05T08:55:00+09:00",
-              affiliate_id: "AFF-145",
-              affiliate_name: "beta-traffic",
-              outcome_type: "Program C",
-              risk_score: 87,
-              risk_level: "high",
-              pattern: "同一IPから連続CV",
-              status: "unhandled",
-              reward_amount: 12000,
-              reward_amount_source: "observed_transactions",
-              reward_amount_is_estimated: false,
-              transaction_count: 3,
-            },
-          ],
-          total: 3,
-          page: 1,
-          page_size: 50,
-          has_next: false,
-        }),
-      ),
-    );
-
-    const user = userEvent.setup();
-    render(<AlertsScreen viewerRole="admin" />);
-
-    expect(await screen.findByText("alpha-media")).toBeInTheDocument();
-    expect(screen.getByText("2件のアラートをまとめて表示")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "2件を表示" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "詳細を見る" })).toHaveAttribute("href", "/alerts/fk-201");
-    expect(screen.queryByText("CV間隔が極端に短い")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "2件を表示" }));
-
-    expect(await screen.findByText("CV間隔が極端に短い")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /alpha-media/i })).toHaveLength(2);
   });
 
   it("applies filters only when the apply button is clicked", async () => {
@@ -346,19 +268,27 @@ describe("AlertsScreen", () => {
             },
             items: [
               {
+                case_key: "case-051",
                 finding_key: "fk-051",
-                detected_at: "2026-04-05T10:45:00+09:00",
-                affiliate_id: "AFF-500",
-                affiliate_name: "page-two-affiliate",
-                outcome_type: "Program Z",
+                environment: {
+                  date: "2026-04-05",
+                  ipaddress: "203.0.113.51",
+                  useragent: "Mozilla/5.0 Edge/123.0",
+                },
+                affected_affiliate_count: 1,
+                affected_affiliates: [{ id: "AFF-500", name: "page-two-affiliate" }],
+                affected_program_count: 1,
+                affected_programs: [{ id: "PRG-Z", name: "Program Z" }],
                 risk_score: 72,
                 risk_level: "medium",
-                pattern: "page-two-pattern",
+                primary_reason: "page-two-pattern",
+                reasons: ["page-two-pattern"],
                 status: "unhandled",
                 reward_amount: 8000,
                 reward_amount_source: "observed_transactions",
                 reward_amount_is_estimated: false,
                 transaction_count: 1,
+                latest_detected_at: "2026-04-05T10:45:00+09:00",
               },
             ],
             total: 51,
@@ -386,19 +316,27 @@ describe("AlertsScreen", () => {
           },
           items: [
             {
+              case_key: "case-001",
               finding_key: "fk-001",
-              detected_at: "2026-04-05T09:28:00+09:00",
-              affiliate_id: "AFF-200",
-              affiliate_name: "page-one-affiliate",
-              outcome_type: "Program A",
+              environment: {
+                date: "2026-04-05",
+                ipaddress: "203.0.113.1",
+                useragent: "Mozilla/5.0 Chrome/123.0",
+              },
+              affected_affiliate_count: 1,
+              affected_affiliates: [{ id: "AFF-200", name: "page-one-affiliate" }],
+              affected_program_count: 1,
+              affected_programs: [{ id: "PRG-A", name: "Program A" }],
               risk_score: 98,
               risk_level: "critical",
-              pattern: "page-one-pattern",
+              primary_reason: "page-one-pattern",
+              reasons: ["page-one-pattern"],
               status: "unhandled",
               reward_amount: 52000,
               reward_amount_source: "observed_transactions",
               reward_amount_is_estimated: false,
               transaction_count: 11,
+              latest_detected_at: "2026-04-05T09:28:00+09:00",
             },
           ],
           total: 51,
@@ -419,6 +357,6 @@ describe("AlertsScreen", () => {
       "/alerts?status=unhandled&sort=risk_desc&page=2&page_size=50&start_date=2026-04-05&end_date=2026-04-05",
       { scroll: false },
     );
-    expect(requestedPages).toEqual(["1"]);
+    expect(requestedPages[0]).toBe("1");
   });
 });

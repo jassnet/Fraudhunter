@@ -3,12 +3,12 @@ import { getConsoleViewer } from "@/lib/server/console-auth";
 
 type AlertDetailPageProps = {
   params: Promise<{
-    findingKey: string;
+    caseKey: string;
   }>;
 };
 
 export default async function AlertDetailPage({ params }: AlertDetailPageProps) {
-  const { findingKey } = await params;
+  const { caseKey } = await params;
   const viewer = await getConsoleViewer();
-  return <AlertDetailScreen findingKey={findingKey} viewerRole={viewer.role} />;
+  return <AlertDetailScreen caseKey={caseKey} viewerRole={viewer.role} />;
 }

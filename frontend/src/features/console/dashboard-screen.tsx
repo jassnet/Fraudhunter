@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { LineChart } from "@/components/line-chart";
@@ -12,11 +12,12 @@ import {
   MetricStrip,
   PageHeader,
   Panel,
+  StatusBadge,
 } from "@/components/console-ui";
-import { getDashboard, refreshLatestData, syncMasterData } from "@/lib/console-api";
-import type { DashboardResponse } from "@/lib/console-types";
+import { getDashboard, getJobStatus, refreshLatestData, syncMasterData } from "@/lib/console-api";
+import type { DashboardResponse, JobStatusResponse } from "@/lib/console-types";
 import type { ConsoleViewerRole } from "@/lib/console-viewer";
-import { formatCurrency, formatDateLabel, formatPercent } from "@/lib/format";
+import { formatCurrency, formatDateLabel, formatDateTime, formatPercent } from "@/lib/format";
 
 function resolveKpiTone(key: string, value: number): "danger" | "warning" | "neutral" {
   if (key === "fraud_rate") {
@@ -30,35 +31,29 @@ function resolveKpiTone(key: string, value: number): "danger" | "warning" | "neu
 }
 
 const KPI_DEFINITIONS = [
-  {
-    key: "fraud_rate",
-    label: "不正率",
-    format: (value: number) => formatPercent(value),
-  },
-  {
-    key: "unhandled_alerts",
-    label: "未対応アラート数",
-    format: (value: number) => `${value}件`,
-  },
-  {
-    key: "estimated_damage",
-    label: "想定被害額",
-    format: (value: number) => formatCurrency(value),
-  },
+  { key: "fraud_rate", label: "不正率", format: (value: number) => formatPercent(value) },
+  { key: "unhandled_alerts", label: "未対応アラート件数", format: (value: number) => `${value}件` },
+  { key: "estimated_damage", label: "想定被害額", format: (value: number) => formatCurrency(value) },
 ] as const;
 
 type DashboardScreenProps = {
   viewerRole: ConsoleViewerRole;
 };
 
+function isActiveJobStatus(status: string | undefined) {
+  return status === "queued" || status === "running";
+}
+
 export function DashboardScreen({ viewerRole }: DashboardScreenProps) {
   const [data, setData] = useState<DashboardResponse | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingMasters, setSyncingMasters] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
   async function loadDashboard() {
     setLoading(true);
@@ -66,25 +61,63 @@ export function DashboardScreen({ viewerRole }: DashboardScreenProps) {
     try {
       const result = await getDashboard();
       setData(result);
+      setJobStatus(result.job_status_summary);
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "ダッシュボードの取得に失敗しました。";
-      setError(message);
+      setError(caughtError instanceof Error ? caughtError.message : "ダッシュボードの取得に失敗しました。");
     } finally {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    void loadDashboard();
+  }, []);
+
+  useEffect(() => {
+    if (!activeJobId) {
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      try {
+        const status = await getJobStatus(activeJobId);
+        if (cancelled) {
+          return;
+        }
+        setJobStatus(status);
+        if (!isActiveJobStatus(status.status)) {
+          setActiveJobId(null);
+          await loadDashboard();
+        }
+      } catch {
+        if (!cancelled) {
+          setActiveJobId(null);
+        }
+      }
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeJobId]);
 
   async function handleRefresh() {
     setRefreshing(true);
     setFeedback(null);
     setActionError(null);
     try {
-      await refreshLatestData();
-      setFeedback("最新データの取り込みを開始しました。反映まで少々お待ちください。");
-      await loadDashboard();
+      const result = await refreshLatestData();
+      const jobId = result.details?.job_id ?? null;
+      setActiveJobId(jobId);
+      setFeedback(jobId ? `最新データの反映を開始しました。job: ${jobId}` : result.message);
+      if (jobId) {
+        setJobStatus(await getJobStatus(jobId));
+      } else {
+        await loadDashboard();
+      }
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "最新データの更新に失敗しました。";
-      setActionError(message);
+      setActionError(caughtError instanceof Error ? caughtError.message : "最新データの更新に失敗しました。");
     } finally {
       setRefreshing(false);
     }
@@ -95,27 +128,37 @@ export function DashboardScreen({ viewerRole }: DashboardScreenProps) {
     setFeedback(null);
     setActionError(null);
     try {
-      await syncMasterData();
-      setFeedback("広告主・案件データの更新を開始しました。反映まで数分待ってから確認してください。");
+      const result = await syncMasterData();
+      const jobId = result.details?.job_id ?? null;
+      setActiveJobId(jobId);
+      setFeedback(jobId ? `マスター同期を開始しました。job: ${jobId}` : result.message);
+      if (jobId) {
+        setJobStatus(await getJobStatus(jobId));
+      } else {
+        await loadDashboard();
+      }
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "広告主・案件データの更新開始に失敗しました。";
-      setActionError(message);
+      setActionError(caughtError instanceof Error ? caughtError.message : "マスター同期の開始に失敗しました。");
     } finally {
       setSyncingMasters(false);
     }
   }
 
-  useEffect(() => {
-    void loadDashboard();
-  }, []);
+  const freshness = useMemo(() => ({
+    ingest: data?.quality?.last_successful_ingest_at ?? null,
+    findings: data?.quality?.findings?.findings_last_computed_at ?? null,
+    masterSync: data?.quality?.master_sync?.last_synced_at ?? null,
+    stale: data?.quality?.findings?.stale ?? false,
+    staleReasons: data?.quality?.findings?.stale_reasons ?? [],
+  }), [data]);
 
-  const dateLabel = data ? `${formatDateLabel(data.date)} 時点` : "";
+  const queue = jobStatus?.queue ?? data?.job_status_summary?.queue ?? null;
 
   return (
     <div className="dashboard-page">
       <PageHeader
         title="ダッシュボード"
-        description={dateLabel}
+        description={data ? `${formatDateLabel(data.date)} 時点` : ""}
         actions={
           <>
             <Link className="button button-default" href="/alerts">
@@ -134,7 +177,7 @@ export function DashboardScreen({ viewerRole }: DashboardScreenProps) {
                   onClick={() => void handleMasterSync()}
                   disabled={loading || refreshing || syncingMasters}
                 >
-                  広告主・案件データを更新
+                  マスター同期
                 </ActionButton>
               </>
             ) : null}
@@ -145,13 +188,21 @@ export function DashboardScreen({ viewerRole }: DashboardScreenProps) {
         }
       />
 
-      {feedback ? <div className="success-message">{feedback}</div> : null}
+      {feedback ? (
+        <div className="success-message" role="status" aria-live="polite">
+          {feedback}
+        </div>
+      ) : null}
       {actionError ? <ErrorState message={actionError} /> : null}
       {loading && !data ? <LoadingState /> : null}
       {error && !data ? <ErrorState message={error} /> : null}
 
       {data ? (
         <>
+          {freshness.stale ? (
+            <ErrorState message={`検知結果が stale です: ${freshness.staleReasons.join(", ") || "理由不明"}`} />
+          ) : null}
+
           <MetricStrip
             items={KPI_DEFINITIONS.map((definition) => {
               const metric = data.kpis[definition.key];
@@ -169,30 +220,66 @@ export function DashboardScreen({ viewerRole }: DashboardScreenProps) {
               <LineChart data={data.trend} />
             </Panel>
 
-            <Panel title="不正率ランキング" className="panel--scroll">
-              {data.ranking.length === 0 ? (
-                <EmptyState message="対象のアフィリエイターはありません。" />
+            <Panel title="Freshness / Queue">
+              <div className="detail-meta-block">
+                <div className="detail-meta-row">
+                  <span>最終 ingest</span>
+                  <span className="detail-meta-value">{freshness.ingest ? formatDateTime(freshness.ingest) : "-"}</span>
+                </div>
+                <div className="detail-meta-row">
+                  <span>最終 findings 計算</span>
+                  <span className="detail-meta-value">{freshness.findings ? formatDateTime(freshness.findings) : "-"}</span>
+                </div>
+                <div className="detail-meta-row">
+                  <span>最終 master sync</span>
+                  <span className="detail-meta-value">{freshness.masterSync ? formatDateTime(freshness.masterSync) : "-"}</span>
+                </div>
+                <div className="detail-meta-row">
+                  <span>queue</span>
+                  <span className="detail-meta-value">
+                    {queue ? `queued ${queue.queued ?? 0} / running ${queue.running ?? 0} / failed ${queue.failed ?? 0}` : "-"}
+                  </span>
+                </div>
+                <div className="detail-meta-row">
+                  <span>最新 job</span>
+                  <span className="detail-meta-value">
+                    {jobStatus?.job_id ? `${jobStatus.job_id} (${jobStatus.status})` : "なし"}
+                  </span>
+                </div>
+              </div>
+            </Panel>
+
+            <Panel title="Open case ranking" className="panel--scroll">
+              {data.case_ranking.length === 0 ? (
+                <EmptyState message="対象ケースはありません。" />
               ) : (
                 <div className="table-wrap">
-                  <table aria-label="不正率ランキング">
+                  <table aria-label="open case ranking">
                     <thead>
                       <tr>
-                        <th>アフィリエイター名</th>
-                        <th>不正率</th>
-                        <th>件数</th>
-                        <th>想定被害額</th>
+                        <th>case</th>
+                        <th>状態</th>
+                        <th>リスク</th>
+                        <th>被害額</th>
+                        <th>影響affiliate数</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {data.ranking.map((affiliate) => (
-                        <tr key={affiliate.affiliate_id}>
+                      {data.case_ranking.map((item) => (
+                        <tr key={item.case_key}>
                           <td>
-                            <div className="table-primary">{affiliate.affiliate_name}</div>
-                            <div className="table-secondary">{`ID: ${affiliate.affiliate_id}`}</div>
+                            <div className="table-primary">{item.case_key}</div>
+                            <div className="table-secondary">{item.primary_reason}</div>
+                            <div className="table-secondary">
+                              {item.latest_detected_at ? formatDateTime(item.latest_detected_at) : "-"}
+                            </div>
                           </td>
-                          <td>{formatPercent(affiliate.fraud_rate)}</td>
-                          <td>{affiliate.alert_count}</td>
-                          <td>{formatCurrency(affiliate.estimated_damage)}</td>
+                          <td>
+                            <StatusBadge status={item.status} />
+                          </td>
+                          <td>{`${item.risk_score} / ${item.risk_level}`}</td>
+                          <td>{formatCurrency(item.estimated_damage)}</td>
+                          <td>{item.affected_affiliate_count}</td>
                         </tr>
                       ))}
                     </tbody>

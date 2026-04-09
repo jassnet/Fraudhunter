@@ -4,6 +4,7 @@ import type {
   AlertsResponse,
   DashboardResponse,
   JobActionResponse,
+  JobStatusResponse,
   ReviewResponse,
   ReviewStatus,
 } from "@/lib/console-types";
@@ -33,7 +34,7 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     if (!raw) {
-      throw new Error("通信に失敗しました。");
+      throw new Error("リクエストに失敗しました。");
     }
 
     let message = raw;
@@ -69,6 +70,10 @@ export function syncMasterData() {
   return fetchJson<JobActionResponse>("/api/console/sync/masters", {
     method: "POST",
   });
+}
+
+export function getJobStatus(jobId: string) {
+  return fetchJson<JobStatusResponse>(`/api/console/job-status/${encodeURIComponent(jobId)}`);
 }
 
 export function getAlerts(query: AlertQuery) {
@@ -117,16 +122,17 @@ export function buildAlertsCsvUrl(query: AlertQuery) {
   return `/api/console/alerts/export?${searchParams.toString()}`;
 }
 
-export function getAlertDetail(findingKey: string) {
-  return fetchJson<AlertDetailResponse>(`/api/console/alerts/${encodeURIComponent(findingKey)}`);
+export function getAlertDetail(caseKey: string) {
+  return fetchJson<AlertDetailResponse>(`/api/console/alerts/${encodeURIComponent(caseKey)}`);
 }
 
-export function reviewAlerts(findingKeys: string[], status: ReviewStatus) {
+export function reviewAlerts(caseKeys: string[], status: ReviewStatus, reason: string) {
   return fetchJson<ReviewResponse>("/api/console/alerts/review", {
     method: "POST",
     body: JSON.stringify({
-      finding_keys: findingKeys,
+      case_keys: caseKeys,
       status,
+      reason,
     }),
   });
 }

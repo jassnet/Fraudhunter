@@ -3,18 +3,18 @@ import { proxyToBackend } from "@/lib/server/backend-proxy";
 
 export const dynamic = "force-dynamic";
 
-type AlertDetailRouteProps = {
+type JobStatusRouteProps = {
   params: Promise<{
-    findingKey: string;
+    jobId: string;
   }>;
 };
 
-export async function GET(_request: Request, { params }: AlertDetailRouteProps) {
+export async function GET(request: Request, { params }: JobStatusRouteProps) {
   try {
-    const { findingKey } = await params;
+    const { jobId } = await params;
     return proxyToBackend({
-      path: `/api/console/alerts/${encodeURIComponent(findingKey)}`,
-      viewer: requireConsoleViewer(_request, "analyst"),
+      path: `/api/console/job-status/${encodeURIComponent(jobId)}`,
+      viewer: requireConsoleViewer(request, "analyst"),
     });
   } catch (error) {
     return toConsoleAuthErrorResponse(error);
