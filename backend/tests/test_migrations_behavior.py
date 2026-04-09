@@ -128,7 +128,7 @@ def test_infer_legacy_schema_revision_for_queue_concurrency_ready_schema() -> No
 def test_head_revision_advances_beyond_findings_search_indexes() -> None:
     from fraud_checker.migrations import ALEMBIC_HEAD_REVISION
 
-    assert ALEMBIC_HEAD_REVISION == "0013_add_damage_snapshot"
+    assert ALEMBIC_HEAD_REVISION == "0014_case_key_review_hist"
 
 
 def test_head_revision_fits_alembic_version_column_limit() -> None:
@@ -229,3 +229,17 @@ def test_damage_snapshot_migration_adds_snapshot_columns_to_conversion_findings(
     assert "estimated_damage_yen" in migration
     assert "damage_unit_price_source" in migration
     assert "damage_evidence_json" in migration
+
+
+def test_case_key_review_history_migration_adds_tables_and_backfill() -> None:
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "0014_add_case_keys_and_review_history.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'sa.Column("case_key", sa.Text(), nullable=True)' in migration
+    assert "fraud_alert_review_states" in migration
+    assert "fraud_alert_review_events" in migration
+    assert "Migrated from legacy fraud_alert_reviews" in migration

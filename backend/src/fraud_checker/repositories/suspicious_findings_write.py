@@ -11,32 +11,161 @@ from .base import RepositoryBase
 
 
 class SuspiciousFindingsWriteRepository(RepositoryBase):
-    def apply_alert_reviews(self, finding_keys: list[str], *, status: str, updated_at) -> int:
+    def _sequence_placeholders(self, prefix: str, values: list[str]) -> tuple[str, dict[str, object]]:
+        placeholders: list[str] = []
+        params: dict[str, object] = {}
+        for idx, value in enumerate(values):
+            key = f"{prefix}{idx}"
+            placeholders.append(f":{key}")
+            params[key] = value
+        return ", ".join(placeholders), params
+
+    def apply_alert_reviews(
+        self,
+        finding_keys: list[str],
+        *,
+        status: str,
+        updated_at,
+        reason: str = "No reason provided",
+        reviewed_by: str = "system",
+        reviewed_role: str = "system",
+        source_surface: str = "console",
+        request_id: str = "system-request",
+    ) -> int:
         if not finding_keys:
             return 0
-        statement = sa.text(
-            """
-            INSERT INTO fraud_alert_reviews (finding_key, review_status, updated_at)
-            VALUES (:finding_key, :review_status, :updated_at)
-            ON CONFLICT (finding_key)
-            DO UPDATE SET
-                review_status = excluded.review_status,
-                updated_at = excluded.updated_at
-            """
-        )
-        with self._connect() as conn:
-            conn.execute(
-                statement,
-                [
-                    {
-                        "finding_key": finding_key,
-                        "review_status": status,
-                        "updated_at": updated_at,
-                    }
-                    for finding_key in finding_keys
-                ],
+        if not self._table_exists("fraud_alert_review_states"):
+            statement = sa.text(
+                """
+                INSERT INTO fraud_alert_reviews (finding_key, review_status, updated_at)
+                VALUES (:finding_key, :review_status, :updated_at)
+                ON CONFLICT (finding_key)
+                DO UPDATE SET
+                    review_status = excluded.review_status,
+                    updated_at = excluded.updated_at
+                """
             )
-        return len(finding_keys)
+            with self._connect() as conn:
+                conn.execute(
+                    statement,
+                    [
+                        {
+                            "finding_key": finding_key,
+                            "review_status": status,
+                            "updated_at": updated_at,
+                        }
+                        for finding_key in finding_keys
+                    ],
+                )
+            return len(finding_keys)
+
+        keys = sorted({value for value in finding_keys if value})
+        placeholders, params = self._sequence_placeholders("review_key_", keys)
+        case_key_sql = "COALESCE(case_key, finding_key)" if self._column_exists("suspicious_conversion_findings", "case_key") else "finding_key"
+        with self._connect() as conn:
+            matched_rows = conn.execute(
+                sa.text(
+                    f"""
+                    SELECT DISTINCT
+                        {case_key_sql} AS case_key,
+                        finding_key
+                    FROM suspicious_conversion_findings
+                    WHERE is_current = TRUE
+                      AND (
+                        finding_key IN ({placeholders})
+                        OR {case_key_sql} IN ({placeholders})
+                      )
+                    """
+                ),
+                params,
+            ).mappings().all()
+
+            state_statement = sa.text(
+                """
+                INSERT INTO fraud_alert_review_states (
+                    case_key,
+                    review_status,
+                    reason,
+                    reviewed_by,
+                    reviewed_role,
+                    source_surface,
+                    request_id,
+                    finding_key_at_review,
+                    reviewed_at,
+                    updated_at
+                ) VALUES (
+                    :case_key,
+                    :review_status,
+                    :reason,
+                    :reviewed_by,
+                    :reviewed_role,
+                    :source_surface,
+                    :request_id,
+                    :finding_key_at_review,
+                    :reviewed_at,
+                    :updated_at
+                )
+                ON CONFLICT (case_key)
+                DO UPDATE SET
+                    review_status = excluded.review_status,
+                    reason = excluded.reason,
+                    reviewed_by = excluded.reviewed_by,
+                    reviewed_role = excluded.reviewed_role,
+                    source_surface = excluded.source_surface,
+                    request_id = excluded.request_id,
+                    finding_key_at_review = excluded.finding_key_at_review,
+                    reviewed_at = excluded.reviewed_at,
+                    updated_at = excluded.updated_at
+                """
+            )
+            event_statement = sa.text(
+                """
+                INSERT INTO fraud_alert_review_events (
+                    id,
+                    case_key,
+                    finding_key_at_review,
+                    review_status,
+                    reason,
+                    reviewed_by,
+                    reviewed_role,
+                    source_surface,
+                    request_id,
+                    reviewed_at
+                ) VALUES (
+                    :id,
+                    :case_key,
+                    :finding_key_at_review,
+                    :review_status,
+                    :reason,
+                    :reviewed_by,
+                    :reviewed_role,
+                    :source_surface,
+                    :request_id,
+                    :reviewed_at
+                )
+                """
+            )
+            payload_rows = [
+                {
+                    "id": f"fraud-review-event-{uuid.uuid4().hex[:12]}",
+                    "case_key": row["case_key"],
+                    "review_status": status,
+                    "reason": reason,
+                    "reviewed_by": reviewed_by,
+                    "reviewed_role": reviewed_role,
+                    "source_surface": source_surface,
+                    "request_id": request_id,
+                    "finding_key_at_review": row["finding_key"],
+                    "reviewed_at": updated_at,
+                    "updated_at": updated_at,
+                }
+                for row in matched_rows
+                if row.get("case_key")
+            ]
+            if payload_rows:
+                conn.execute(state_statement, payload_rows)
+                conn.execute(event_statement, payload_rows)
+        return len(payload_rows)
 
     def replace_conversion_findings(
         self,
@@ -64,6 +193,7 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
             stmt = pg_insert(table).on_conflict_do_update(
                 index_elements=["finding_key"],
                 set_={
+                    "case_key": sa.text("excluded.case_key"),
                     "date": sa.text("excluded.date"),
                     "ipaddress": sa.text("excluded.ipaddress"),
                     "useragent": sa.text("excluded.useragent"),

@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 from .db.session import normalize_database_url
 
-ALEMBIC_HEAD_REVISION = "0013_add_damage_snapshot"
+ALEMBIC_HEAD_REVISION = "0014_case_key_review_hist"
 DEFAULT_DB_CONNECT_MAX_ATTEMPTS = 20
 DEFAULT_DB_CONNECT_RETRY_SECONDS = 3.0
 

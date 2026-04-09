@@ -4,6 +4,7 @@ import hmac
 from datetime import date, datetime
 
 from fastapi.testclient import TestClient
+import sqlalchemy as sa
 
 from fraud_checker import api
 
@@ -398,6 +399,89 @@ def test_console_dashboard_uses_migrated_review_table(tmp_path, monkeypatch):
     assert payload["kpis"]["unhandled_alerts"]["value"] == 1
     assert payload["ranking"][0]["affiliate_id"] == "aff-001"
     assert payload["kpis"]["estimated_damage"]["value"] == 3000
+
+
+def test_apply_alert_reviews_persists_case_state_and_history(tmp_path):
+    import fraud_checker.db.models  # noqa: F401
+
+    from fraud_checker.db import Base
+    from fraud_checker.repository_pg import PostgresRepository
+
+    database_path = tmp_path / "review-state.db"
+    repo = PostgresRepository(f"sqlite:///{database_path}")
+
+    suspicious_findings = Base.metadata.tables["suspicious_conversion_findings"]
+    review_states = Base.metadata.tables["fraud_alert_review_states"]
+    review_events = Base.metadata.tables["fraud_alert_review_events"]
+    Base.metadata.create_all(repo.engine, tables=[suspicious_findings, review_states, review_events])
+
+    with repo.engine.begin() as conn:
+        conn.execute(
+            suspicious_findings.insert(),
+            {
+                "finding_key": "finding-001",
+                "case_key": "case-001",
+                "date": datetime(2026, 4, 5).date(),
+                "ipaddress": "203.0.113.10",
+                "useragent": "Mozilla/5.0 Chrome/123.0",
+                "ua_hash": "ua-hash-1",
+                "media_ids_json": '["media-001"]',
+                "program_ids_json": '["promo-001"]',
+                "media_names_json": '["Media Alpha"]',
+                "program_names_json": '["Program Alpha"]',
+                "affiliate_ids_json": '["aff-001"]',
+                "affiliate_names_json": '["Affiliate Alpha"]',
+                "risk_level": "high",
+                "risk_score": 97,
+                "reasons_json": '["Same IP generated repeated conversions"]',
+                "reasons_formatted_json": '["Same IP generated repeated conversions"]',
+                "metrics_json": "{}",
+                "total_conversions": 1,
+                "media_count": 1,
+                "program_count": 1,
+                "min_click_to_conv_seconds": None,
+                "max_click_to_conv_seconds": None,
+                "first_time": datetime(2026, 4, 5, 9, 50, 0),
+                "last_time": datetime(2026, 4, 5, 10, 0, 0),
+                "rule_version": "test",
+                "computed_at": datetime(2026, 4, 5, 10, 0, 0),
+                "computed_by_job_id": None,
+                "settings_updated_at_snapshot": None,
+                "source_click_watermark": None,
+                "source_conversion_watermark": None,
+                "estimated_damage_yen": 3000,
+                "damage_unit_price_source": "program_observed",
+                "damage_evidence_json": "[]",
+                "generation_id": None,
+                "is_current": True,
+                "search_text": "affiliate alpha",
+            },
+        )
+
+    updated_count = repo.apply_alert_reviews(
+        ["finding-001"],
+        status="white",
+        updated_at=datetime(2026, 4, 5, 12, 0, 0),
+        reason="manual review",
+        reviewed_by="admin-user",
+        reviewed_role="admin",
+        source_surface="console",
+        request_id="req-1",
+    )
+
+    assert updated_count == 1
+
+    with repo.engine.begin() as conn:
+        state_row = conn.execute(sa.text("SELECT * FROM fraud_alert_review_states")).mappings().one()
+        event_row = conn.execute(sa.text("SELECT * FROM fraud_alert_review_events")).mappings().one()
+
+    assert state_row["case_key"] == "case-001"
+    assert state_row["review_status"] == "white"
+    assert state_row["reason"] == "manual review"
+    assert state_row["reviewed_by"] == "admin-user"
+    assert state_row["request_id"] == "req-1"
+    assert event_row["case_key"] == "case-001"
+    assert event_row["finding_key_at_review"] == "finding-001"
 
 
 def test_build_alert_item_prefers_snapshot_damage_and_affiliate_fields():

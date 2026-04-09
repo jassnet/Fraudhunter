@@ -27,6 +27,10 @@ def _rule_version(settings: dict) -> str:
     return _hash_text(canonical)[:16]
 
 
+def _case_key(target_date: date, ipaddress: str, useragent: str) -> str:
+    return _hash_text(f"conversion_case|{target_date.isoformat()}|{ipaddress}|{useragent}")
+
+
 def _detector_code_version() -> str:
     suspicious_path = Path(__file__).resolve().parent.parent / "suspicious.py"
     return _hash_text(suspicious_path.read_text(encoding="utf-8", errors="ignore"))[:16]
@@ -189,6 +193,7 @@ def recompute_findings_for_dates(
                         "finding_key": _hash_text(
                             f"conversion|{target_date.isoformat()}|{finding.ipaddress}|{finding.useragent}|{rule_version}"
                         ),
+                        "case_key": _case_key(target_date, finding.ipaddress, finding.useragent),
                         "date": target_date,
                         "ipaddress": finding.ipaddress,
                         "useragent": finding.useragent,

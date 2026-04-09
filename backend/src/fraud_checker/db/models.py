@@ -318,9 +318,11 @@ class SuspiciousConversionFindingRecord(Base):
         Index("idx_scof_date_current", "date", "is_current"),
         Index("idx_scof_date_current_risk", "date", "is_current", "risk_level"),
         Index("idx_scof_date_current_computed", "date", "is_current", "computed_at"),
+        Index("idx_scof_case_current", "case_key", "is_current"),
     )
 
     finding_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    case_key: Mapped[str | None] = mapped_column(Text)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     ipaddress: Mapped[str] = mapped_column(Text, nullable=False)
     useragent: Mapped[str] = mapped_column(Text, nullable=False)
@@ -402,3 +404,39 @@ class FraudAlertReview(Base):
     finding_key: Mapped[str] = mapped_column(Text, primary_key=True)
     review_status: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class FraudAlertReviewState(Base):
+    __tablename__ = "fraud_alert_review_states"
+    __table_args__ = (
+        Index("idx_fraud_alert_review_states_status_updated", "review_status", "updated_at"),
+    )
+
+    case_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    review_status: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewed_by: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewed_role: Mapped[str] = mapped_column(Text, nullable=False)
+    source_surface: Mapped[str] = mapped_column(Text, nullable=False)
+    request_id: Mapped[str] = mapped_column(Text, nullable=False)
+    finding_key_at_review: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class FraudAlertReviewEvent(Base):
+    __tablename__ = "fraud_alert_review_events"
+    __table_args__ = (
+        Index("idx_fraud_alert_review_events_case_reviewed", "case_key", "reviewed_at"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    case_key: Mapped[str] = mapped_column(Text, nullable=False)
+    finding_key_at_review: Mapped[str | None] = mapped_column(Text)
+    review_status: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewed_by: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewed_role: Mapped[str] = mapped_column(Text, nullable=False)
+    source_surface: Mapped[str] = mapped_column(Text, nullable=False)
+    request_id: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
