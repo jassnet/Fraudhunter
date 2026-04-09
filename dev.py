@@ -89,24 +89,21 @@ def _build_frontend_cmd(npm_exe: str) -> list[str]:
 def _build_worker_cmd() -> list[str]:
     worker_script = textwrap.dedent(
         f"""
-        import subprocess
-        import sys
         import time
 
-        cmd = [
-            sys.executable,
-            "-m",
-            "fraud_checker.cli",
-            "run-worker",
-            "--max-jobs",
-            "{_worker_max_jobs()}",
-        ]
+        from fraud_checker.env import load_env
+        from fraud_checker.services.jobs import process_queued_jobs
+
+        load_env()
 
         while True:
-            completed = subprocess.run(cmd)
-            if completed.returncode not in (0,):
+            try:
+                processed = process_queued_jobs(max_jobs={_worker_max_jobs()})
+                if processed:
+                    print(f"[worker] processed {{processed}} queued job(s)", flush=True)
+            except Exception as exc:
                 print(
-                    f"[worker] run-worker exited with code {{completed.returncode}}",
+                    f"[worker] run-worker failed; will retry in {_worker_poll_seconds()}s: {{exc}}",
                     flush=True,
                 )
             time.sleep({_worker_poll_seconds()})
@@ -121,6 +118,9 @@ def _start_processes() -> Dict[str, subprocess.Popen]:
     env.setdefault("NEXT_PUBLIC_API_URL", f"http://localhost:{BACKEND_PORT}")
     env.setdefault("FC_ENV", "dev")
     env.setdefault("FC_READ_API_KEY", "dev-read-secret")
+    env.setdefault("FC_DEV_CONSOLE_USER", "local-dev-admin")
+    env.setdefault("FC_DEV_CONSOLE_EMAIL", "local-dev-admin@example.com")
+    env.setdefault("FC_DEV_CONSOLE_ROLE", "admin")
 
     npm_exe = "npm.cmd" if os.name == "nt" and (FRONTEND_DIR / "package.json").exists() else "npm"
     backend_cmd = _build_backend_cmd()

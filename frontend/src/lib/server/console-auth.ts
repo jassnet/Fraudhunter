@@ -32,12 +32,40 @@ function normalizeRole(value: string): ConsoleViewerRole | null {
   return value === "analyst" || value === "admin" ? value : null;
 }
 
+function resolveDevViewer(minimumRole: ConsoleViewerRole): ConsoleViewer | null {
+  const env = (process.env.FC_ENV ?? "").trim().toLowerCase();
+  const role = normalizeRole(process.env.FC_DEV_CONSOLE_ROLE ?? "");
+  const userId = (process.env.FC_DEV_CONSOLE_USER ?? "").trim();
+  const email = (process.env.FC_DEV_CONSOLE_EMAIL ?? "").trim();
+
+  if (env !== "dev") {
+    return null;
+  }
+  if (!role || !userId || !email) {
+    return null;
+  }
+  if (ROLE_RANK[role] < ROLE_RANK[minimumRole]) {
+    return null;
+  }
+
+  return {
+    userId,
+    email,
+    role,
+    requestId: crypto.randomUUID(),
+  };
+}
+
 function requireViewerFromHeaders(headers: Headers, minimumRole: ConsoleViewerRole): ConsoleViewer {
   const userId = firstHeaderValue(headers, "X-Auth-Request-User");
   const email = firstHeaderValue(headers, "X-Auth-Request-Email");
   const role = normalizeRole(firstHeaderValue(headers, "X-Auth-Request-Role"));
 
   if (!userId || !email || !role) {
+    const devViewer = resolveDevViewer(minimumRole);
+    if (devViewer) {
+      return devViewer;
+    }
     throw new ConsoleAuthError("Console gateway identity is required.");
   }
   if (ROLE_RANK[role] < ROLE_RANK[minimumRole]) {
