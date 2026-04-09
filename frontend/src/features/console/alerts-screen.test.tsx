@@ -127,6 +127,7 @@ describe("AlertsScreen", () => {
         searchParams={{
           search: "alpha",
         }}
+        viewerRole="admin"
       />,
     );
 
@@ -241,7 +242,7 @@ describe("AlertsScreen", () => {
     );
 
     const user = userEvent.setup();
-    render(<AlertsScreen />);
+    render(<AlertsScreen viewerRole="admin" />);
 
     expect(await screen.findByText("alpha-media")).toBeInTheDocument();
     expect(screen.getByText("2件のアラートをまとめて表示")).toBeInTheDocument();
@@ -291,7 +292,7 @@ describe("AlertsScreen", () => {
     );
 
     const user = userEvent.setup();
-    render(<AlertsScreen />);
+    render(<AlertsScreen viewerRole="admin" />);
 
     expect(await screen.findByRole("heading", { name: "アラート一覧" })).toBeInTheDocument();
     await waitFor(() => {
@@ -409,7 +410,7 @@ describe("AlertsScreen", () => {
     );
 
     const user = userEvent.setup();
-    render(<AlertsScreen />);
+    render(<AlertsScreen viewerRole="admin" />);
 
     expect(await screen.findByText("page-one-affiliate")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "次へ" }));

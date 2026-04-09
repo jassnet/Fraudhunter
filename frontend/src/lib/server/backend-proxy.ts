@@ -1,4 +1,6 @@
-type ProxyAuth = "read" | "admin";
+import { createHmac } from "crypto";
+
+import type { ConsoleViewer, ConsoleViewerRole } from "@/lib/server/console-auth";
 
 function resolveBackendBaseUrl() {
   return (process.env.FC_BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001").replace(
@@ -7,21 +9,22 @@ function resolveBackendBaseUrl() {
   );
 }
 
-function applyAuthHeaders(headers: Headers, auth: ProxyAuth) {
-  if (auth === "admin") {
-    const adminToken = process.env.FC_ADMIN_API_KEY;
-    if (!adminToken) {
-      throw new Error("FC_ADMIN_API_KEY is not configured.");
-    }
-    headers.set("X-API-Key", adminToken);
-    return;
+function signViewer(viewer: ConsoleViewer) {
+  const secret = process.env.FC_INTERNAL_PROXY_SECRET;
+  if (!secret) {
+    throw new Error("FC_INTERNAL_PROXY_SECRET is not configured.");
   }
+  return createHmac("sha256", secret)
+    .update(`${viewer.userId}\n${viewer.email}\n${viewer.role}\n${viewer.requestId}`, "utf-8")
+    .digest("hex");
+}
 
-  const readToken = process.env.FC_READ_API_KEY;
-  if (!readToken) {
-    throw new Error("FC_READ_API_KEY is not configured.");
-  }
-  headers.set("X-Read-API-Key", readToken);
+function applyViewerHeaders(headers: Headers, viewer: ConsoleViewer) {
+  headers.set("X-Console-User-Id", viewer.userId);
+  headers.set("X-Console-User-Email", viewer.email);
+  headers.set("X-Console-User-Role", viewer.role);
+  headers.set("X-Console-Request-Id", viewer.requestId);
+  headers.set("X-Console-User-Signature", signViewer(viewer));
 }
 
 type ProxyRequest = {
@@ -29,7 +32,8 @@ type ProxyRequest = {
   search?: string;
   method?: string;
   body?: string;
-  auth?: ProxyAuth;
+  viewer: ConsoleViewer;
+  requiredRole?: ConsoleViewerRole;
 };
 
 export async function proxyToBackend({
@@ -37,7 +41,7 @@ export async function proxyToBackend({
   search = "",
   method = "GET",
   body,
-  auth = "read",
+  viewer,
 }: ProxyRequest) {
   try {
     const headers = new Headers({
@@ -46,7 +50,7 @@ export async function proxyToBackend({
     if (body) {
       headers.set("Content-Type", "application/json");
     }
-    applyAuthHeaders(headers, auth);
+    applyViewerHeaders(headers, viewer);
 
     const response = await fetch(`${resolveBackendBaseUrl()}${path}${search}`, {
       method,

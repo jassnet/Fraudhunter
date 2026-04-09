@@ -1,4 +1,5 @@
 import { AlertDetailScreen } from "@/features/console/alert-detail-screen";
+import { getConsoleViewer } from "@/lib/server/console-auth";
 
 type AlertDetailPageProps = {
   params: Promise<{
@@ -8,5 +9,6 @@ type AlertDetailPageProps = {
 
 export default async function AlertDetailPage({ params }: AlertDetailPageProps) {
   const { findingKey } = await params;
-  return <AlertDetailScreen findingKey={findingKey} />;
+  const viewer = await getConsoleViewer();
+  return <AlertDetailScreen findingKey={findingKey} viewerRole={viewer.role} />;
 }

@@ -15,6 +15,7 @@ import {
 } from "@/components/console-ui";
 import { getDashboard, refreshLatestData, syncMasterData } from "@/lib/console-api";
 import type { DashboardResponse } from "@/lib/console-types";
+import type { ConsoleViewerRole } from "@/lib/console-viewer";
 import { formatCurrency, formatDateLabel, formatPercent } from "@/lib/format";
 
 function resolveKpiTone(key: string, value: number): "danger" | "warning" | "neutral" {
@@ -47,10 +48,10 @@ const KPI_DEFINITIONS = [
 ] as const;
 
 type DashboardScreenProps = {
-  adminActionsEnabled?: boolean;
+  viewerRole: ConsoleViewerRole;
 };
 
-export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreenProps) {
+export function DashboardScreen({ viewerRole }: DashboardScreenProps) {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +121,7 @@ export function DashboardScreen({ adminActionsEnabled = false }: DashboardScreen
             <Link className="button button-default" href="/alerts">
               アラート一覧
             </Link>
-            {adminActionsEnabled ? (
+            {viewerRole === "admin" ? (
               <>
                 <ActionButton
                   tone="warning"

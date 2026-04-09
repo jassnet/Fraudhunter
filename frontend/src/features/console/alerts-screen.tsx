@@ -21,6 +21,7 @@ import type {
   AlertsResponse,
   ReviewStatus,
 } from "@/lib/console-types";
+import type { ConsoleViewerRole } from "@/lib/console-viewer";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 
 type AlertFilters = {
@@ -71,6 +72,7 @@ function renderNamedEntity(name: string, id: string, idLabel = "ID") {
 
 type AlertsScreenProps = {
   searchParams?: Record<string, string | string[] | undefined>;
+  viewerRole: ConsoleViewerRole;
 };
 
 type SelectionCheckboxProps = {
@@ -252,7 +254,7 @@ function buildAlertGroups(items: AlertListItem[]) {
   return groups;
 }
 
-export function AlertsScreen({ searchParams }: AlertsScreenProps) {
+export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
   const searchParamsKey = JSON.stringify(searchParams ?? {});
   const { replace } = useRouter();
   const pathname = usePathname();
@@ -504,7 +506,7 @@ export function AlertsScreen({ searchParams }: AlertsScreenProps) {
       {feedback ? <div className="success-message">{feedback}</div> : null}
       {error && !data ? <ErrorState message={error} /> : null}
 
-      {selectedKeys.length > 0 ? (
+      {viewerRole === "admin" && selectedKeys.length > 0 ? (
         <div className="selection-bar">
           <span className="selection-bar-count">{selectedKeys.length}件を選択中</span>
           <div className="selection-bar-actions">

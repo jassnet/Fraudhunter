@@ -1,5 +1,7 @@
 import { DashboardScreen } from "@/features/console/dashboard-screen";
+import { getConsoleViewer } from "@/lib/server/console-auth";
 
-export default function DashboardPage() {
-  return <DashboardScreen adminActionsEnabled={Boolean(process.env.FC_ADMIN_API_KEY)} />;
+export default async function DashboardPage() {
+  const viewer = await getConsoleViewer();
+  return <DashboardScreen viewerRole={viewer.role} />;
 }

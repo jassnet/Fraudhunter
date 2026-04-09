@@ -49,7 +49,7 @@ describe("DashboardScreen", () => {
       ),
     );
 
-    render(<DashboardScreen />);
+    render(<DashboardScreen viewerRole="analyst" />);
     expect(screen.getByRole("link", { name: "アラート一覧" })).toHaveAttribute("href", "/alerts");
 
     expect(screen.getByText("読み込み中...")).toBeInTheDocument();
@@ -94,7 +94,7 @@ describe("DashboardScreen", () => {
     );
 
     const user = userEvent.setup();
-    render(<DashboardScreen adminActionsEnabled />);
+    render(<DashboardScreen viewerRole="admin" />);
 
     expect(await screen.findByText("不正率")).toBeInTheDocument();
 
@@ -142,7 +142,7 @@ describe("DashboardScreen", () => {
     );
 
     const user = userEvent.setup();
-    render(<DashboardScreen adminActionsEnabled />);
+    render(<DashboardScreen viewerRole="admin" />);
 
     expect(await screen.findByText("不正率")).toBeInTheDocument();
 

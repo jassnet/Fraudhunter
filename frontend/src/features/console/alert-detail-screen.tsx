@@ -15,10 +15,12 @@ import {
 } from "@/components/console-ui";
 import { getAlertDetail, reviewAlerts } from "@/lib/console-api";
 import type { AlertDetailResponse, ReviewStatus } from "@/lib/console-types";
+import type { ConsoleViewerRole } from "@/lib/console-viewer";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 
 type AlertDetailScreenProps = {
   findingKey: string;
+  viewerRole: ConsoleViewerRole;
 };
 
 function rewardSourceLabel(source: string, estimated: boolean) {
@@ -34,7 +36,7 @@ function rewardSourceLabel(source: string, estimated: boolean) {
   return "推定値";
 }
 
-export function AlertDetailScreen({ findingKey }: AlertDetailScreenProps) {
+export function AlertDetailScreen({ findingKey, viewerRole }: AlertDetailScreenProps) {
   const [data, setData] = useState<AlertDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

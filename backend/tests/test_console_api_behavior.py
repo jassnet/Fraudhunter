@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 from datetime import date, datetime
 
 from fastapi.testclient import TestClient
@@ -7,8 +8,28 @@ from fastapi.testclient import TestClient
 from fraud_checker import api
 
 
+def console_headers(role: str = "analyst") -> dict[str, str]:
+    secret = "proxy-secret"
+    request_id = f"req-{role}"
+    user_id = f"{role}-user"
+    email = f"{role}@example.com"
+    signature = hmac.new(
+        secret.encode("utf-8"),
+        f"{user_id}\n{email}\n{role}\n{request_id}".encode("utf-8"),
+        "sha256",
+    ).hexdigest()
+    return {
+        "X-Console-User-Id": user_id,
+        "X-Console-User-Email": email,
+        "X-Console-User-Role": role,
+        "X-Console-Request-Id": request_id,
+        "X-Console-User-Signature": signature,
+    }
+
+
 def test_console_dashboard_endpoint_returns_business_payload(monkeypatch):
     from fraud_checker.api_routers import console as console_router
+    monkeypatch.setenv("FC_INTERNAL_PROXY_SECRET", "proxy-secret")
 
     monkeypatch.setattr(console_router, "get_repository", lambda: object())
     monkeypatch.setattr(
@@ -36,7 +57,11 @@ def test_console_dashboard_endpoint_returns_business_payload(monkeypatch):
     )
     client = TestClient(api.app)
 
-    response = client.get("/api/console/dashboard", params={"target_date": "2026-04-05"})
+    response = client.get(
+        "/api/console/dashboard",
+        params={"target_date": "2026-04-05"},
+        headers=console_headers(),
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -47,6 +72,7 @@ def test_console_dashboard_endpoint_returns_business_payload(monkeypatch):
 
 def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monkeypatch):
     from fraud_checker.api_routers import console as console_router
+    monkeypatch.setenv("FC_INTERNAL_PROXY_SECRET", "proxy-secret")
 
     captured: dict[str, object] = {}
 
@@ -107,7 +133,7 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
     monkeypatch.setattr(console_router.console_service, "list_alerts", fake_list_alerts)
     client = TestClient(api.app)
 
-    response = client.get("/api/console/alerts")
+    response = client.get("/api/console/alerts", headers=console_headers())
 
     assert response.status_code == 200
     assert captured == {
@@ -125,12 +151,13 @@ def test_console_alerts_endpoint_defaults_to_unhandled_status_and_risk_desc(monk
 
 def test_console_alert_detail_endpoint_returns_reasons_transactions_and_actions(monkeypatch):
     from fraud_checker.api_routers import console as console_router
+    monkeypatch.setenv("FC_INTERNAL_PROXY_SECRET", "proxy-secret")
 
     monkeypatch.setattr(console_router, "get_repository", lambda: object())
     monkeypatch.setattr(
         console_router.console_service,
         "get_alert_detail",
-        lambda repo, finding_key: {
+        lambda repo, finding_key, access_context=None: {
             "finding_key": finding_key,
             "affiliate_id": "aff-001",
             "affiliate_name": "Affiliate Alpha",
@@ -155,7 +182,7 @@ def test_console_alert_detail_endpoint_returns_reasons_transactions_and_actions(
     )
     client = TestClient(api.app)
 
-    response = client.get("/api/console/alerts/finding-001")
+    response = client.get("/api/console/alerts/finding-001", headers=console_headers())
 
     assert response.status_code == 200
     payload = response.json()
@@ -166,6 +193,7 @@ def test_console_alert_detail_endpoint_returns_reasons_transactions_and_actions(
 
 def test_console_alerts_endpoint_forwards_pagination_params(monkeypatch):
     from fraud_checker.api_routers import console as console_router
+    monkeypatch.setenv("FC_INTERNAL_PROXY_SECRET", "proxy-secret")
 
     captured: dict[str, object] = {}
 
@@ -208,6 +236,7 @@ def test_console_alerts_endpoint_forwards_pagination_params(monkeypatch):
             "page": 3,
             "page_size": 25,
         },
+        headers=console_headers(),
     )
 
     assert response.status_code == 200
@@ -219,6 +248,7 @@ def test_console_alerts_endpoint_forwards_pagination_params(monkeypatch):
 
 def test_console_export_endpoint_returns_csv(monkeypatch):
     from fraud_checker.api_routers import console as console_router
+    monkeypatch.setenv("FC_INTERNAL_PROXY_SECRET", "proxy-secret")
 
     monkeypatch.setattr(console_router, "get_repository", lambda: object())
     monkeypatch.setattr(
@@ -228,7 +258,11 @@ def test_console_export_endpoint_returns_csv(monkeypatch):
     )
     client = TestClient(api.app)
 
-    response = client.get("/api/console/alerts/export", params={"start_date": "2026-04-05"})
+    response = client.get(
+        "/api/console/alerts/export",
+        params={"start_date": "2026-04-05"},
+        headers=console_headers(),
+    )
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
@@ -239,12 +273,12 @@ def test_console_export_endpoint_returns_csv(monkeypatch):
 def test_console_review_endpoint_requires_admin_and_returns_mutation_result(monkeypatch):
     from fraud_checker.api_routers import console as console_router
 
-    monkeypatch.setenv("FC_ADMIN_API_KEY", "admin-secret")
+    monkeypatch.setenv("FC_INTERNAL_PROXY_SECRET", "proxy-secret")
     monkeypatch.setattr(console_router, "get_repository", lambda: object())
     monkeypatch.setattr(
         console_router.console_service,
         "apply_review_action",
-        lambda repo, finding_keys, status: {
+        lambda repo, finding_keys, status, access_context=None: {
             "updated_count": len(finding_keys),
             "status": status,
         },
@@ -254,16 +288,26 @@ def test_console_review_endpoint_requires_admin_and_returns_mutation_result(monk
     unauthorized = client.post(
         "/api/console/alerts/review",
         json={"finding_keys": ["finding-001", "finding-002"], "status": "confirmed_fraud"},
+        headers=console_headers("analyst"),
     )
     authorized = client.post(
         "/api/console/alerts/review",
-        headers={"X-API-Key": "admin-secret"},
+        headers=console_headers("admin"),
         json={"finding_keys": ["finding-001", "finding-002"], "status": "confirmed_fraud"},
     )
 
-    assert unauthorized.status_code == 401
+    assert unauthorized.status_code == 403
     assert authorized.status_code == 200
     assert authorized.json() == {"updated_count": 2, "status": "confirmed_fraud"}
+
+
+def test_console_endpoints_require_signed_viewer_headers(monkeypatch):
+    monkeypatch.setenv("FC_INTERNAL_PROXY_SECRET", "proxy-secret")
+    client = TestClient(api.app)
+
+    response = client.get("/api/console/dashboard")
+
+    assert response.status_code == 401
 
 
 def test_console_dashboard_uses_migrated_review_table(tmp_path, monkeypatch):

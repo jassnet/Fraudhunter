@@ -8,6 +8,7 @@ from typing import Any
 
 import sqlalchemy as sa
 
+from ..api_dependencies import ConsoleAccessContext
 from ..api_parsers import parse_iso_date
 from ..api_presenters import format_reasons
 from ..console_service_support import (
@@ -239,7 +240,12 @@ def export_alerts_csv(
     return build_alert_csv(items, exported_at=now_local().isoformat())
 
 
-def get_alert_detail(repo: ConsoleRepository, finding_key: str) -> dict[str, Any] | None:
+def get_alert_detail(
+    repo: ConsoleRepository,
+    finding_key: str,
+    *,
+    access_context: ConsoleAccessContext | None = None,
+) -> dict[str, Any] | None:
     row = _fetch_alert_detail_row(repo, finding_key)
     if row is None:
         return None
@@ -264,6 +270,16 @@ def get_alert_detail(repo: ConsoleRepository, finding_key: str) -> dict[str, Any
     raw_reasons = row.get("reasons_json") or []
     reasons = format_reasons(raw_reasons) if raw_reasons else []
 
+    if access_context is not None:
+        logger.info(
+            "console_alert_detail_access case=%s finding=%s viewer=%s role=%s request_id=%s",
+            row.get("case_key") or row["finding_key"],
+            row["finding_key"],
+            access_context.user_id,
+            access_context.role,
+            access_context.request_id,
+        )
+
     return {
         "finding_key": row["finding_key"],
         "affiliate_id": affiliate_id,
@@ -283,7 +299,13 @@ def get_alert_detail(repo: ConsoleRepository, finding_key: str) -> dict[str, Any
     }
 
 
-def apply_review_action(repo: ConsoleRepository, finding_keys: list[str], status: str) -> dict[str, Any]:
+def apply_review_action(
+    repo: ConsoleRepository,
+    finding_keys: list[str],
+    status: str,
+    *,
+    access_context: ConsoleAccessContext | None = None,
+) -> dict[str, Any]:
     if status not in ALERT_REVIEW_STATUSES:
         raise ValueError(f"Unsupported review status: {status}")
 
@@ -292,6 +314,15 @@ def apply_review_action(repo: ConsoleRepository, finding_keys: list[str], status
         return {"updated_count": 0, "status": status}
 
     updated_count = repo.apply_alert_reviews(unique_keys, status=status, updated_at=now_local())
+    if access_context is not None:
+        logger.info(
+            "console_alert_review viewer=%s role=%s request_id=%s status=%s count=%s",
+            access_context.user_id,
+            access_context.role,
+            access_context.request_id,
+            status,
+            len(unique_keys),
+        )
     return {"updated_count": updated_count, "status": status}
 
 

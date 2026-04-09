@@ -56,7 +56,7 @@ describe("AlertDetailScreen", () => {
     );
 
     const user = userEvent.setup();
-    render(<AlertDetailScreen findingKey="fk-001" />);
+    render(<AlertDetailScreen findingKey="fk-001" viewerRole="admin" />);
 
     expect(await screen.findByRole("heading", { name: "アラート詳細" })).toBeInTheDocument();
     expect(screen.getByText("beta-traffic")).toBeInTheDocument();
