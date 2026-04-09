@@ -1,192 +1,62 @@
-# 不正検知の考え方
+# Detection Logic Explained
 
-このドキュメントは、いまの不正検知が「何を危険とみなしているか」をビジネス要件の言葉で整理したものです。
+## What this detector is for
 
-細かい実装や変数名ではなく、運用上の判断材料として読める形に寄せています。
+The console does not treat every finding as proof that one affiliate is guilty.
 
-## この仕組みが守りたいもの
+The current detector creates review cases for suspicious environments. A case represents a cluster of conversions that share the same:
 
-このシステムは、主に次の 3 つのリスクを早めに見つけるために動いています。
+- date
+- IP address
+- user agent
 
-1. 同じ利用環境から成果が不自然に量産されている
-2. 特定の提携先や案件で、成果の質が明らかに悪い
-3. 普段の水準から見て、流入や成果の出方が急におかしくなっている
+This means the detector is environment-centric.
 
-## いま見ている検知は 2 種類
+## Stable case identity
 
-### 1. 不審成果検知
+- `case_key = hash("conversion_case|date|ipaddress|useragent")`
+- `finding_key` is still stored for lineage and recompute history
 
-見る単位:
+Operators should triage by `case_key`, not by recompute timestamp and not by a single affiliate projection.
 
-- 同じ日
-- 同じ IP
-- 同じブラウザ環境
+## Why a case can include multiple affiliates or programs
 
-つまり、「同じ端末・同じ回線・同じ閲覧環境から、その日にどれだけ成果が出ているか」を見ています。
+One suspicious environment can touch more than one affiliate or more than one program.
 
-この検知で拾いたいもの:
+Because of that, the console shows:
 
-- 1 つの環境から成果が集中しすぎているケース
-- 1 つの環境が複数媒体・複数案件にまたがって成果を出しているケース
-- クリックしてすぐ成果になる、または逆に古すぎるクリックに成果が紐づくケース
-- 成果の前後に不自然なクリック水増しがあるケース
+- `affected_affiliate_count`
+- `affected_affiliates`
+- `affected_program_count`
+- `affected_programs`
 
-ビジネス上の意味:
+The UI should not flatten an environment case into one affiliate owner.
 
-- 自然流入というより、手作業・自動化・検証端末・回線共有などで成果が偏っている可能性があります
-- まず「環境の異常」を見るための検知です
-- どの提携先が怪しいかを断定するというより、「この成果群はレビュー対象に回すべき」という役割です
+## Risk meaning
 
-### 2. 不正判定
+Risk score reflects how unusual the environment pattern is. It does not mean one affiliate is conclusively fraudulent by itself.
 
-見る単位:
+The correct operator flow is:
 
-- 同じ日
-- 同じ提携先
-- 同じ媒体
-- 同じ案件
+1. open the case
+2. inspect environment evidence
+3. inspect review history
+4. apply a review decision with a reason
 
-つまり、「この提携先が、この媒体・案件で、その日に出した成果全体の質」を見ています。
+## Detail evidence contract
 
-この検知で拾いたいもの:
+The primary detail table is `evidence_transactions`.
 
-- 無効判定が多い
-- 同じ広告クリック ID の重複が多い
-- 認証エラーが多い
-- IP / User-Agent 認証に過度に寄っている
-- クリックから成果までが短すぎる
-- 成果発生の間隔が不自然に揃っている
-- キャンセル率が高い
-- 案件側の重複防止ルールと噛み合っていない
-- クリック数、アクセス数、CTR が普段より急増している
+Those rows always match the suspicious environment itself:
 
-ビジネス上の意味:
+- same date
+- same IP address
+- same user agent
 
-- こちらは「環境の異常」ではなく、「提携先単位で見た成果品質の異常」を見る検知です
-- 対応としては、掲載面の精査、提携先への確認、承認保留、案件停止判断の材料になります
+`affiliate_recent_transactions` is secondary context only.
 
-## 2 つの検知の違い
+## Review implications
 
-不審成果検知は、同じ端末・同じ回線の偏りを見るものです。
+Because settings and recompute generations can change, review state is attached to the stable `case_key`.
 
-不正判定は、提携先・媒体・案件の組み合わせ単位で、成果の質そのものを見るものです。
-
-運用上は次のように使い分けます。
-
-- 不審成果検知
-  - 「この成果群は人の目で見た方がいい」を出す早期警戒
-- 不正判定
-  - 「この提携先のこの流入は品質が悪い可能性が高い」を出す判断材料
-
-## なぜダッシュボードと詳細ページで数字が出るのか
-
-このシステムは、画面を開くたびにその場で検知していません。
-
-元データを取り込んだあとに、backend 側で対象日ごとに findings を再計算して保存し、画面はその保存済み結果を表示します。
-
-この方式にしている理由:
-
-- 同じ条件で再現できる
-- 画面を開くたびに結果がぶれにくい
-- 後から「その日の判定根拠」を追いやすい
-- settings を変えたときに、再計算対象を明確にできる
-
-## リスクの強さはどう見ているか
-
-画面上の高・中・低は、「何種類の異常が重なっているか」と「件数や影響度がどれくらい大きいか」で決めています。
-
-基本的な考え方:
-
-- 異常の種類が多いほど重く見る
-- 一発で危険度が高いシグナルは強く見る
-- 件数が多いものは重く見る
-- 直近比の急増は補助シグナルとして使う
-
-つまり、単発の弱い違和感よりも、
-
-- 複数の異常が重なっている
-- 件数も多い
-- 品質悪化も出ている
-
-というケースを優先して上に出します。
-
-## 運用での読み方
-
-### 不審成果検知で見るべきこと
-
-- 同じ IP / ブラウザ環境に成果が寄っていないか
-- 複数媒体や複数案件に横断していないか
-- クリック直後成果やクリック水増しの気配がないか
-
-見るべきアクション:
-
-- 詳細確認に回す
-- 該当 IP / 環境の流入元を確認する
-- テスト流入や社内検証が混ざっていないか確認する
-
-### 不正判定で見るべきこと
-
-- 無効判定や重複が偏っていないか
-- 特定提携先の成果品質が悪化していないか
-- キャンセルや急増が起きていないか
-
-見るべきアクション:
-
-- 提携先へ確認する
-- 承認保留にする
-- 掲載面や媒体単位で止める
-- 案件条件や重複防止設定を見直す
-
-## この仕組みの前提
-
-いまの判定は、絶対に不正と断定するものではありません。
-
-位置づけとしては次の通りです。
-
-- 不審成果検知
-  - レビュー優先度を上げるためのアラート
-- 不正判定
-  - 品質悪化や不正疑いの強い組み合わせを上位表示するための判定
-
-そのため、実務では次を前提に使います。
-
-- 検知されたから即不正確定ではない
-- 検知されていなくても見逃しはありうる
-- settings の厳しさで件数は増減する
-
-## settings を変えると何が変わるか
-
-settings を厳しくすると、より軽い違和感でも拾うようになります。
-
-その代わり:
-
-- 件数は増える
-- 誤検知も増えやすい
-- 運用負荷も増える
-
-settings を緩めると、本当に強い異常だけが残ります。
-
-その代わり:
-
-- 見逃しは増えやすい
-- 早期警戒としては弱くなる
-
-つまり settings 調整は、検知精度だけでなく、運用チームが何件レビューできるかも含めて決める必要があります。
-
-## いまの説明として一番大事な要点
-
-- 不審成果検知は「同じ環境から成果が偏っていないか」を見る
-- 不正判定は「提携先・媒体・案件単位で成果品質が悪くないか」を見る
-- 画面の件数は保存済みの判定結果であり、その場計算ではない
-- 高リスクは「異常の種類が多い」「件数が多い」「強いシグナルがある」ケース
-- settings を変えたら再計算しないと結果は更新されない
-
-## 実装を見たいときの参照先
-
-業務説明だけで足りない場合は、次を見ると実装詳細を追えます。
-
-- `backend/src/fraud_checker/suspicious.py`
-- `backend/src/fraud_checker/fraud_detector.py`
-- `backend/src/fraud_checker/services/findings.py`
-- `backend/src/fraud_checker/services/settings.py`
-- `backend/src/fraud_checker/api_presenters.py`
+This keeps review history attached to the same environment case even when `finding_key` changes across recomputes.

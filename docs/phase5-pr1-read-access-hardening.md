@@ -1,95 +1,59 @@
-# Phase 5 PR1: Read Access Hardening
+# Phase 5 PR1: Console Access Hardening
 
 ## Goal
 
-Separate read endpoints by sensitivity instead of treating every read as the same class of access.
+Stop treating server-side secrets as a substitute for human authorization.
 
-The three tiers introduced in this PR are:
+This phase moves console authorization to trusted viewer identity and enforces role boundaries on the console surface itself.
 
-- public minimal
-- analyst-auth
-- admin-only
+## Viewer model
 
-## Endpoint Tiering
+### Trusted gateway into Next.js
 
-### Public minimal
+- `X-Auth-Request-User`
+- `X-Auth-Request-Email`
+- `X-Auth-Request-Role`
 
-- `GET /`
-- `GET /api/health/public`
+Accepted roles:
 
-Purpose:
+- `analyst`
+- `admin`
 
-- liveness
-- service discovery
-- minimal runtime posture visibility
+### Internal headers into backend
 
-### Analyst-auth
+- `X-Console-User-Id`
+- `X-Console-User-Email`
+- `X-Console-User-Role`
+- `X-Console-Request-Id`
+- `X-Console-User-Signature`
 
-- `GET /api/summary`
-- `GET /api/stats/daily`
-- `GET /api/dates`
-- `GET /api/suspicious/clicks`
-- `GET /api/suspicious/conversions`
-- `GET /api/suspicious/clicks/{finding_key}`
-- `GET /api/suspicious/conversions/{finding_key}`
-- `GET /api/masters/status`
-- `GET /api/job/status`
+The backend verifies the signature with `FC_INTERNAL_PROXY_SECRET`.
 
-Purpose:
+## Access policy
 
-- analyst monitoring
-- masked list views
-- unmasked detail with audit logging
-- sanitized operations summary
+### Analyst read
 
-### Admin-only
+- `GET /api/console/dashboard`
+- `GET /api/console/alerts`
+- `GET /api/console/alerts/{case_key}`
+- `GET /api/console/alerts/export`
+- `GET /api/console/job-status/{job_id}`
 
-- `GET /api/health`
-- `GET /api/settings`
-- `POST /api/settings`
-- `POST /api/refresh`
-- `POST /api/sync/masters`
-- `POST /api/ingest/*`
-- `GET /api/job/status/admin`
+### Admin mutation
 
-## Backward Compatibility
+- `POST /api/console/alerts/review`
+- `POST /api/console/admin/refresh`
+- `POST /api/console/admin/master-sync`
 
-- `GET /api/health` is preserved and remains the ops-health endpoint
-- `GET /api/job/status` is preserved, but now returns a sanitized summary
-- full admin job status moved to:
-  - `GET /api/job/status/admin`
+## Frontend behavior
 
-## Audit Logging
+- Next.js proxy routes fail closed when gateway identity is missing.
+- Read routes require at least analyst role.
+- Mutation routes require admin role.
+- Review and admin action controls are hidden for analyst viewers.
 
-Unmasked suspicious detail access now emits a structured audit-like event to application logs.
+## Verification
 
-Event name:
-
-- `sensitive_detail_access`
-
-Fields:
-
-- `finding_key`
-- `finding_type`
-- `access_level`
-- `token_source`
-- `include_names`
-- `include_details`
-
-This PR intentionally keeps audit logging in structured app logs. It does not add a dedicated audit table.
-
-## Env / Operations
-
-- analyst-auth uses existing `FC_REQUIRE_READ_AUTH=true` and `FC_READ_API_KEY`
-- admin-only uses `FC_ADMIN_API_KEY`
-- production still must declare its read posture explicitly
-
-## Next PR Hooks
-
-This PR only separates access tiers.
-
-It does not yet solve:
-
-- immutable settings history
-- findings generations
-- stronger explainability / replay metadata
+- frontend proxy unit tests verify signed viewer forwarding
+- route tests verify analyst read access and admin-only mutations
+- backend API tests verify anonymous, analyst, and admin behavior
