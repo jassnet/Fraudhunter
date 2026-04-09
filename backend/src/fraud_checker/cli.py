@@ -174,7 +174,7 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
     conv_skip = 0
     conv_valid = 0
     conv_click_enriched = 0
-    dates_to_recompute: set[date] = set()
+    dates_to_recompute = set()
 
     if not args.conversions_only:
         click_ingestor = ClickLogIngestor(
@@ -185,10 +185,7 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
         )
         click_new, click_skip = click_ingestor.run_for_time_range(start_time, end_time)
         print(f"Clicks: {click_new} new, {click_skip} skipped (already in DB)")
-        current = start_time.date()
-        while current <= end_time.date():
-            dates_to_recompute.add(current)
-            current += timedelta(days=1)
+        dates_to_recompute.update(getattr(click_ingestor, "last_affected_dates", []))
 
     if not args.clicks_only:
         conv_ingestor = ConversionIngestor(
@@ -204,14 +201,11 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
             f"{conv_valid} with valid entry IP/UA, "
             f"{conv_click_enriched} enriched from click data"
         )
-        current = start_time.date()
-        while current <= end_time.date():
-            dates_to_recompute.add(current)
-            current += timedelta(days=1)
+        dates_to_recompute.update(getattr(conv_ingestor, "last_affected_dates", []))
 
-    persisted = findings_service.recompute_findings_for_dates(repository, sorted(dates_to_recompute))
-
-    if args.detect:
+    persisted = {}
+    if args.detect and dates_to_recompute:
+        persisted = findings_service.recompute_findings_for_dates(repository, sorted(dates_to_recompute))
         print("\n--- Suspicious Detection ---")
         for target_date in sorted(dates_to_recompute):
             counts = persisted.get(target_date.isoformat(), {})

@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { server } from "@/test/msw/server";
 
@@ -91,8 +91,8 @@ describe("AlertsScreen", () => {
               affected_programs: [{ id: "PRG-1", name: "Program A" }],
               risk_score: 98,
               risk_level: "critical",
-              primary_reason: "同一IPから短時間に多発",
-              reasons: ["同一IPから短時間に多発"],
+              primary_reason: "shared-ip-pattern",
+              reasons: ["shared-ip-pattern"],
               status: "unhandled",
               reward_amount: 52000,
               reward_amount_source: "fallback_default",
@@ -114,8 +114,8 @@ describe("AlertsScreen", () => {
               affected_programs: [{ id: "PRG-2", name: "Program B" }],
               risk_score: 87,
               risk_level: "high",
-              primary_reason: "CV間隔が異常に短い",
-              reasons: ["CV間隔が異常に短い"],
+              primary_reason: "burst-conversion-pattern",
+              reasons: ["burst-conversion-pattern"],
               status: "unhandled",
               reward_amount: 36000,
               reward_amount_source: "observed_transactions",
@@ -142,8 +142,6 @@ describe("AlertsScreen", () => {
       }),
     );
 
-    vi.spyOn(window, "prompt").mockReturnValue("bulk review reason");
-
     const user = userEvent.setup();
     render(
       <AlertsScreen
@@ -154,18 +152,22 @@ describe("AlertsScreen", () => {
       />,
     );
 
-    expect(await screen.findByRole("heading", { name: "アラート一覧" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "CSV出力" })).toHaveAttribute(
+    expect(await screen.findByRole("heading", { name: "Alerts" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Export CSV" })).toHaveAttribute(
       "href",
       "/api/console/alerts/export?status=unhandled&sort=risk_desc&start_date=2026-04-05&end_date=2026-04-05&search=alpha",
     );
-    expect(screen.getByText("alpha-media ほか1件")).toBeInTheDocument();
+    expect(screen.getByText("alpha-media +1")).toBeInTheDocument();
     expect(screen.getByText("203.0.113.10")).toBeInTheDocument();
-    expect(screen.getByText("推定")).toBeInTheDocument();
+    expect(screen.getByText("Estimated")).toBeInTheDocument();
 
-    await user.click(screen.getByLabelText("alpha-media ほか1件 を選択"));
-    await user.click(screen.getByLabelText("gamma-traffic を選択"));
-    await user.click(screen.getByRole("button", { name: "不正にする" }));
+    await user.click(screen.getByLabelText("Select alpha-media +1"));
+    await user.click(screen.getByLabelText("Select gamma-traffic"));
+    await user.click(screen.getByRole("button", { name: "Mark fraud" }));
+
+    expect(screen.getByRole("dialog", { name: "Review reason" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Reason"), "bulk review reason");
+    await user.click(screen.getByRole("button", { name: "Mark confirmed fraud" }));
 
     await waitFor(() => {
       expect(reviewRequestBody).toEqual({
@@ -175,7 +177,7 @@ describe("AlertsScreen", () => {
       });
     });
 
-    expect(await screen.findByText("条件に一致するアラートはありません。")).toBeInTheDocument();
+    expect(await screen.findByText("No alerts match the current filters.")).toBeInTheDocument();
   });
 
   it("applies filters only when the apply button is clicked", async () => {
@@ -216,7 +218,7 @@ describe("AlertsScreen", () => {
     const user = userEvent.setup();
     render(<AlertsScreen viewerRole="admin" />);
 
-    expect(await screen.findByRole("heading", { name: "アラート一覧" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Alerts" })).toBeInTheDocument();
     await waitFor(() => {
       expect(replaceMock).toHaveBeenCalledWith(
         "/alerts?status=unhandled&sort=risk_desc&page=1&page_size=50&start_date=2026-04-05&end_date=2026-04-05",
@@ -225,12 +227,12 @@ describe("AlertsScreen", () => {
     });
     replaceMock.mockClear();
 
-    await user.type(screen.getByLabelText("検索"), "risky");
-    await user.selectOptions(screen.getByLabelText("リスクレベル"), "critical");
+    await user.type(screen.getByLabelText("Search"), "risky");
+    await user.selectOptions(screen.getByLabelText("Risk level"), "critical");
 
     expect(replaceMock).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "絞り込む" }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(replaceMock).toHaveBeenCalledWith(
       "/alerts?status=unhandled&sort=risk_desc&page=1&page_size=50&risk_level=critical&search=risky",
@@ -351,7 +353,7 @@ describe("AlertsScreen", () => {
     render(<AlertsScreen viewerRole="admin" />);
 
     expect(await screen.findByText("page-one-affiliate")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "次へ" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect(replaceMock).toHaveBeenLastCalledWith(
       "/alerts?status=unhandled&sort=risk_desc&page=2&page_size=50&start_date=2026-04-05&end_date=2026-04-05",

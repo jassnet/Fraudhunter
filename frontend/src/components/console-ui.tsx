@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
 
 import type { ReviewStatus, RiskLevel } from "@/lib/console-types";
 
@@ -136,6 +136,73 @@ export function EmptyState({ message }: { message: string }) {
   return (
     <div className="empty-state" role="status" aria-live="polite">
       {message}
+    </div>
+  );
+}
+
+type ReviewReasonDialogProps = {
+  open: boolean;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  value: string;
+  error?: string | null;
+  busy?: boolean;
+  onChange: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  textareaProps?: Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange">;
+};
+
+export function ReviewReasonDialog({
+  open,
+  title,
+  description,
+  confirmLabel,
+  value,
+  error,
+  busy = false,
+  onChange,
+  onCancel,
+  onConfirm,
+  textareaProps,
+}: ReviewReasonDialogProps) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="dialog-backdrop">
+      <div className="dialog-card" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="dialog-header">
+          <div>
+            <h2 className="dialog-title">{title}</h2>
+            <p className="dialog-description">{description}</p>
+          </div>
+        </div>
+        <label className="form-field" htmlFor="review-reason">
+          <span>Reason</span>
+          <textarea
+            {...textareaProps}
+            id="review-reason"
+            className="dialog-textarea"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </label>
+        <div className="dialog-meta">
+          <span>{value.trim().length}/500</span>
+        </div>
+        {error ? <ErrorState message={error} /> : null}
+        <div className="dialog-footer">
+          <ActionButton onClick={onCancel} disabled={busy}>
+            Cancel
+          </ActionButton>
+          <ActionButton tone="warning" onClick={onConfirm} disabled={busy}>
+            {confirmLabel}
+          </ActionButton>
+        </div>
+      </div>
     </div>
   );
 }

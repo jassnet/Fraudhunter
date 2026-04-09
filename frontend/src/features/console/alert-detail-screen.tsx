@@ -10,6 +10,7 @@ import {
   LoadingState,
   PageHeader,
   Panel,
+  ReviewReasonDialog,
   RiskBadge,
   StatusBadge,
 } from "@/components/console-ui";
@@ -25,25 +26,20 @@ type AlertDetailScreenProps = {
 
 function rewardSourceLabel(source: string, estimated: boolean) {
   if (!estimated) {
-    return "実測";
+    return "Observed";
   }
   if (source === "fallback_default") {
-    return "既定単価から推定";
+    return "Estimated from default";
   }
   if (source === "mixed") {
-    return "一部推定あり";
+    return "Mixed evidence";
   }
-  return "推定";
-}
-
-function promptReviewReason() {
-  const reason = globalThis.prompt?.("レビュー理由を入力してください。");
-  return reason?.trim() ?? "";
+  return "Estimated";
 }
 
 function renderEntityList(items: Array<{ id: string; name: string }>) {
   if (items.length === 0) {
-    return <EmptyState message="対象はありません。" />;
+    return <EmptyState message="No related entities." />;
   }
   return (
     <ul className="reasons-list">
@@ -62,19 +58,19 @@ function TransactionsTable({
   rows: AlertDetailResponse["evidence_transactions"];
 }) {
   if (rows.length === 0) {
-    return <EmptyState message="対象の取引はありません。" />;
+    return <EmptyState message="No transactions found." />;
   }
   return (
     <div className="table-wrap">
       <table aria-label={ariaLabel}>
         <thead>
           <tr>
-            <th>取引ID</th>
-            <th>発生日時</th>
-            <th>affiliate</th>
-            <th>案件</th>
-            <th>金額</th>
-            <th>状態</th>
+            <th>Transaction ID</th>
+            <th>Occurred at</th>
+            <th>Affiliate</th>
+            <th>Program</th>
+            <th>Reward</th>
+            <th>Status</th>
           </tr>
         </thead>
         <tbody>
@@ -94,6 +90,16 @@ function TransactionsTable({
   );
 }
 
+function statusActionLabel(status: ReviewStatus) {
+  if (status === "confirmed_fraud") {
+    return "Mark confirmed fraud";
+  }
+  if (status === "white") {
+    return "Mark white";
+  }
+  return "Mark investigating";
+}
+
 export function AlertDetailScreen({ caseKey, viewerRole }: AlertDetailScreenProps) {
   const [data, setData] = useState<AlertDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,6 +107,9 @@ export function AlertDetailScreen({ caseKey, viewerRole }: AlertDetailScreenProp
   const [submittingStatus, setSubmittingStatus] = useState<ReviewStatus | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [reviewStatus, setReviewStatus] = useState<ReviewStatus | null>(null);
+  const [reviewReason, setReviewReason] = useState("");
+  const [reviewReasonError, setReviewReasonError] = useState<string | null>(null);
 
   const loadDetail = useCallback(async () => {
     setLoading(true);
@@ -109,7 +118,7 @@ export function AlertDetailScreen({ caseKey, viewerRole }: AlertDetailScreenProp
       const result = await getAlertDetail(caseKey);
       setData(result);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "アラート詳細の取得に失敗しました。");
+      setError(caughtError instanceof Error ? caughtError.message : "Failed to load alert detail.");
     } finally {
       setLoading(false);
     }
@@ -119,24 +128,65 @@ export function AlertDetailScreen({ caseKey, viewerRole }: AlertDetailScreenProp
     void loadDetail();
   }, [loadDetail]);
 
-  async function handleReview(status: ReviewStatus) {
-    const reason = promptReviewReason();
-    if (!reason) {
-      setWarning("レビュー理由を入力しない限り更新できません。");
+  useEffect(() => {
+    if (reviewStatus === null) {
       return;
     }
 
-    setSubmittingStatus(status);
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && submittingStatus === null) {
+        setReviewStatus(null);
+        setReviewReason("");
+        setReviewReasonError(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [reviewStatus, submittingStatus]);
+
+  function openReviewDialog(status: ReviewStatus) {
+    setReviewStatus(status);
+    setReviewReason("");
+    setReviewReasonError(null);
+    setWarning(null);
+  }
+
+  function closeReviewDialog() {
+    if (submittingStatus !== null) {
+      return;
+    }
+    setReviewStatus(null);
+    setReviewReason("");
+    setReviewReasonError(null);
+  }
+
+  async function submitReview() {
+    if (reviewStatus === null) {
+      return;
+    }
+
+    const reason = reviewReason.trim();
+    if (!reason) {
+      setReviewReasonError("Review reason is required.");
+      return;
+    }
+
+    setSubmittingStatus(reviewStatus);
     setError(null);
     setWarning(null);
+    setReviewReasonError(null);
     try {
-      const result = await reviewAlerts([caseKey], status, reason);
+      const result = await reviewAlerts([caseKey], reviewStatus, reason);
       setData((current) => (current ? { ...current, status: result.status } : current));
-      setFeedback(`${result.updated_count}件のケースを更新しました。`);
-      setWarning(result.missing_keys.length > 0 ? `見つからないケース: ${result.missing_keys.join(", ")}` : null);
+      closeReviewDialog();
+      setFeedback(`Updated ${result.updated_count} case.`);
+      setWarning(result.missing_keys.length > 0 ? `Missing cases: ${result.missing_keys.join(", ")}` : null);
       await loadDetail();
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "レビュー更新に失敗しました。");
+      setError(caughtError instanceof Error ? caughtError.message : "Failed to update review.");
     } finally {
       setSubmittingStatus(null);
     }
@@ -145,8 +195,8 @@ export function AlertDetailScreen({ caseKey, viewerRole }: AlertDetailScreenProp
   return (
     <div className="screen-page">
       <PageHeader
-        title="アラート詳細"
-        description={data?.latest_detected_at ? formatDateTime(data.latest_detected_at) : "ケース単位の詳細"}
+        title="Alert detail"
+        description={data?.latest_detected_at ? formatDateTime(data.latest_detected_at) : "Case detail"}
       />
 
       {loading && !data ? <LoadingState /> : null}
@@ -155,37 +205,37 @@ export function AlertDetailScreen({ caseKey, viewerRole }: AlertDetailScreenProp
       {data ? (
         <div className="detail-layout">
           <div className="detail-main">
-            <section className="detail-header-grid" aria-label="アラート概要">
+            <section className="detail-header-grid" aria-label="Alert overview">
               <div className="detail-stat detail-stat-wide">
-                <div className="detail-key">環境</div>
-                <div className="detail-value">{data.environment.ipaddress ?? "IPなし"}</div>
-                <div className="detail-subvalue">{data.environment.useragent ?? "UAなし"}</div>
-                <div className="detail-subvalue">{data.environment.date ?? "日付なし"}</div>
+                <div className="detail-key">Environment</div>
+                <div className="detail-value">{data.environment.ipaddress ?? "No IP"}</div>
+                <div className="detail-subvalue">{data.environment.useragent ?? "No user agent"}</div>
+                <div className="detail-subvalue">{data.environment.date ?? "No date"}</div>
               </div>
               <div className="detail-stat">
-                <div className="detail-key">リスク</div>
+                <div className="detail-key">Risk</div>
                 <div className="detail-value">
                   <RiskBadge score={data.risk_score} level={data.risk_level} emphasized />
                 </div>
               </div>
               <div className="detail-stat">
-                <div className="detail-key">想定被害</div>
+                <div className="detail-key">Estimated damage</div>
                 <div className="detail-value">{formatCurrency(data.reward_amount)}</div>
                 <div className="detail-subvalue">
                   {rewardSourceLabel(data.reward_amount_source, data.reward_amount_is_estimated)}
                 </div>
               </div>
               <div className="detail-stat">
-                <div className="detail-key">状態</div>
+                <div className="detail-key">Status</div>
                 <div className="detail-value">
                   <StatusBadge status={data.status} />
                 </div>
               </div>
             </section>
 
-            <Panel title="検知理由" description={data.primary_reason}>
+            <Panel title="Reasons" description={data.primary_reason}>
               {data.reasons.length === 0 ? (
-                <EmptyState message="検知理由はありません。" />
+                <EmptyState message="No reasons found." />
               ) : (
                 <ul className="reasons-list">
                   {data.reasons.map((reason) => (
@@ -195,36 +245,29 @@ export function AlertDetailScreen({ caseKey, viewerRole }: AlertDetailScreenProp
               )}
             </Panel>
 
-            <Panel title="影響affiliate">
-              {renderEntityList(data.affected_affiliates)}
-            </Panel>
+            <Panel title="Affected affiliates">{renderEntityList(data.affected_affiliates)}</Panel>
 
-            <Panel title="影響program">
-              {renderEntityList(data.affected_programs)}
-            </Panel>
+            <Panel title="Affected programs">{renderEntityList(data.affected_programs)}</Panel>
 
             <Panel
               title="Evidence transactions"
-              description="date + IP + useragent が一致する取引だけを表示します。"
+              description="Primary evidence is scoped to the same date, IP address, and user agent."
             >
               <TransactionsTable ariaLabel="evidence transactions" rows={data.evidence_transactions} />
             </Panel>
 
-            <Panel
-              title="Review history"
-              description="誰が、いつ、どの理由で更新したかを記録します。"
-            >
+            <Panel title="Review history" description="Latest review events recorded for this case.">
               {data.review_history.length === 0 ? (
-                <EmptyState message="レビュー履歴はありません。" />
+                <EmptyState message="No review history found." />
               ) : (
                 <div className="table-wrap">
                   <table aria-label="review history">
                     <thead>
                       <tr>
-                        <th>状態</th>
-                        <th>理由</th>
-                        <th>レビュー担当</th>
-                        <th>時刻</th>
+                        <th>Status</th>
+                        <th>Reason</th>
+                        <th>Reviewed by</th>
+                        <th>Reviewed at</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -245,9 +288,12 @@ export function AlertDetailScreen({ caseKey, viewerRole }: AlertDetailScreenProp
             {data.affiliate_recent_transactions.length > 0 ? (
               <Panel
                 title="Affiliate recent transactions"
-                description="同一affiliateの直近取引です。evidence とは別パネルで扱います。"
+                description="Secondary context for the affected affiliate. This is not the primary evidence table."
               >
-                <TransactionsTable ariaLabel="affiliate recent transactions" rows={data.affiliate_recent_transactions} />
+                <TransactionsTable
+                  ariaLabel="affiliate recent transactions"
+                  rows={data.affiliate_recent_transactions}
+                />
               </Panel>
             ) : null}
           </div>
@@ -255,32 +301,32 @@ export function AlertDetailScreen({ caseKey, viewerRole }: AlertDetailScreenProp
           <div className="detail-sidebar">
             {viewerRole === "admin" ? (
               <div className="detail-action-panel">
-                <p className="detail-action-title">レビュー操作</p>
+                <p className="detail-action-title">Review actions</p>
                 <ActionButton
                   tone="danger"
                   className="button-wide"
                   disabled={submittingStatus !== null}
-                  onClick={() => void handleReview("confirmed_fraud")}
+                  onClick={() => openReviewDialog("confirmed_fraud")}
                 >
-                  不正にする
+                  Mark fraud
                 </ActionButton>
                 <ActionButton
                   className="button-wide"
                   disabled={submittingStatus !== null}
-                  onClick={() => void handleReview("white")}
+                  onClick={() => openReviewDialog("white")}
                 >
-                  ホワイトにする
+                  Mark white
                 </ActionButton>
                 <ActionButton
                   tone="warning"
                   className="button-wide"
                   disabled={submittingStatus !== null}
-                  onClick={() => void handleReview("investigating")}
+                  onClick={() => openReviewDialog("investigating")}
                 >
-                  調査中にする
+                  Mark investigating
                 </ActionButton>
                 <ActionButton className="button-wide" onClick={() => void loadDetail()} disabled={loading}>
-                  再読み込み
+                  Refresh detail
                 </ActionButton>
               </div>
             ) : null}
@@ -294,18 +340,18 @@ export function AlertDetailScreen({ caseKey, viewerRole }: AlertDetailScreenProp
             {error ? <ErrorState message={error} /> : null}
 
             <div className="detail-action-panel">
-              <p className="detail-action-title">補足情報</p>
+              <p className="detail-action-title">Case metadata</p>
               <div className="detail-meta-block">
                 <div className="detail-meta-row">
-                  <span>case key</span>
+                  <span>Case key</span>
                   <span className="detail-meta-value">{data.case_key}</span>
                 </div>
                 <div className="detail-meta-row">
-                  <span>finding key</span>
+                  <span>Finding key</span>
                   <span className="detail-meta-value">{data.finding_key}</span>
                 </div>
                 <div className="detail-meta-row">
-                  <span>金額根拠</span>
+                  <span>Reward source</span>
                   <span className="detail-meta-value">
                     {rewardSourceLabel(data.reward_amount_source, data.reward_amount_is_estimated)}
                   </span>
@@ -314,11 +360,35 @@ export function AlertDetailScreen({ caseKey, viewerRole }: AlertDetailScreenProp
             </div>
 
             <Link className="top-link" href="/alerts">
-              アラート一覧に戻る
+              Back to alerts
             </Link>
           </div>
         </div>
       ) : null}
+
+      <ReviewReasonDialog
+        open={reviewStatus !== null}
+        title="Review reason"
+        description="Add the reason for this review change before applying the new status."
+        confirmLabel={reviewStatus ? statusActionLabel(reviewStatus) : "Apply review"}
+        value={reviewReason}
+        error={reviewReasonError}
+        busy={submittingStatus !== null}
+        onChange={(value) => {
+          setReviewReason(value);
+          if (reviewReasonError) {
+            setReviewReasonError(null);
+          }
+        }}
+        onCancel={closeReviewDialog}
+        onConfirm={() => void submitReview()}
+        textareaProps={{
+          autoFocus: true,
+          rows: 5,
+          maxLength: 500,
+          placeholder: "Describe why this case status is changing.",
+        }}
+      />
     </div>
   );
 }

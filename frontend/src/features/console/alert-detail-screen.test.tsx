@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { afterEach, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { server } from "@/test/msw/server";
 
@@ -39,11 +39,8 @@ describe("AlertDetailScreen", () => {
           reward_amount_source: "fallback_default",
           reward_amount_is_estimated: true,
           latest_detected_at: "2026-04-05T08:55:00+09:00",
-          primary_reason: "同一IPから24時間で47件のCV",
-          reasons: [
-            "同一IPから24時間で47件のCV",
-            "CV間隔が異常に短い",
-          ],
+          primary_reason: "shared-ip-pattern",
+          reasons: ["shared-ip-pattern", "burst-conversion-pattern"],
           evidence_transactions: [
             {
               transaction_id: "tx-981",
@@ -94,20 +91,22 @@ describe("AlertDetailScreen", () => {
       }),
     );
 
-    vi.spyOn(window, "prompt").mockReturnValue("detail review reason");
-
     const user = userEvent.setup();
     render(<AlertDetailScreen caseKey="case-001" viewerRole="admin" />);
 
-    expect(await screen.findByRole("heading", { name: "アラート詳細" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Alert detail" })).toBeInTheDocument();
     expect(screen.getByText("203.0.113.10")).toBeInTheDocument();
     expect(screen.getByText("beta-traffic (AFF-145)")).toBeInTheDocument();
     expect(screen.getByText("96")).toBeInTheDocument();
-    expect(screen.getAllByText("既定単価から推定")).toHaveLength(2);
+    expect(screen.getAllByText("Estimated from default")).toHaveLength(2);
     expect(screen.getByRole("table", { name: "evidence transactions" })).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "review history" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "調査中にする" }));
+    await user.click(screen.getByRole("button", { name: "Mark investigating" }));
+    const dialog = screen.getByRole("dialog", { name: "Review reason" });
+    expect(dialog).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Reason"), "detail review reason");
+    await user.click(within(dialog).getByRole("button", { name: "Mark investigating" }));
 
     await waitFor(() => {
       expect(reviewRequestBody).toEqual({
@@ -117,6 +116,6 @@ describe("AlertDetailScreen", () => {
       });
     });
 
-    expect(await screen.findByText("1件のケースを更新しました。")).toBeInTheDocument();
+    expect(await screen.findByText("Updated 1 case.")).toBeInTheDocument();
   });
 });

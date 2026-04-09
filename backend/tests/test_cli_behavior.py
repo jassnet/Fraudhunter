@@ -223,6 +223,69 @@ def test_cmd_refresh_runs_ingestion_and_detection(monkeypatch, capsys):
     assert "Suspicious clicks" not in output
 
 
+def test_cmd_refresh_skips_detection_when_detect_is_false(monkeypatch, capsys):
+    # Given
+    class FakeSettings:
+        page_size = 10
+
+    class FakeClient:
+        def fetch_click_logs_for_time_range(self, start_time, end_time, page, limit):
+            if page == 1:
+                return [_click("c1", datetime(2026, 1, 1, 0, 30, 0))]
+            return []
+
+        def fetch_conversion_logs_for_time_range(self, start_time, end_time, page, limit):
+            if page == 1:
+                return [_conversion("v1", datetime(2026, 1, 1, 0, 40, 0))]
+            return []
+
+    class FakeRepo:
+        def ensure_schema(self, store_raw=False):
+            return None
+
+        def ensure_conversion_schema(self):
+            return None
+
+        def ensure_master_schema(self):
+            return None
+
+        def merge_clicks(self, clicks, *, store_raw):
+            return len(list(clicks)), 0
+
+        def merge_conversions(self, conversions):
+            return len(list(conversions)), 0
+
+        def enrich_conversions_with_click_info(self, conversions):
+            return list(conversions)
+
+    recompute_calls: list[list[date]] = []
+    monkeypatch.setattr(cli, "now_local", lambda: datetime(2026, 1, 1, 1, 0, 0))
+    monkeypatch.setattr(cli, "resolve_store_raw", lambda explicit: True)
+    monkeypatch.setattr(cli, "_build_repository", lambda store_raw: FakeRepo())
+    monkeypatch.setattr(cli, "_build_client", lambda: (FakeClient(), FakeSettings()))
+    monkeypatch.setattr(
+        cli.findings_service,
+        "recompute_findings_for_dates",
+        lambda repo, dates: recompute_calls.append(dates) or {},
+    )
+    args = argparse.Namespace(
+        hours=1,
+        clicks_only=False,
+        conversions_only=False,
+        detect=False,
+        store_raw=None,
+    )
+
+    # When
+    code = cli._cmd_refresh(args)
+    output = capsys.readouterr().out
+
+    # Then
+    assert code == 0
+    assert recompute_calls == []
+    assert "--- Suspicious Detection ---" not in output
+
+
 def test_cmd_refresh_conversions_only_skips_click_warning(monkeypatch, capsys):
     # Given
     class FakeSettings:
@@ -322,6 +385,7 @@ def test_cmd_enqueue_refresh_registers_durable_job(monkeypatch, capsys):
         "enqueue_refresh_job",
         lambda **kwargs: type("QueuedJob", (), {"id": "job-refresh-1"})(),
     )
+    monkeypatch.setattr(cli, "process_queued_jobs_after_cli_enqueue", lambda max_jobs=1: 0)
 
     code = cli._cmd_enqueue_refresh(
         argparse.Namespace(
@@ -346,6 +410,7 @@ def test_cmd_enqueue_backfill_registers_durable_job(monkeypatch, capsys):
         "enqueue_refresh_job",
         lambda **kwargs: type("QueuedJob", (), {"id": "job-backfill-1"})(),
     )
+    monkeypatch.setattr(cli, "process_queued_jobs_after_cli_enqueue", lambda max_jobs=1: 0)
 
     code = cli._cmd_enqueue_backfill(
         argparse.Namespace(
@@ -371,6 +436,7 @@ def test_cmd_enqueue_sync_masters_registers_durable_job(monkeypatch, capsys):
         "enqueue_master_sync_job",
         lambda: type("QueuedJob", (), {"id": "job-master-1"})(),
     )
+    monkeypatch.setattr(cli, "process_queued_jobs_after_cli_enqueue", lambda max_jobs=1: 0)
 
     code = cli._cmd_enqueue_sync_masters()
     output = capsys.readouterr().out
