@@ -7,7 +7,7 @@ import { server } from "@/test/msw/server";
 import { DashboardScreen } from "./dashboard-screen";
 
 describe("DashboardScreen", () => {
-  it("renders KPI summary, freshness, queue, and case ranking", async () => {
+  it("renders KPI summary, freshness, and queue", async () => {
     server.use(
       http.get("/api/console/dashboard", () =>
         HttpResponse.json({
@@ -23,18 +23,7 @@ describe("DashboardScreen", () => {
             { date: "2026-04-04", alerts: 12 },
             { date: "2026-04-05", alerts: 14 },
           ],
-          case_ranking: [
-            {
-              case_key: "case-001",
-              risk_score: 98,
-              risk_level: "critical",
-              estimated_damage: 162000,
-              affected_affiliate_count: 2,
-              latest_detected_at: "2026-04-05T09:00:00+09:00",
-              primary_reason: "同一IPからの多発CV",
-              status: "unhandled",
-            },
-          ],
+          case_ranking: [],
           quality: {
             last_successful_ingest_at: "2026-04-05T09:05:00+09:00",
             findings: {
@@ -62,10 +51,8 @@ describe("DashboardScreen", () => {
     expect(screen.getByText("12.4%")).toBeInTheDocument();
     expect(screen.getByText("未対応アラート件数")).toBeInTheDocument();
     expect(screen.getByText("¥428,000")).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "open case ranking" })).toBeInTheDocument();
-    expect(screen.getByText("case-001")).toBeInTheDocument();
-    expect(screen.getByText(/検知結果が stale です/)).toBeInTheDocument();
-    expect(screen.getByText(/queued 2 \/ running 1 \/ failed 0/)).toBeInTheDocument();
+    expect(screen.getByText(/検知結果が最新ではありません/)).toBeInTheDocument();
+    expect(screen.getByText(/待機 2 \/ 実行中 1 \/ 失敗 0/)).toBeInTheDocument();
   });
 
   it("starts refresh and loads job status for admin actions", async () => {

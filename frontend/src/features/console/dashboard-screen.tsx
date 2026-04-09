@@ -6,13 +6,11 @@ import Link from "next/link";
 import { LineChart } from "@/components/line-chart";
 import {
   ActionButton,
-  EmptyState,
   ErrorState,
   LoadingState,
   MetricStrip,
   PageHeader,
   Panel,
-  StatusBadge,
 } from "@/components/console-ui";
 import { getDashboard, getJobStatus, refreshLatestData, syncMasterData } from "@/lib/console-api";
 import type { DashboardResponse, JobStatusResponse } from "@/lib/console-types";
@@ -200,7 +198,7 @@ export function DashboardScreen({ viewerRole }: DashboardScreenProps) {
       {data ? (
         <>
           {freshness.stale ? (
-            <ErrorState message={`検知結果が stale です: ${freshness.staleReasons.join(", ") || "理由不明"}`} />
+            <ErrorState message={`検知結果が最新ではありません: ${freshness.staleReasons.join(", ") || "理由不明"}`} />
           ) : null}
 
           <MetricStrip
@@ -220,72 +218,33 @@ export function DashboardScreen({ viewerRole }: DashboardScreenProps) {
               <LineChart data={data.trend} />
             </Panel>
 
-            <Panel title="Freshness / Queue">
+            <Panel title="データ鮮度 / キュー">
               <div className="detail-meta-block">
                 <div className="detail-meta-row">
-                  <span>最終 ingest</span>
+                  <span>最終データ取込</span>
                   <span className="detail-meta-value">{freshness.ingest ? formatDateTime(freshness.ingest) : "-"}</span>
                 </div>
                 <div className="detail-meta-row">
-                  <span>最終 findings 計算</span>
+                  <span>最終検知結果算出</span>
                   <span className="detail-meta-value">{freshness.findings ? formatDateTime(freshness.findings) : "-"}</span>
                 </div>
                 <div className="detail-meta-row">
-                  <span>最終 master sync</span>
+                  <span>最終マスター同期</span>
                   <span className="detail-meta-value">{freshness.masterSync ? formatDateTime(freshness.masterSync) : "-"}</span>
                 </div>
                 <div className="detail-meta-row">
-                  <span>queue</span>
+                  <span>キュー</span>
                   <span className="detail-meta-value">
-                    {queue ? `queued ${queue.queued ?? 0} / running ${queue.running ?? 0} / failed ${queue.failed ?? 0}` : "-"}
+                    {queue ? `待機 ${queue.queued ?? 0} / 実行中 ${queue.running ?? 0} / 失敗 ${queue.failed ?? 0}` : "-"}
                   </span>
                 </div>
                 <div className="detail-meta-row">
-                  <span>最新 job</span>
+                  <span>最新ジョブ</span>
                   <span className="detail-meta-value">
                     {jobStatus?.job_id ? `${jobStatus.job_id} (${jobStatus.status})` : "なし"}
                   </span>
                 </div>
               </div>
-            </Panel>
-
-            <Panel title="Open case ranking" className="panel--scroll">
-              {data.case_ranking.length === 0 ? (
-                <EmptyState message="対象ケースはありません。" />
-              ) : (
-                <div className="table-wrap">
-                  <table aria-label="open case ranking">
-                    <thead>
-                      <tr>
-                        <th>case</th>
-                        <th>状態</th>
-                        <th>リスク</th>
-                        <th>被害額</th>
-                        <th>影響affiliate数</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.case_ranking.map((item) => (
-                        <tr key={item.case_key}>
-                          <td>
-                            <div className="table-primary">{item.case_key}</div>
-                            <div className="table-secondary">{item.primary_reason}</div>
-                            <div className="table-secondary">
-                              {item.latest_detected_at ? formatDateTime(item.latest_detected_at) : "-"}
-                            </div>
-                          </td>
-                          <td>
-                            <StatusBadge status={item.status} />
-                          </td>
-                          <td>{`${item.risk_score} / ${item.risk_level}`}</td>
-                          <td>{formatCurrency(item.estimated_damage)}</td>
-                          <td>{item.affected_affiliate_count}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </Panel>
           </div>
         </>

@@ -152,22 +152,22 @@ describe("AlertsScreen", () => {
       />,
     );
 
-    expect(await screen.findByRole("heading", { name: "Alerts" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Export CSV" })).toHaveAttribute(
+    expect(await screen.findByRole("heading", { name: "アラート一覧" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "CSVエクスポート" })).toHaveAttribute(
       "href",
       "/api/console/alerts/export?status=unhandled&sort=risk_desc&start_date=2026-04-05&end_date=2026-04-05&search=alpha",
     );
     expect(screen.getByText("alpha-media +1")).toBeInTheDocument();
     expect(screen.getByText("203.0.113.10")).toBeInTheDocument();
-    expect(screen.getByText("Estimated")).toBeInTheDocument();
+    expect(screen.getByText("推定")).toBeInTheDocument();
 
     await user.click(screen.getByLabelText("Select alpha-media +1"));
     await user.click(screen.getByLabelText("Select gamma-traffic"));
-    await user.click(screen.getByRole("button", { name: "Mark fraud" }));
+    await user.click(screen.getByRole("button", { name: "不正確定" }));
 
-    expect(screen.getByRole("dialog", { name: "Review reason" })).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Reason"), "bulk review reason");
-    await user.click(screen.getByRole("button", { name: "Mark confirmed fraud" }));
+    expect(screen.getByRole("dialog", { name: "レビュー理由" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("理由"), "bulk review reason");
+    await user.click(screen.getByRole("button", { name: "不正として確定" }));
 
     await waitFor(() => {
       expect(reviewRequestBody).toEqual({
@@ -177,7 +177,7 @@ describe("AlertsScreen", () => {
       });
     });
 
-    expect(await screen.findByText("No alerts match the current filters.")).toBeInTheDocument();
+    expect(await screen.findByText("条件に一致するアラートはありません。")).toBeInTheDocument();
   });
 
   it("applies filters only when the apply button is clicked", async () => {
@@ -218,7 +218,7 @@ describe("AlertsScreen", () => {
     const user = userEvent.setup();
     render(<AlertsScreen viewerRole="admin" />);
 
-    expect(await screen.findByRole("heading", { name: "Alerts" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "アラート一覧" })).toBeInTheDocument();
     await waitFor(() => {
       expect(replaceMock).toHaveBeenCalledWith(
         "/alerts?status=unhandled&sort=risk_desc&page=1&page_size=50&start_date=2026-04-05&end_date=2026-04-05",
@@ -227,12 +227,12 @@ describe("AlertsScreen", () => {
     });
     replaceMock.mockClear();
 
-    await user.type(screen.getByLabelText("Search"), "risky");
-    await user.selectOptions(screen.getByLabelText("Risk level"), "critical");
+    await user.type(screen.getByLabelText("検索"), "risky");
+    await user.selectOptions(screen.getByLabelText("リスクレベル"), "critical");
 
     expect(replaceMock).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await user.click(screen.getByRole("button", { name: "適用" }));
 
     expect(replaceMock).toHaveBeenCalledWith(
       "/alerts?status=unhandled&sort=risk_desc&page=1&page_size=50&risk_level=critical&search=risky",
@@ -353,7 +353,7 @@ describe("AlertsScreen", () => {
     render(<AlertsScreen viewerRole="admin" />);
 
     expect(await screen.findByText("page-one-affiliate")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "次へ" }));
 
     expect(replaceMock).toHaveBeenLastCalledWith(
       "/alerts?status=unhandled&sort=risk_desc&page=2&page_size=50&start_date=2026-04-05&end_date=2026-04-05",

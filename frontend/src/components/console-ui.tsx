@@ -181,7 +181,7 @@ export function ReviewReasonDialog({
           </div>
         </div>
         <label className="form-field" htmlFor="review-reason">
-          <span>Reason</span>
+          <span>理由</span>
           <textarea
             {...textareaProps}
             id="review-reason"
@@ -196,7 +196,7 @@ export function ReviewReasonDialog({
         {error ? <ErrorState message={error} /> : null}
         <div className="dialog-footer">
           <ActionButton onClick={onCancel} disabled={busy}>
-            Cancel
+            キャンセル
           </ActionButton>
           <ActionButton tone="warning" onClick={onConfirm} disabled={busy}>
             {confirmLabel}

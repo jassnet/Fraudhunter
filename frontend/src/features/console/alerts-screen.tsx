@@ -110,7 +110,7 @@ function filtersFromResponse(response: AlertsResponse): AlertFilters {
 
 function namedPreview(items: AlertListItem["affected_affiliates"]) {
   if (items.length === 0) {
-    return "None";
+    return "なし";
   }
   if (items.length === 1) {
     return items[0]?.name ?? items[0]?.id ?? "None";
@@ -120,7 +120,7 @@ function namedPreview(items: AlertListItem["affected_affiliates"]) {
 
 function programPreview(item: AlertListItem) {
   if (item.affected_programs.length === 0) {
-    return "None";
+    return "なし";
   }
   if (item.affected_programs.length === 1) {
     return item.affected_programs[0]?.name ?? item.affected_programs[0]?.id ?? "None";
@@ -130,12 +130,12 @@ function programPreview(item: AlertListItem) {
 
 function statusActionLabel(status: ReviewStatus) {
   if (status === "confirmed_fraud") {
-    return "Mark confirmed fraud";
+    return "不正として確定";
   }
   if (status === "white") {
-    return "Mark white";
+    return "ホワイトとして確定";
   }
-  return "Mark investigating";
+  return "調査中に変更";
 }
 
 export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
@@ -176,7 +176,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
           replace(`${pathname}?${toFilterQuery(canonicalFilters)}`, { scroll: false });
         }
       } catch (caughtError) {
-        setError(caughtError instanceof Error ? caughtError.message : "Failed to load alerts.");
+        setError(caughtError instanceof Error ? caughtError.message : "アラートの取得に失敗しました。");
       } finally {
         setLoading(false);
       }
@@ -244,7 +244,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
 
     const reason = reviewReason.trim();
     if (!reason) {
-      setReviewReasonError("Review reason is required.");
+      setReviewReasonError("レビュー理由を入力してください。");
       return;
     }
 
@@ -255,11 +255,11 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
     try {
       const result = await reviewAlerts(selectedKeys, reviewStatus, reason);
       closeReviewDialog();
-      setFeedback(`Updated ${result.updated_count} cases.`);
-      setWarning(result.missing_keys.length > 0 ? `Missing cases: ${result.missing_keys.join(", ")}` : null);
+      setFeedback(`${result.updated_count}件のケースを更新しました。`);
+      setWarning(result.missing_keys.length > 0 ? `見つからないケース: ${result.missing_keys.join(", ")}` : null);
       await loadAlerts(routeFilters);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Failed to update review.");
+      setError(caughtError instanceof Error ? caughtError.message : "レビューの更新に失敗しました。");
     } finally {
       setSubmittingStatus(null);
     }
@@ -283,13 +283,13 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
     <div className="alerts-page">
       <div className="alerts-topbar">
         <div className="alerts-topbar-left">
-          <h1 className="alerts-title">Alerts</h1>
+          <h1 className="alerts-title">アラート一覧</h1>
           {data ? <StatusCountStrip counts={data.status_counts} /> : null}
-          <p className="table-secondary">Counts match the current filter scope.</p>
+          <p className="table-secondary">件数は現在のフィルター条件に基づきます。</p>
         </div>
         <div className="alerts-topbar-right">
           <a className="button button-default" href={exportUrl}>
-            Export CSV
+            CSVエクスポート
           </a>
         </div>
       </div>
@@ -297,42 +297,42 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
       <div className="alerts-filters">
         <div className="alerts-filters-fields">
           <div className="form-field form-field--compact">
-            <label htmlFor="alert-status">Status</label>
+            <label htmlFor="alert-status">ステータス</label>
             <select
               id="alert-status"
-              aria-label="Status"
+              aria-label="ステータス"
               value={draftFilters.status}
               onChange={(event) => setDraftFilter("status", event.target.value as AlertFilterStatus)}
             >
-              <option value="unhandled">Unhandled</option>
-              <option value="investigating">Investigating</option>
-              <option value="confirmed_fraud">Confirmed fraud</option>
-              <option value="white">White</option>
-              <option value="all">All</option>
+              <option value="unhandled">未対応</option>
+              <option value="investigating">調査中</option>
+              <option value="confirmed_fraud">不正確定</option>
+              <option value="white">ホワイト</option>
+              <option value="all">すべて</option>
             </select>
           </div>
 
           <div className="form-field form-field--compact">
-            <label htmlFor="alert-risk-level">Risk level</label>
+            <label htmlFor="alert-risk-level">リスクレベル</label>
             <select
               id="alert-risk-level"
-              aria-label="Risk level"
+              aria-label="リスクレベル"
               value={draftFilters.riskLevel}
               onChange={(event) => setDraftFilter("riskLevel", event.target.value as AlertRiskFilter)}
             >
-              <option value="all">All</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
+              <option value="all">すべて</option>
+              <option value="critical">重大</option>
+              <option value="high">高</option>
+              <option value="medium">中</option>
+              <option value="low">低</option>
             </select>
           </div>
 
           <div className="form-field form-field--compact">
-            <label htmlFor="alert-start-date">Start date</label>
+            <label htmlFor="alert-start-date">開始日</label>
             <input
               id="alert-start-date"
-              aria-label="Start date"
+              aria-label="開始日"
               type="date"
               value={draftFilters.startDate}
               onChange={(event) => setDraftFilter("startDate", event.target.value)}
@@ -340,10 +340,10 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
           </div>
 
           <div className="form-field form-field--compact">
-            <label htmlFor="alert-end-date">End date</label>
+            <label htmlFor="alert-end-date">終了日</label>
             <input
               id="alert-end-date"
-              aria-label="End date"
+              aria-label="終了日"
               type="date"
               value={draftFilters.endDate}
               onChange={(event) => setDraftFilter("endDate", event.target.value)}
@@ -351,23 +351,23 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
           </div>
 
           <div className="form-field form-field--compact form-field--grow">
-            <label htmlFor="alert-search">Search</label>
+            <label htmlFor="alert-search">検索</label>
             <input
               id="alert-search"
-              aria-label="Search"
+              aria-label="検索"
               type="search"
               value={draftFilters.search}
               onChange={(event) => setDraftFilter("search", event.target.value)}
-              placeholder="affiliate, IP, UA"
+              placeholder="アフィリエイト、IP、UA"
             />
           </div>
 
           <div className="alerts-filters-actions">
             <ActionButton onClick={() => replaceRoute({ ...draftFilters, page: 1 })} disabled={loading}>
-              Apply
+              適用
             </ActionButton>
             <ActionButton onClick={() => replaceRoute(DEFAULT_FILTERS)} disabled={loading}>
-              Reset
+              リセット
             </ActionButton>
           </div>
         </div>
@@ -383,16 +383,16 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
 
       {viewerRole === "admin" && selectedKeys.length > 0 ? (
         <div className="selection-bar">
-          <span className="selection-bar-count">{selectedKeys.length} selected</span>
+          <span className="selection-bar-count">{selectedKeys.length}件選択中</span>
           <div className="selection-bar-actions">
             <ActionButton tone="danger" disabled={submittingStatus !== null} onClick={() => openBulkAction("confirmed_fraud")}>
-              Mark fraud
+              不正確定
             </ActionButton>
             <ActionButton disabled={submittingStatus !== null} onClick={() => openBulkAction("white")}>
-              Mark white
+              ホワイト確定
             </ActionButton>
             <ActionButton tone="warning" disabled={submittingStatus !== null} onClick={() => openBulkAction("investigating")}>
-              Mark investigating
+              調査中に変更
             </ActionButton>
           </div>
         </div>
@@ -400,9 +400,9 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
 
       <ReviewReasonDialog
         open={reviewStatus !== null}
-        title="Review reason"
-        description="Add the reason for this bulk review before applying the status change."
-        confirmLabel={reviewStatus ? statusActionLabel(reviewStatus) : "Apply review"}
+        title="レビュー理由"
+        description="ステータスを変更する理由を入力してください。"
+        confirmLabel={reviewStatus ? statusActionLabel(reviewStatus) : "レビューを適用"}
         value={reviewReason}
         error={reviewReasonError}
         busy={submittingStatus !== null}
@@ -418,7 +418,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
           autoFocus: true,
           rows: 5,
           maxLength: 500,
-          placeholder: "Describe why this case status is changing.",
+          placeholder: "ステータスを変更する理由を記入してください。",
         }}
       />
 
@@ -426,27 +426,27 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
 
       <div className="alerts-table-area">
         {error && data ? <ErrorState message={error} /> : null}
-        {loading && data ? <LoadingState message="Refreshing alerts..." /> : null}
+        {loading && data ? <LoadingState message="アラートを更新中..." /> : null}
         {!loading && items.length === 0 ? (
-          <EmptyState message={activeFilters.search ? "No alerts match the current filters." : "No alerts found."} />
+          <EmptyState message={activeFilters.search ? "条件に一致するアラートはありません。" : "アラートはありません。"} />
         ) : (
-          <table aria-label="Fraud alerts" className="table-sticky-head">
+          <table aria-label="不正アラート一覧" className="table-sticky-head">
             <thead>
               <tr>
                 <th>
                   <input
-                    aria-label="Select all alerts"
+                    aria-label="すべてのアラートを選択"
                     type="checkbox"
                     checked={allSelected}
                     onChange={() => setSelectedKeys(allSelected ? [] : items.map((item) => item.case_key))}
                   />
                 </th>
-                <th>Risk</th>
-                <th>Affected affiliates</th>
-                <th>Environment</th>
-                <th>Status</th>
-                <th>Damage</th>
-                <th>Detected</th>
+                <th>リスク</th>
+                <th>対象アフィリエイト</th>
+                <th>アクセス環境</th>
+                <th>ステータス</th>
+                <th>被害額</th>
+                <th>検知日時</th>
               </tr>
             </thead>
             <tbody>
@@ -472,15 +472,15 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
                   <td>
                     <Link className="table-link" href={`/alerts/${item.case_key}`}>
                       <span className="table-primary">{namedPreview(item.affected_affiliates)}</span>
-                      <span className="table-secondary">{`${item.affected_affiliate_count} affiliates / ${programPreview(item)}`}</span>
+                      <span className="table-secondary">{`${item.affected_affiliate_count}件のアフィリエイト / ${programPreview(item)}`}</span>
                       <span className="table-tertiary">{item.primary_reason}</span>
                     </Link>
                   </td>
                   <td>
                     <div className="table-link">
-                      <span className="table-primary">{item.environment.ipaddress ?? "No IP"}</span>
-                      <span className="table-secondary">{item.environment.useragent ?? "No user agent"}</span>
-                      <span className="table-tertiary">{item.environment.date ?? "No date"}</span>
+                      <span className="table-primary">{item.environment.ipaddress ?? "IP なし"}</span>
+                      <span className="table-secondary">{item.environment.useragent ?? "UA なし"}</span>
+                      <span className="table-tertiary">{item.environment.date ?? "日付なし"}</span>
                     </div>
                   </td>
                   <td>
@@ -490,7 +490,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
                     <div className="amount-cell">
                       <span>{formatCurrency(item.reward_amount)}</span>
                       <span className={`meta-badge ${item.reward_amount_is_estimated ? "meta-badge-warning" : "meta-badge-muted"}`}>
-                        {item.reward_amount_is_estimated ? "Estimated" : "Observed"}
+                        {item.reward_amount_is_estimated ? "推定" : "実績"}
                       </span>
                     </div>
                   </td>
@@ -513,7 +513,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
               disabled={loading || activeFilters.page <= 1}
               onClick={() => replaceRoute({ ...activeFilters, page: activeFilters.page - 1 })}
             >
-              Previous
+              前へ
             </ActionButton>
             <span className="table-secondary">
               {activeFilters.page} / {totalPages}
@@ -522,7 +522,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
               disabled={loading || !data.has_next}
               onClick={() => replaceRoute({ ...activeFilters, page: activeFilters.page + 1 })}
             >
-              Next
+              次へ
             </ActionButton>
           </div>
         </div>

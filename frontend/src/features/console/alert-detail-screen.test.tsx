@@ -94,19 +94,19 @@ describe("AlertDetailScreen", () => {
     const user = userEvent.setup();
     render(<AlertDetailScreen caseKey="case-001" viewerRole="admin" />);
 
-    expect(await screen.findByRole("heading", { name: "Alert detail" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "アラート詳細" })).toBeInTheDocument();
     expect(screen.getByText("203.0.113.10")).toBeInTheDocument();
     expect(screen.getByText("beta-traffic (AFF-145)")).toBeInTheDocument();
     expect(screen.getByText("96")).toBeInTheDocument();
-    expect(screen.getAllByText("Estimated from default")).toHaveLength(2);
-    expect(screen.getByRole("table", { name: "evidence transactions" })).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "review history" })).toBeInTheDocument();
+    expect(screen.getAllByText("デフォルト単価による推定")).toHaveLength(2);
+    expect(screen.getByRole("table", { name: "証拠トランザクション" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "レビュー履歴" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Mark investigating" }));
-    const dialog = screen.getByRole("dialog", { name: "Review reason" });
+    await user.click(screen.getByRole("button", { name: "調査中に変更" }));
+    const dialog = screen.getByRole("dialog", { name: "レビュー理由" });
     expect(dialog).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Reason"), "detail review reason");
-    await user.click(within(dialog).getByRole("button", { name: "Mark investigating" }));
+    await user.type(screen.getByLabelText("理由"), "detail review reason");
+    await user.click(within(dialog).getByRole("button", { name: "調査中に変更" }));
 
     await waitFor(() => {
       expect(reviewRequestBody).toEqual({
@@ -116,6 +116,6 @@ describe("AlertDetailScreen", () => {
       });
     });
 
-    expect(await screen.findByText("Updated 1 case.")).toBeInTheDocument();
+    expect(await screen.findByText("1件のケースを更新しました。")).toBeInTheDocument();
   });
 });
