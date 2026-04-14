@@ -38,7 +38,6 @@ def test_console_dashboard_endpoint_returns_business_payload(monkeypatch):
         console_router.console_service,
         "get_dashboard",
         lambda repo, target_date=None: {
-            "date": "2026-04-05",
             "available_dates": ["2026-04-05", "2026-04-04"],
             "kpis": {
                 "fraud_rate": {"value": 12.5, "label": "Fraud Rate", "unit": "%"},
@@ -48,18 +47,6 @@ def test_console_dashboard_endpoint_returns_business_payload(monkeypatch):
             "trend": [
                 {"date": "2026-04-01", "alerts": 8},
                 {"date": "2026-04-02", "alerts": 11},
-            ],
-            "case_ranking": [
-                {
-                    "case_key": "case-001",
-                    "risk_score": 97,
-                    "risk_level": "critical",
-                    "estimated_damage": 425000,
-                    "affected_affiliate_count": 3,
-                    "latest_detected_at": "2026-04-05T10:00:00+09:00",
-                    "primary_reason": "Same IP generated repeated conversions",
-                    "status": "unhandled",
-                }
             ],
             "quality": {
                 "findings": {
@@ -87,7 +74,6 @@ def test_console_dashboard_endpoint_returns_business_payload(monkeypatch):
     payload = response.json()
     assert payload["kpis"]["fraud_rate"]["value"] == 12.5
     assert payload["kpis"]["unhandled_alerts"]["value"] == 18
-    assert payload["case_ranking"][0]["case_key"] == "case-001"
     assert payload["job_status_summary"]["queue"]["queued"] == 2
 
 
@@ -737,7 +723,6 @@ def test_console_dashboard_uses_migrated_review_table(tmp_path, monkeypatch):
     payload = console_service.get_dashboard(repo, target_date="2026-04-05")
 
     assert payload["kpis"]["unhandled_alerts"]["value"] == 1
-    assert payload["case_ranking"][0]["case_key"] == "finding-001"
     assert payload["kpis"]["estimated_damage"]["value"] == 3000
 
 

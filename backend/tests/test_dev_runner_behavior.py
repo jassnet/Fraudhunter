@@ -20,7 +20,7 @@ def test_worker_enabled_defaults_true(monkeypatch):
     assert dev._worker_enabled() is True
 
 
-def test_build_worker_cmd_uses_run_worker(monkeypatch):
+def test_build_worker_cmd_uses_in_process_queue_runner(monkeypatch):
     monkeypatch.setenv("WORKER_MAX_JOBS", "7")
     monkeypatch.setenv("WORKER_POLL_SECONDS", "3")
     dev = _load_dev_module()
@@ -28,9 +28,8 @@ def test_build_worker_cmd_uses_run_worker(monkeypatch):
     cmd = dev._build_worker_cmd()
 
     assert cmd[:3] == [dev.sys.executable, "-u", "-c"]
-    assert "fraud_checker.cli" in cmd[3]
-    assert "run-worker" in cmd[3]
-    assert '"7"' in cmd[3]
+    assert "process_queued_jobs" in cmd[3]
+    assert "max_jobs=7" in cmd[3]
     assert "time.sleep(3)" in cmd[3]
 
 

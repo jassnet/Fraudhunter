@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SummaryResponse(BaseModel):
@@ -96,7 +96,7 @@ class SettingsModel(BaseModel):
 
 
 class ConsoleReviewRequest(BaseModel):
-    case_keys: list[str] = []
+    case_keys: list[str] = Field(default_factory=list)
     status: str
     reason: str
     filters: Optional[dict] = None

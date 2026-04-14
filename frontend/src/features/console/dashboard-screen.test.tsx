@@ -34,7 +34,6 @@ describe("DashboardScreen", () => {
     server.use(
       http.get("/api/console/dashboard", () =>
         HttpResponse.json({
-          date: "2026-04-05",
           target_date: "2026-04-05",
           available_dates: ["2026-04-05", "2026-04-04"],
           kpis: {
@@ -46,26 +45,6 @@ describe("DashboardScreen", () => {
             { date: "2026-04-03", alerts: 9 },
             { date: "2026-04-04", alerts: 12 },
             { date: "2026-04-05", alerts: 14 },
-          ],
-          case_ranking: [
-            {
-              case_key: "case-001",
-              display_label: "alpha-media / Program A / shared-ip-pattern",
-              secondary_label: "shared-ip-pattern",
-              risk_score: 96,
-              risk_level: "high",
-              priority_score: 224,
-              estimated_damage: 128000,
-              affected_affiliate_count: 3,
-              latest_detected_at: "2026-04-05T09:12:00+09:00",
-              primary_reason: "Same IP generated repeated conversions",
-              status: "unhandled",
-              assignee: {
-                user_id: "admin-user",
-                assigned_at: "2026-04-05T09:20:00+09:00",
-              },
-              follow_up_open_count: 2,
-            },
           ],
           review_outcomes: {
             confirmed_fraud: 5,
@@ -134,7 +113,6 @@ describe("DashboardScreen", () => {
     server.use(
       http.get("/api/console/dashboard", () =>
         HttpResponse.json({
-          date: "2026-04-05",
           target_date: "2026-04-05",
           available_dates: ["2026-04-05", "2026-04-04"],
           kpis: {
@@ -143,7 +121,6 @@ describe("DashboardScreen", () => {
             estimated_damage: { value: 12000, unit: "JPY" },
           },
           trend: [{ date: "2026-04-05", alerts: 3 }],
-          case_ranking: [],
           review_outcomes: {
             confirmed_fraud: 1,
             white: 0,
@@ -189,7 +166,6 @@ describe("DashboardScreen", () => {
       http.get("/api/console/dashboard", () => {
         dashboardFetchCount += 1;
         return HttpResponse.json({
-          date: "2026-04-05",
           target_date: "2026-04-05",
           available_dates: ["2026-04-05"],
           kpis: {
@@ -198,7 +174,6 @@ describe("DashboardScreen", () => {
             estimated_damage: { value: 428000, unit: "JPY" },
           },
           trend: [{ date: "2026-04-05", alerts: 14 }],
-          case_ranking: [],
           review_outcomes: {
             confirmed_fraud: 1,
             white: 0,
@@ -267,7 +242,6 @@ describe("DashboardScreen", () => {
     server.use(
       http.get("/api/console/dashboard", () =>
         HttpResponse.json({
-          date: "2026-04-05",
           target_date: "2026-04-05",
           available_dates: ["2026-04-05"],
           kpis: {
@@ -276,7 +250,6 @@ describe("DashboardScreen", () => {
             estimated_damage: { value: 428000, unit: "JPY" },
           },
           trend: [{ date: "2026-04-05", alerts: 14 }],
-          case_ranking: [],
           review_outcomes: {
             confirmed_fraud: 1,
             white: 0,

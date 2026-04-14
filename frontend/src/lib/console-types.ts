@@ -45,7 +45,6 @@ export type RelatedCaseSummary = {
 };
 
 export type DashboardResponse = {
-  date: string;
   target_date: string;
   available_dates: string[];
   kpis: {
@@ -56,21 +55,6 @@ export type DashboardResponse = {
   trend: Array<{
     date: string;
     alerts: number;
-  }>;
-  case_ranking: Array<{
-    case_key: string;
-    display_label: string;
-    secondary_label: string;
-    risk_score: number;
-    risk_level: RiskLevel;
-    priority_score: number;
-    estimated_damage: number;
-    affected_affiliate_count: number;
-    latest_detected_at: string | null;
-    primary_reason: string;
-    status: ReviewStatus;
-    assignee?: CaseAssignee | null;
-    follow_up_open_count?: number;
   }>;
   review_outcomes: {
     confirmed_fraud: number;

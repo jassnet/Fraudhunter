@@ -87,35 +87,6 @@ def get_dashboard(repo: ConsoleRepository, target_date: str | None = None) -> di
     unhandled_alerts = sum(1 for item in backlog_items if item["status"] == "unhandled")
     estimated_damage = sum(int(item.get("reward_amount") or 0) for item in active_items)
 
-    ranked_items = sorted(
-        active_items or backlog_items,
-        key=lambda item: (
-            0 if item["status"] == "unhandled" else 1,
-            -int(item.get("priority_score") or 0),
-            -int(item.get("risk_score") or 0),
-            -int(item.get("reward_amount") or 0),
-            item.get("latest_detected_at") or "",
-        ),
-    )
-    case_ranking = [
-        {
-            "case_key": item["case_key"],
-            "display_label": item["display_label"],
-            "secondary_label": item["secondary_label"],
-            "risk_score": item["risk_score"],
-            "risk_level": item["risk_level"],
-            "priority_score": item["priority_score"],
-            "estimated_damage": item["reward_amount"],
-            "affected_affiliate_count": item["affected_affiliate_count"],
-            "latest_detected_at": item["latest_detected_at"],
-            "primary_reason": item["primary_reason"],
-            "status": item["status"],
-            "assignee": item.get("assignee"),
-            "follow_up_open_count": item.get("follow_up_open_count", 0),
-        }
-        for item in ranked_items[:10]
-    ]
-
     trend = [
         {"date": item["date"], "alerts": int(item.get("suspicious_conversions", 0) or 0)}
         for item in reporting.get_daily_stats(repo, 14, resolved_date)
@@ -124,7 +95,6 @@ def get_dashboard(repo: ConsoleRepository, target_date: str | None = None) -> di
     operations = _build_operational_insights(repo, backlog_items)
 
     return {
-        "date": resolved_date,
         "target_date": resolved_date,
         "available_dates": reporting.get_available_dates(repo),
         "kpis": {
@@ -133,8 +103,6 @@ def get_dashboard(repo: ConsoleRepository, target_date: str | None = None) -> di
             "estimated_damage": {"value": estimated_damage, "label": "Estimated Damage", "unit": "JPY"},
         },
         "trend": trend,
-        "case_ranking": case_ranking,
-        "ranking": case_ranking,
         "review_outcomes": review_outcomes,
         "operations": operations,
         "quality": summary.get("quality") or {},
