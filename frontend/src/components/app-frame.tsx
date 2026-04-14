@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { ConsoleDisplayModeProvider, useConsoleDisplayMode } from "./console-display-mode";
+
 function resolveActive(pathname: string, href: string) {
   if (href === "/alerts") {
     return pathname === href || pathname.startsWith("/alerts/");
@@ -50,6 +52,17 @@ function AlgorithmIcon() {
   );
 }
 
+function SettingsIcon() {
+  return (
+    <svg className="sidebar__link-icon" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="M4 4h10M4 9h10M4 14h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="7" cy="4" r="1.5" fill="currentColor" />
+      <circle cx="11" cy="9" r="1.5" fill="currentColor" />
+      <circle cx="6" cy="14" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
 function ChevronLeftIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -75,17 +88,32 @@ function MenuIcon() {
 }
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "フラウドアラート", Icon: DashboardIcon },
-  { href: "/alerts", label: "アラート一覧", Icon: AlertsIcon },
-  { href: "/algorithm", label: "検知アルゴリズム", Icon: AlgorithmIcon },
+  { href: "/dashboard", label: "ダッシュボード", Icon: DashboardIcon, advancedOnly: false },
+  { href: "/alerts", label: "アラート一覧", Icon: AlertsIcon, advancedOnly: false },
+  { href: "/algorithm", label: "検知の仕組み", Icon: AlgorithmIcon, advancedOnly: true },
+  { href: "/settings", label: "検知設定", Icon: SettingsIcon, advancedOnly: true },
 ] as const;
 
-export function AppFrame({ children }: { children: ReactNode }) {
+type AppFrameProps = {
+  children: ReactNode;
+};
+
+export function AppFrame({ children }: AppFrameProps) {
+  return (
+    <ConsoleDisplayModeProvider>
+      <AppFrameShell>{children}</AppFrameShell>
+    </ConsoleDisplayModeProvider>
+  );
+}
+
+function AppFrameShell({ children }: AppFrameProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const mobileCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const { showAdvanced, toggleShowAdvanced } = useConsoleDisplayMode();
+  const visibleNavItems = NAV_ITEMS.filter((item) => showAdvanced || !item.advancedOnly);
 
   useEffect(() => {
     if (!mobileOpen) {
@@ -142,7 +170,15 @@ export function AppFrame({ children }: { children: ReactNode }) {
         >
           <MenuIcon />
         </button>
-        <span>フラウドアラート</span>
+        <span>不正アラート監視</span>
+        <button
+          type="button"
+          className="mobile-topbar-mode"
+          onClick={toggleShowAdvanced}
+          aria-pressed={showAdvanced}
+        >
+          {showAdvanced ? "通常表示" : "詳細表示"}
+        </button>
       </div>
 
       {mobileOpen && (
@@ -156,7 +192,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
       <aside
         ref={sidebarRef}
         className={`sidebar${collapsed ? " sidebar--collapsed" : ""}${mobileOpen ? " sidebar--open" : ""}`}
-        aria-label="主なナビゲーション"
+        aria-label="メインメニュー"
         aria-modal={mobileOpen ? "true" : undefined}
         role={mobileOpen ? "dialog" : undefined}
       >
@@ -167,7 +203,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
               <path d="M5.5 8.5l2 2 3.5-4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-          <span className="sidebar__brand-text">フラウドアラート</span>
+          <span className="sidebar__brand-text">不正アラート監視</span>
           <button
             ref={mobileCloseButtonRef}
             className="sidebar__mobile-close"
@@ -180,7 +216,7 @@ export function AppFrame({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="sidebar__nav">
-          {NAV_ITEMS.map(({ href, label, Icon }) => (
+          {visibleNavItems.map(({ href, label, Icon }) => (
             <Link
               key={href}
               className={`sidebar__link${resolveActive(pathname, href) ? " sidebar__link--active" : ""}`}
@@ -196,9 +232,18 @@ export function AppFrame({ children }: { children: ReactNode }) {
 
         <div className="sidebar__footer">
           <button
+            type="button"
+            className="sidebar__mode-toggle"
+            onClick={toggleShowAdvanced}
+            aria-pressed={showAdvanced}
+            title={collapsed ? (showAdvanced ? "通常表示に戻す" : "詳細表示に切り替える") : undefined}
+          >
+            <span className="sidebar__mode-toggle-label">{showAdvanced ? "通常表示に戻す" : "詳細表示に切り替える"}</span>
+          </button>
+          <button
             className="sidebar__toggle"
             onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? "サイドバーを広げる" : "サイドバーを折りたたむ"}
+            aria-label={collapsed ? "メニューを広げる" : "メニューを折りたたむ"}
           >
             {collapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
           </button>

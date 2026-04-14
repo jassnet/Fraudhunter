@@ -43,19 +43,32 @@ def test_get_returns_idle_when_no_job_has_run(monkeypatch):
     monkeypatch.setattr(
         store,
         "get_queue_metrics",
-        lambda: {"queued_jobs_count": 0, "running_jobs_count": 0, "failed_jobs_count": 0},
+        lambda: {
+            "queued_jobs_count": 0,
+            "retry_scheduled_jobs_count": 0,
+            "running_jobs_count": 0,
+            "failed_jobs_count": 0,
+            "oldest_queued_at": None,
+            "oldest_queued_age_seconds": None,
+        },
     )
-    monkeypatch.setattr(store, "_serialize_queue_metrics", lambda metrics: metrics)
 
     status = store.get()
 
     assert status.status == "idle"
     assert status.job_id is None
     assert status.message == "まだジョブは実行されていません"
-    assert status.queue == {"queued_jobs_count": 0, "running_jobs_count": 0, "failed_jobs_count": 0}
+    assert status.queue == {
+        "queued": 0,
+        "retry_scheduled": 0,
+        "running": 0,
+        "failed": 0,
+        "oldest_queued_at": None,
+        "oldest_queued_age_seconds": None,
+    }
 
 
-def test_get_maps_queued_job_to_running_for_api(monkeypatch):
+def test_get_preserves_queued_job_status(monkeypatch):
     store = _new_store()
     monkeypatch.setattr(
         store,
@@ -81,14 +94,32 @@ def test_get_maps_queued_job_to_running_for_api(monkeypatch):
             worker_id=None,
         ),
     )
-    monkeypatch.setattr(store, "get_queue_metrics", lambda: {})
-    monkeypatch.setattr(store, "_serialize_queue_metrics", lambda metrics: metrics)
+    monkeypatch.setattr(
+        store,
+        "get_queue_metrics",
+        lambda: {
+            "queued_jobs_count": 1,
+            "retry_scheduled_jobs_count": 0,
+            "running_jobs_count": 0,
+            "failed_jobs_count": 0,
+            "oldest_queued_at": None,
+            "oldest_queued_age_seconds": None,
+        },
+    )
 
     status = store.get()
 
-    assert status.status == "running"
+    assert status.status == "queued"
     assert status.job_id == "run-1"
     assert status.message == "直近1時間の再取得ジョブを登録しました"
+    assert status.queue == {
+        "queued": 1,
+        "retry_scheduled": 0,
+        "running": 0,
+        "failed": 0,
+        "oldest_queued_at": None,
+        "oldest_queued_age_seconds": None,
+    }
 
 
 def test_enqueue_persists_json_payload_and_control_columns(monkeypatch):

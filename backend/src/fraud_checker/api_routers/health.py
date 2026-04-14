@@ -6,7 +6,7 @@ from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..api_dependencies import require_admin
+from ..api_dependencies import require_protected_access
 from ..runtime_guards import read_access_mode
 from ..service_dependencies import get_acs_client, get_job_store, get_repository
 from ..services import reporting
@@ -90,7 +90,7 @@ def public_health_check():
     }
 
 
-@router.get("/api/health", dependencies=[Depends(require_admin)])
+@router.get("/api/health", dependencies=[Depends(require_protected_access)])
 def health_check():
     issues: list[dict] = []
     warnings: list[dict] = []

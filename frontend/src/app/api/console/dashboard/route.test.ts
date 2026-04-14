@@ -16,7 +16,7 @@ describe("dashboard route", () => {
     proxyToBackend.mockReset();
   });
 
-  it("allows analyst viewer headers on read routes", async () => {
+  it("allows trusted viewer headers on dashboard routes", async () => {
     proxyToBackend.mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
         status: 200,
@@ -28,7 +28,6 @@ describe("dashboard route", () => {
       headers: {
         "X-Auth-Request-User": "analyst-1",
         "X-Auth-Request-Email": "analyst@example.com",
-        "X-Auth-Request-Role": "analyst",
       },
     });
 
@@ -43,7 +42,6 @@ describe("dashboard route", () => {
         viewer: expect.objectContaining({
           userId: "analyst-1",
           email: "analyst@example.com",
-          role: "analyst",
         }),
       }),
     );

@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     return proxyToBackend({
       path: "/api/console/dashboard",
       search: request.nextUrl.search,
-      viewer: requireConsoleViewer(request, "analyst"),
+      viewer: requireConsoleViewer(request),
     });
   } catch (error) {
     return toConsoleAuthErrorResponse(error);

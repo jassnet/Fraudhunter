@@ -7,7 +7,7 @@ type AlertsPageProps = {
 
 export default async function AlertsPage({ searchParams }: AlertsPageProps) {
   const resolvedSearchParams = searchParams ? await searchParams : {};
-  const viewer = await getConsoleViewer();
+  await getConsoleViewer();
 
-  return <AlertsScreen searchParams={resolvedSearchParams} viewerRole={viewer.role} />;
+  return <AlertsScreen searchParams={resolvedSearchParams} />;
 }

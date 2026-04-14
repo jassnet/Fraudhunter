@@ -6,10 +6,10 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     return proxyToBackend({
-      path: "/api/console/admin/refresh",
+      path: "/api/console/refresh",
       method: "POST",
       body: await request.text(),
-      viewer: requireConsoleViewer(request, "admin"),
+      viewer: requireConsoleViewer(request),
     });
   } catch (error) {
     return toConsoleAuthErrorResponse(error);

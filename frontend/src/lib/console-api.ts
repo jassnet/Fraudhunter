@@ -2,7 +2,11 @@ import type {
   AlertDetailResponse,
   AlertFilterStatus,
   AlertsResponse,
+  AssignmentResponse,
+  ConsoleSettings,
+  ConsoleSettingsUpdateResponse,
   DashboardResponse,
+  FollowUpTaskUpdateResponse,
   JobActionResponse,
   JobStatusResponse,
   ReviewResponse,
@@ -50,8 +54,13 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (raw ? JSON.parse(raw) : {}) as T;
 }
 
-export function getDashboard() {
-  return fetchJson<DashboardResponse>("/api/console/dashboard");
+export function getDashboard(targetDate?: string) {
+  const searchParams = new URLSearchParams();
+  if (targetDate) {
+    searchParams.set("target_date", targetDate);
+  }
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  return fetchJson<DashboardResponse>(`/api/console/dashboard${suffix}`);
 }
 
 export function refreshLatestData() {
@@ -134,5 +143,59 @@ export function reviewAlerts(caseKeys: string[], status: ReviewStatus, reason: s
       status,
       reason,
     }),
+  });
+}
+
+export function reviewAlertsByFilter(
+  filters: Omit<AlertQuery, "page" | "pageSize">,
+  status: ReviewStatus,
+  reason: string,
+) {
+  return fetchJson<ReviewResponse>("/api/console/alerts/review", {
+    method: "POST",
+    body: JSON.stringify({
+      case_keys: [],
+      status,
+      reason,
+      filters: {
+        status: filters.status,
+        risk_level: filters.riskLevel,
+        start_date: filters.startDate,
+        end_date: filters.endDate,
+        search: filters.search,
+        sort: filters.sort ?? "risk_desc",
+      },
+    }),
+  });
+}
+
+export function assignAlerts(caseKeys: string[], action: "claim" | "release") {
+  return fetchJson<AssignmentResponse>("/api/console/alerts/assign", {
+    method: "POST",
+    body: JSON.stringify({
+      case_keys: caseKeys,
+      action,
+    }),
+  });
+}
+
+export function updateFollowUpTask(taskId: string, status: "open" | "completed") {
+  return fetchJson<FollowUpTaskUpdateResponse>("/api/console/alerts/follow-up", {
+    method: "POST",
+    body: JSON.stringify({
+      task_id: taskId,
+      status,
+    }),
+  });
+}
+
+export function getConsoleSettings() {
+  return fetchJson<ConsoleSettings>("/api/console/settings");
+}
+
+export function updateConsoleSettings(settings: ConsoleSettings) {
+  return fetchJson<ConsoleSettingsUpdateResponse>("/api/console/settings", {
+    method: "POST",
+    body: JSON.stringify(settings),
   });
 }

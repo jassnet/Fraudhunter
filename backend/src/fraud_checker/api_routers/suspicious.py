@@ -5,14 +5,14 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..api_dependencies import AccessContext, get_analyst_access_context, require_analyst_access
+from ..api_dependencies import AccessContext, get_read_access_context, require_read_access
 from ..api_models import SuspiciousResponse
 from ..logging_utils import log_event
 from ..service_dependencies import get_repository
 from ..services import suspicious as suspicious_service
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/suspicious", tags=["suspicious"], dependencies=[Depends(require_analyst_access)])
+router = APIRouter(prefix="/api/suspicious", tags=["suspicious"], dependencies=[Depends(require_read_access)])
 
 
 @router.get("/conversions", response_model=SuspiciousResponse)
@@ -55,7 +55,7 @@ def get_suspicious_conversion_detail(
     finding_key: str,
     include_names: bool = Query(True, description="Include media/program names"),
     include_details: bool = Query(True, description="Include supporting details"),
-    access_context: AccessContext = Depends(get_analyst_access_context),
+    access_context: AccessContext = Depends(get_read_access_context),
 ):
     try:
         result = suspicious_service.get_conversion_detail(
@@ -71,7 +71,6 @@ def get_suspicious_conversion_detail(
             "sensitive_detail_access",
             finding_key=finding_key,
             finding_type="conversion",
-            access_level=access_context.level,
             token_source=access_context.token_source,
             include_names=include_names,
             include_details=include_details,

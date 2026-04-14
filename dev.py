@@ -120,7 +120,6 @@ def _start_processes() -> Dict[str, subprocess.Popen]:
     env.setdefault("FC_READ_API_KEY", "dev-read-secret")
     env.setdefault("FC_DEV_CONSOLE_USER", "local-dev-admin")
     env.setdefault("FC_DEV_CONSOLE_EMAIL", "local-dev-admin@example.com")
-    env.setdefault("FC_DEV_CONSOLE_ROLE", "admin")
 
     npm_exe = "npm.cmd" if os.name == "nt" and (FRONTEND_DIR / "package.json").exists() else "npm"
     backend_cmd = _build_backend_cmd()

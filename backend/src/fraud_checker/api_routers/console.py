@@ -8,20 +8,28 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from ..api_dependencies import (
     ConsoleAccessContext,
     get_console_access_context,
-    require_console_admin_access,
-    require_console_analyst_access,
+    require_console_access,
 )
-from ..api_models import ConsoleReviewRequest, ConsoleReviewResponse, IngestResponse, RefreshRequest
+from ..api_models import (
+    ConsoleAssignmentRequest,
+    ConsoleFollowUpTaskUpdateRequest,
+    ConsoleReviewRequest,
+    ConsoleReviewResponse,
+    IngestResponse,
+    RefreshRequest,
+    SettingsModel,
+)
 from ..console_service_support import date_to_filename_fragment
 from ..service_dependencies import get_job_store, get_repository
 from ..services import console as console_service
+from ..services import settings as settings_service
 from ..services.jobs import JobConflictError, enqueue_master_sync_job, enqueue_refresh_job
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/console", tags=["console"])
 
 
-@router.get("/dashboard", dependencies=[Depends(require_console_analyst_access)])
+@router.get("/dashboard", dependencies=[Depends(require_console_access)])
 def get_dashboard(target_date: Optional[str] = Query(None)):
     try:
         return console_service.get_dashboard(get_repository(), target_date=target_date)
@@ -32,7 +40,7 @@ def get_dashboard(target_date: Optional[str] = Query(None)):
         raise HTTPException(status_code=500, detail="ダッシュボードの取得に失敗しました") from None
 
 
-@router.get("/alerts", dependencies=[Depends(require_console_analyst_access)])
+@router.get("/alerts", dependencies=[Depends(require_console_access)])
 def get_alerts(
     status: Optional[str] = Query("unhandled"),
     risk_level: Optional[str] = Query(None),
@@ -62,7 +70,7 @@ def get_alerts(
         raise HTTPException(status_code=500, detail="アラート一覧の取得に失敗しました") from None
 
 
-@router.get("/alerts/export", dependencies=[Depends(require_console_analyst_access)])
+@router.get("/alerts/export", dependencies=[Depends(require_console_access)])
 def export_alerts(
     status: Optional[str] = Query("unhandled"),
     risk_level: Optional[str] = Query(None),
@@ -96,7 +104,7 @@ def export_alerts(
         raise HTTPException(status_code=500, detail="CSV エクスポートに失敗しました") from None
 
 
-@router.get("/alerts/{finding_key}", dependencies=[Depends(require_console_analyst_access)])
+@router.get("/alerts/{finding_key}", dependencies=[Depends(require_console_access)])
 def get_alert_detail(
     finding_key: str,
     access_context: ConsoleAccessContext = Depends(get_console_access_context),
@@ -120,7 +128,7 @@ def get_alert_detail(
 @router.post(
     "/alerts/review",
     response_model=ConsoleReviewResponse,
-    dependencies=[Depends(require_console_admin_access)],
+    dependencies=[Depends(require_console_access)],
 )
 def review_alerts(
     request: ConsoleReviewRequest,
@@ -133,6 +141,7 @@ def review_alerts(
             request.status,
             access_context=access_context,
             reason=request.reason,
+            filters=request.filters,
         )
         return ConsoleReviewResponse(**payload)
     except ValueError as exc:
@@ -144,7 +153,62 @@ def review_alerts(
         raise HTTPException(status_code=500, detail="アラート更新に失敗しました") from None
 
 
-@router.post("/admin/refresh", response_model=IngestResponse, dependencies=[Depends(require_console_admin_access)])
+@router.post("/alerts/assign", dependencies=[Depends(require_console_access)])
+def assign_console_alerts(
+    request: ConsoleAssignmentRequest,
+    access_context: ConsoleAccessContext = Depends(get_console_access_context),
+):
+    try:
+        return console_service.assign_alert_cases(
+            get_repository(),
+            request.case_keys,
+            access_context=access_context,
+            action=request.action,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error assigning console alerts")
+        raise HTTPException(status_code=500, detail="ケース担当の更新に失敗しました") from None
+
+
+@router.post("/alerts/follow-up", dependencies=[Depends(require_console_access)])
+def update_console_follow_up(
+    request: ConsoleFollowUpTaskUpdateRequest,
+    access_context: ConsoleAccessContext = Depends(get_console_access_context),
+):
+    try:
+        return console_service.update_followup_task_status(
+            get_repository(),
+            request.task_id,
+            status=request.status,
+            access_context=access_context,
+        )
+    except ValueError as exc:
+        if str(exc) == "Follow-up task not found":
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error updating follow-up task")
+        raise HTTPException(status_code=500, detail="フォローアップ更新に失敗しました") from None
+
+
+@router.get("/settings", dependencies=[Depends(require_console_access)])
+def get_console_settings():
+    return settings_service.get_settings(get_repository())
+
+
+@router.post("/settings", dependencies=[Depends(require_console_access)])
+def update_console_settings(settings: SettingsModel):
+    settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else settings.dict()
+    return settings_service.update_settings(get_repository(), settings_dict)
+
+
+@router.post("/refresh", response_model=IngestResponse, dependencies=[Depends(require_console_access)])
 def refresh_console_data(request: RefreshRequest, background_tasks: BackgroundTasks):
     try:
         job = enqueue_refresh_job(
@@ -169,9 +233,9 @@ def refresh_console_data(request: RefreshRequest, background_tasks: BackgroundTa
 
 
 @router.post(
-    "/admin/master-sync",
+    "/master-sync",
     response_model=IngestResponse,
-    dependencies=[Depends(require_console_admin_access)],
+    dependencies=[Depends(require_console_access)],
 )
 def master_sync_console_data(background_tasks: BackgroundTasks):
     try:
@@ -185,12 +249,13 @@ def master_sync_console_data(background_tasks: BackgroundTasks):
     )
 
 
-@router.get("/job-status/{job_id}", dependencies=[Depends(require_console_analyst_access)])
+@router.get("/job-status/{job_id}", dependencies=[Depends(require_console_access)])
 def get_console_job_status(job_id: str):
-    status = get_job_store().get_by_id(job_id)
+    job_store = get_job_store()
+    status = job_store.get_by_id(job_id)
     if status is None:
         raise HTTPException(status_code=404, detail="ジョブが見つかりません")
-    queue = get_job_store()._serialize_queue_metrics(get_job_store().get_queue_metrics())
+    queue = job_store._serialize_queue_metrics(job_store.get_queue_metrics())
     return {
         "status": "completed" if status.status == "succeeded" else status.status,
         "job_id": status.id,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -11,6 +11,17 @@ from .base import RepositoryBase
 
 
 class SuspiciousFindingsWriteRepository(RepositoryBase):
+    FOLLOW_UP_TASK_DEFINITIONS = (
+        ("payout_hold", "支払保留を実施"),
+        ("partner_notice", "関係者へ通知"),
+        ("evidence_preservation", "証跡を保全"),
+    )
+    FOLLOW_UP_TASK_DUE_HOURS = {
+        "payout_hold": 1,
+        "partner_notice": 4,
+        "evidence_preservation": 24,
+    }
+
     def _sequence_placeholders(self, prefix: str, values: list[str]) -> tuple[str, dict[str, object]]:
         placeholders: list[str] = []
         params: dict[str, object] = {}
@@ -28,7 +39,6 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
         updated_at,
         reason: str = "No reason provided",
         reviewed_by: str = "system",
-        reviewed_role: str = "system",
         source_surface: str = "console",
         request_id: str = "system-request",
     ) -> int:
@@ -87,7 +97,6 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
                     review_status,
                     reason,
                     reviewed_by,
-                    reviewed_role,
                     source_surface,
                     request_id,
                     finding_key_at_review,
@@ -98,7 +107,6 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
                     :review_status,
                     :reason,
                     :reviewed_by,
-                    :reviewed_role,
                     :source_surface,
                     :request_id,
                     :finding_key_at_review,
@@ -110,7 +118,6 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
                     review_status = excluded.review_status,
                     reason = excluded.reason,
                     reviewed_by = excluded.reviewed_by,
-                    reviewed_role = excluded.reviewed_role,
                     source_surface = excluded.source_surface,
                     request_id = excluded.request_id,
                     finding_key_at_review = excluded.finding_key_at_review,
@@ -127,7 +134,6 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
                     review_status,
                     reason,
                     reviewed_by,
-                    reviewed_role,
                     source_surface,
                     request_id,
                     reviewed_at
@@ -138,7 +144,6 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
                     :review_status,
                     :reason,
                     :reviewed_by,
-                    :reviewed_role,
                     :source_surface,
                     :request_id,
                     :reviewed_at
@@ -152,7 +157,6 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
                     "review_status": status,
                     "reason": reason,
                     "reviewed_by": reviewed_by,
-                    "reviewed_role": reviewed_role,
                     "source_surface": source_surface,
                     "request_id": request_id,
                     "finding_key_at_review": row["finding_key"],
@@ -165,7 +169,141 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
             if payload_rows:
                 conn.execute(state_statement, payload_rows)
                 conn.execute(event_statement, payload_rows)
+                self._sync_followup_tasks(
+                    conn,
+                    payload_rows,
+                    status=status,
+                    created_by=reviewed_by,
+                    created_at=updated_at,
+                )
         return len(payload_rows)
+
+    def assign_alert_cases(
+        self,
+        case_keys: list[str],
+        *,
+        assignee_user_id: str | None,
+        assigned_by: str,
+        assigned_at,
+    ) -> int:
+        keys = sorted({value for value in case_keys if value})
+        if not keys or not self._table_exists("fraud_alert_case_assignments"):
+            return 0
+
+        placeholders, params = self._sequence_placeholders("assign_key_", keys)
+        with self._connect() as conn:
+            matched_rows = conn.execute(
+                sa.text(
+                    f"""
+                    SELECT DISTINCT COALESCE(case_key, finding_key) AS case_key
+                    FROM suspicious_conversion_findings
+                    WHERE is_current = TRUE
+                      AND (
+                        finding_key IN ({placeholders})
+                        OR COALESCE(case_key, finding_key) IN ({placeholders})
+                      )
+                    """
+                ),
+                params,
+            ).mappings().all()
+            resolved_case_keys = [str(row["case_key"]) for row in matched_rows if row.get("case_key")]
+            if not resolved_case_keys:
+                return 0
+
+            if not assignee_user_id:
+                delete_placeholders, delete_params = self._sequence_placeholders("case_key_", resolved_case_keys)
+                conn.execute(
+                    sa.text(
+                        f"""
+                        DELETE FROM fraud_alert_case_assignments
+                        WHERE case_key IN ({delete_placeholders})
+                        """
+                    ),
+                    delete_params,
+                )
+                return len(resolved_case_keys)
+
+            statement = sa.text(
+                """
+                INSERT INTO fraud_alert_case_assignments (
+                    case_key,
+                    assignee_user_id,
+                    assigned_by,
+                    assigned_at,
+                    updated_at
+                ) VALUES (
+                    :case_key,
+                    :assignee_user_id,
+                    :assigned_by,
+                    :assigned_at,
+                    :updated_at
+                )
+                ON CONFLICT (case_key)
+                DO UPDATE SET
+                    assignee_user_id = excluded.assignee_user_id,
+                    assigned_by = excluded.assigned_by,
+                    assigned_at = excluded.assigned_at,
+                    updated_at = excluded.updated_at
+                """
+            )
+            conn.execute(
+                statement,
+                [
+                    {
+                        "case_key": case_key,
+                        "assignee_user_id": assignee_user_id,
+                        "assigned_by": assigned_by,
+                        "assigned_at": assigned_at,
+                        "updated_at": assigned_at,
+                    }
+                    for case_key in resolved_case_keys
+                ],
+            )
+            return len(resolved_case_keys)
+
+    def update_followup_task_status(
+        self,
+        task_id: str,
+        *,
+        status: str,
+        updated_by: str,
+        updated_at,
+    ) -> dict[str, object] | None:
+        if not task_id or not self._table_exists("fraud_alert_followup_tasks"):
+            return None
+
+        completed_by = updated_by if status == "completed" else None
+        completed_at = updated_at if status == "completed" else None
+        with self._connect() as conn:
+            row = conn.execute(
+                sa.text(
+                    """
+                    UPDATE fraud_alert_followup_tasks
+                    SET task_status = :task_status,
+                        completed_by = :completed_by,
+                        completed_at = :completed_at
+                    WHERE id = :task_id
+                    RETURNING
+                        id,
+                        case_key,
+                        task_type,
+                        label,
+                        task_status,
+                        created_by,
+                        created_at,
+                        due_at,
+                        completed_by,
+                        completed_at
+                    """
+                ),
+                {
+                    "task_id": task_id,
+                    "task_status": status,
+                    "completed_by": completed_by,
+                    "completed_at": completed_at,
+                },
+            ).mappings().first()
+        return dict(row) if row else None
 
     def replace_conversion_findings(
         self,
@@ -288,3 +426,89 @@ class SuspiciousFindingsWriteRepository(RepositoryBase):
                 **generation_metadata,
             },
         )
+
+    def _sync_followup_tasks(
+        self,
+        conn,
+        review_rows: list[dict[str, object]],
+        *,
+        status: str,
+        created_by: str,
+        created_at,
+    ) -> None:
+        if not self._table_exists("fraud_alert_followup_tasks"):
+            return
+
+        case_keys = [str(row["case_key"]) for row in review_rows if row.get("case_key")]
+        if not case_keys:
+            return
+
+        if status == "confirmed_fraud":
+            statement = sa.text(
+                """
+                INSERT INTO fraud_alert_followup_tasks (
+                    id,
+                    case_key,
+                    task_type,
+                    label,
+                    task_status,
+                    created_by,
+                    created_at,
+                    due_at,
+                    completed_by,
+                    completed_at
+                ) VALUES (
+                    :id,
+                    :case_key,
+                    :task_type,
+                    :label,
+                    'open',
+                    :created_by,
+                    :created_at,
+                    :due_at,
+                    NULL,
+                    NULL
+                )
+                ON CONFLICT (case_key, task_type)
+                DO UPDATE SET
+                    label = excluded.label,
+                    due_at = excluded.due_at,
+                    task_status = CASE
+                        WHEN fraud_alert_followup_tasks.task_status = 'completed' THEN fraud_alert_followup_tasks.task_status
+                        ELSE 'open'
+                    END
+                """
+            )
+            conn.execute(
+                statement,
+                [
+                    {
+                        "id": f"followup-{uuid.uuid4().hex[:12]}",
+                        "case_key": case_key,
+                        "task_type": task_type,
+                        "label": label,
+                        "created_by": created_by,
+                        "created_at": created_at,
+                        "due_at": created_at + timedelta(hours=self.FOLLOW_UP_TASK_DUE_HOURS.get(task_type, 24)),
+                    }
+                    for case_key in case_keys
+                    for task_type, label in self.FOLLOW_UP_TASK_DEFINITIONS
+                ],
+            )
+            return
+
+        if status in {"white", "unhandled"}:
+            placeholders, params = self._sequence_placeholders("followup_case_", case_keys)
+            conn.execute(
+                sa.text(
+                    f"""
+                    UPDATE fraud_alert_followup_tasks
+                    SET task_status = CASE
+                        WHEN task_status = 'completed' THEN task_status
+                        ELSE 'cancelled'
+                    END
+                    WHERE case_key IN ({placeholders})
+                    """
+                ),
+                params,
+            )

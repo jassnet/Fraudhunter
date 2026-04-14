@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from ..api_dependencies import require_admin, require_analyst_access
+from ..api_dependencies import require_protected_access, require_read_access
 from ..api_models import IngestRequest, IngestResponse, JobStatusResponse, RefreshRequest
 from ..api_parsers import parse_iso_date
 from ..api_presenters import build_job_status_response, build_job_status_summary_response
@@ -17,7 +17,7 @@ from ..services.jobs import (
 router = APIRouter(prefix="/api", tags=["jobs"])
 
 
-@router.post("/ingest/clicks", response_model=IngestResponse, dependencies=[Depends(require_admin)])
+@router.post("/ingest/clicks", response_model=IngestResponse, dependencies=[Depends(require_protected_access)])
 def ingest_clicks(request: IngestRequest, background_tasks: BackgroundTasks):
     target_date = parse_iso_date(request.date)
     try:
@@ -31,7 +31,7 @@ def ingest_clicks(request: IngestRequest, background_tasks: BackgroundTasks):
     )
 
 
-@router.post("/ingest/conversions", response_model=IngestResponse, dependencies=[Depends(require_admin)])
+@router.post("/ingest/conversions", response_model=IngestResponse, dependencies=[Depends(require_protected_access)])
 def ingest_conversions(request: IngestRequest, background_tasks: BackgroundTasks):
     target_date = parse_iso_date(request.date)
     try:
@@ -45,7 +45,7 @@ def ingest_conversions(request: IngestRequest, background_tasks: BackgroundTasks
     )
 
 
-@router.post("/refresh", response_model=IngestResponse, dependencies=[Depends(require_admin)])
+@router.post("/refresh", response_model=IngestResponse, dependencies=[Depends(require_protected_access)])
 def refresh_data(request: RefreshRequest, background_tasks: BackgroundTasks):
     try:
         job = enqueue_refresh_job(
@@ -69,13 +69,13 @@ def refresh_data(request: RefreshRequest, background_tasks: BackgroundTasks):
     )
 
 
-@router.get("/job/status", response_model=JobStatusResponse, dependencies=[Depends(require_analyst_access)])
+@router.get("/job/status", response_model=JobStatusResponse, dependencies=[Depends(require_read_access)])
 def get_job_status():
     status = get_job_store().get()
     return build_job_status_summary_response(status)
 
 
-@router.get("/job/status/admin", response_model=JobStatusResponse, dependencies=[Depends(require_admin)])
+@router.get("/job/status/admin", response_model=JobStatusResponse, dependencies=[Depends(require_protected_access)])
 def get_job_status_admin():
     status = get_job_store().get()
     return build_job_status_response(status)

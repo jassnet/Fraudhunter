@@ -6,9 +6,9 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     return proxyToBackend({
-      path: "/api/console/admin/master-sync",
+      path: "/api/console/master-sync",
       method: "POST",
-      viewer: requireConsoleViewer(request, "admin"),
+      viewer: requireConsoleViewer(request),
     });
   } catch (error) {
     return toConsoleAuthErrorResponse(error);

@@ -1,5 +1,6 @@
 "use client";
 
+import { useConsoleDisplayMode } from "@/components/console-display-mode";
 import { PageHeader, Panel } from "@/components/console-ui";
 
 function FlowStep({
@@ -65,6 +66,29 @@ function ScoreBar({ label, points, color }: { label: string; points: string; col
 }
 
 export function AlgorithmScreen() {
+  const { showAdvanced, setShowAdvanced } = useConsoleDisplayMode();
+
+  if (!showAdvanced) {
+    return (
+      <div className="algorithm-page">
+        <PageHeader
+          title="検知アルゴリズムについて"
+          description="通常表示では非表示です。必要なときだけ詳細表示に切り替えて確認できます。"
+        />
+        <Panel title="通常表示では非表示です" description="日常の判定作業に不要な説明をまとめて隠しています。">
+          <div className="screen-page">
+            <p className="algo-text">
+              検知ルールの詳しい説明は、管理者や調査担当が確認するときだけ表示する設計にしています。
+            </p>
+            <button type="button" className="button button-default" onClick={() => setShowAdvanced(true)}>
+              詳細表示に切り替える
+            </button>
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+
   return (
     <div className="algorithm-page">
       <PageHeader
@@ -269,7 +293,7 @@ export function AlgorithmScreen() {
             <span className="damage-formula-item damage-formula-result">被害推定額</span>
           </div>
           <p className="algo-text-small">
-            広告単価が不明な場合は、デフォルト値（5,000円）を使用します。
+            広告単価が不明な場合は、デフォルト値（3,000円）を使用します。
             プログラムごとに単価が異なる場合は、それぞれの単価で個別に計算した合計値になります。
           </p>
         </div>

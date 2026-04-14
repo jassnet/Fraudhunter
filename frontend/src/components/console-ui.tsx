@@ -10,8 +10,12 @@ const STATUS_LABELS: Record<ReviewStatus, string> = {
   unhandled: "未対応",
   investigating: "調査中",
   confirmed_fraud: "不正",
-  white: "ホワイト",
+  white: "正常（ホワイト）",
 };
+
+export function reviewStatusLabel(status: ReviewStatus) {
+  return STATUS_LABELS[status];
+}
 
 type PageHeaderProps = {
   title: string;
@@ -83,7 +87,7 @@ type MetricStripProps = {
 
 export function MetricStrip({ items }: MetricStripProps) {
   return (
-    <section className="metric-strip" aria-label="主要KPI">
+    <section className="metric-strip" aria-label="主要な指標">
       {items.map((item) => (
         <div
           key={item.label}
@@ -145,12 +149,14 @@ type ReviewReasonDialogProps = {
   title: string;
   description: string;
   confirmLabel: string;
+  confirmTone?: "default" | "danger" | "warning";
   value: string;
   error?: string | null;
   busy?: boolean;
   onChange: (value: string) => void;
   onCancel: () => void;
   onConfirm: () => void;
+  presets?: string[];
   textareaProps?: Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange">;
 };
 
@@ -159,12 +165,14 @@ export function ReviewReasonDialog({
   title,
   description,
   confirmLabel,
+  confirmTone = "warning",
   value,
   error,
   busy = false,
   onChange,
   onCancel,
   onConfirm,
+  presets = [],
   textareaProps,
 }: ReviewReasonDialogProps) {
   if (!open) {
@@ -190,15 +198,29 @@ export function ReviewReasonDialog({
             onChange={(event) => onChange(event.target.value)}
           />
         </label>
+        {presets.length > 0 ? (
+          <div className="dialog-presets" aria-label="判定理由のテンプレート">
+            {presets.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                className="dialog-preset"
+                onClick={() => onChange(value.trim() ? `${value.trim()}\n${preset}` : preset)}
+              >
+                {preset}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="dialog-meta">
           <span>{value.trim().length}/500</span>
         </div>
         {error ? <ErrorState message={error} /> : null}
         <div className="dialog-footer">
           <ActionButton onClick={onCancel} disabled={busy}>
-            キャンセル
+            中止
           </ActionButton>
-          <ActionButton tone="warning" onClick={onConfirm} disabled={busy}>
+          <ActionButton tone={confirmTone} onClick={onConfirm} disabled={busy}>
             {confirmLabel}
           </ActionButton>
         </div>
@@ -208,17 +230,14 @@ export function ReviewReasonDialog({
 }
 
 export function StatusBadge({ status }: { status: ReviewStatus }) {
-  return <span className={classNames("badge", `status-${status}`)}>{STATUS_LABELS[status]}</span>;
+  return <span className={classNames("badge", `status-${status}`)}>{reviewStatusLabel(status)}</span>;
 }
 
 function resolveRiskTone(level: RiskLevel, score: number) {
-  if (level === "critical" || score >= 90) {
-    return "critical";
-  }
-  if (level === "high" || score >= 75) {
+  if (level === "high" || score >= 65) {
     return "high";
   }
-  if (level === "medium" || score >= 50) {
+  if (level === "medium" || score >= 30) {
     return "medium";
   }
   return "low";
@@ -252,7 +271,7 @@ export function StatusCountStrip({ counts }: StatusCountStripProps) {
   ];
 
   return (
-    <div className="status-count-strip" aria-label="レビュー状態ごとの件数">
+    <div className="status-count-strip" aria-label="判定状態ごとの件数">
       {items.map((item) => (
         <div key={item.key} className="status-count-item">
           <StatusBadge status={item.key} />

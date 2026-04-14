@@ -14,7 +14,7 @@ export async function GET(_request: Request, { params }: AlertDetailRouteProps) 
     const { caseKey } = await params;
     return proxyToBackend({
       path: `/api/console/alerts/${encodeURIComponent(caseKey)}`,
-      viewer: requireConsoleViewer(_request, "analyst"),
+      viewer: requireConsoleViewer(_request),
     });
   } catch (error) {
     return toConsoleAuthErrorResponse(error);

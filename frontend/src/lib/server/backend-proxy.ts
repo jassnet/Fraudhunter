@@ -1,6 +1,6 @@
 import { createHmac } from "crypto";
 
-import type { ConsoleViewer, ConsoleViewerRole } from "@/lib/server/console-auth";
+import type { ConsoleViewer } from "@/lib/server/console-auth";
 
 function resolveBackendBaseUrl() {
   return (process.env.FC_BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001").replace(
@@ -15,14 +15,13 @@ function signViewer(viewer: ConsoleViewer) {
     throw new Error("FC_INTERNAL_PROXY_SECRET is not configured.");
   }
   return createHmac("sha256", secret)
-    .update(`${viewer.userId}\n${viewer.email}\n${viewer.role}\n${viewer.requestId}`, "utf-8")
+    .update(`${viewer.userId}\n${viewer.email}\n${viewer.requestId}`, "utf-8")
     .digest("hex");
 }
 
 function applyViewerHeaders(headers: Headers, viewer: ConsoleViewer) {
   headers.set("X-Console-User-Id", viewer.userId);
   headers.set("X-Console-User-Email", viewer.email);
-  headers.set("X-Console-User-Role", viewer.role);
   headers.set("X-Console-Request-Id", viewer.requestId);
   headers.set("X-Console-User-Signature", signViewer(viewer));
 }
@@ -33,7 +32,6 @@ type ProxyRequest = {
   method?: string;
   body?: string;
   viewer: ConsoleViewer;
-  requiredRole?: ConsoleViewerRole;
 };
 
 export async function proxyToBackend({

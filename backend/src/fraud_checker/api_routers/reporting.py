@@ -5,13 +5,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..api_dependencies import require_analyst_access
+from ..api_dependencies import require_read_access
 from ..api_models import DailyStatsResponse, SummaryResponse
 from ..service_dependencies import get_repository
 from ..services import reporting
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api", tags=["reporting"], dependencies=[Depends(require_analyst_access)])
+router = APIRouter(prefix="/api", tags=["reporting"], dependencies=[Depends(require_read_access)])
 
 
 @router.get("/summary", response_model=SummaryResponse)

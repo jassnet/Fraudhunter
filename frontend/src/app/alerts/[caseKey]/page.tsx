@@ -5,10 +5,22 @@ type AlertDetailPageProps = {
   params: Promise<{
     caseKey: string;
   }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default async function AlertDetailPage({ params }: AlertDetailPageProps) {
+function firstSearchParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
+
+export default async function AlertDetailPage({ params, searchParams }: AlertDetailPageProps) {
   const { caseKey } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
   const viewer = await getConsoleViewer();
-  return <AlertDetailScreen caseKey={caseKey} viewerRole={viewer.role} />;
+  return (
+    <AlertDetailScreen
+      caseKey={caseKey}
+      viewerUserId={viewer.userId}
+      returnTo={firstSearchParam(resolvedSearchParams.returnTo)}
+    />
+  );
 }

@@ -4,7 +4,7 @@ import json
 import logging
 from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta
-from typing import Any
+from typing import Any, Mapping
 
 import sqlalchemy as sa
 
@@ -31,6 +31,13 @@ DEFAULT_OUTCOME_TYPE = "Unknown Outcome"
 DEFAULT_ALERT_PAGE = 1
 DEFAULT_ALERT_PAGE_SIZE = 50
 MAX_ALERT_PAGE_SIZE = 200
+DEFAULT_RELATED_CASE_LIMIT = 5
+FOLLOW_UP_OPEN_STATUSES = {"open"}
+FOLLOW_UP_TASK_LABELS = {
+    "payout_hold": "支払保留を実施",
+    "partner_notice": "関係者へ通知",
+    "evidence_preservation": "証跡を保全",
+}
 REWARD_KEYS = {
     "gross_reward",
     "net_reward",
@@ -51,46 +58,74 @@ REWARD_KEYS = {
 def get_dashboard(repo: ConsoleRepository, target_date: str | None = None) -> dict[str, Any]:
     summary = reporting.get_summary(repo, target_date)
     resolved_date = summary["date"]
-    alert_rows = _fetch_alert_rows(
+    daily_rows = _fetch_alert_rows(
         repo,
         start_date=resolved_date,
         end_date=resolved_date,
         status=None,
         sort="risk_desc",
     )
+    backlog_rows = _fetch_alert_rows(
+        repo,
+        start_date=None,
+        end_date=None,
+        status=None,
+        sort="risk_desc",
+    )
     transaction_summary = _fetch_alert_transaction_summary(
         repo,
-        [row for row in alert_rows if _requires_summary_fallback(row)],
+        [row for row in daily_rows + backlog_rows if _requires_summary_fallback(row)],
     )
-    items = [_build_case_item(row, transaction_summary.get(str(row["finding_key"]))) for row in alert_rows]
+    daily_items = [_build_case_item(row, transaction_summary.get(str(row["finding_key"]))) for row in daily_rows]
+    backlog_items = [_build_case_item(row, transaction_summary.get(str(row["finding_key"]))) for row in backlog_rows]
+    _attach_case_context(repo, backlog_items)
 
-    impacted_conversions = sum(int(item.get("transaction_count") or 0) for item in items)
+    impacted_conversions = sum(int(item.get("transaction_count") or 0) for item in daily_items)
     total_conversions = int(summary.get("stats", {}).get("conversions", {}).get("total", 0) or 0)
     fraud_rate = round((impacted_conversions / total_conversions) * 100, 1) if total_conversions else 0.0
-    unhandled_alerts = sum(1 for item in items if item["status"] == "unhandled")
-    estimated_damage = sum(int(item.get("reward_amount") or 0) for item in items)
+    active_items = [item for item in backlog_items if item["status"] in {"unhandled", "investigating"}]
+    unhandled_alerts = sum(1 for item in backlog_items if item["status"] == "unhandled")
+    estimated_damage = sum(int(item.get("reward_amount") or 0) for item in active_items)
 
+    ranked_items = sorted(
+        active_items or backlog_items,
+        key=lambda item: (
+            0 if item["status"] == "unhandled" else 1,
+            -int(item.get("priority_score") or 0),
+            -int(item.get("risk_score") or 0),
+            -int(item.get("reward_amount") or 0),
+            item.get("latest_detected_at") or "",
+        ),
+    )
     case_ranking = [
         {
             "case_key": item["case_key"],
+            "display_label": item["display_label"],
+            "secondary_label": item["secondary_label"],
             "risk_score": item["risk_score"],
             "risk_level": item["risk_level"],
+            "priority_score": item["priority_score"],
             "estimated_damage": item["reward_amount"],
             "affected_affiliate_count": item["affected_affiliate_count"],
             "latest_detected_at": item["latest_detected_at"],
             "primary_reason": item["primary_reason"],
             "status": item["status"],
+            "assignee": item.get("assignee"),
+            "follow_up_open_count": item.get("follow_up_open_count", 0),
         }
-        for item in items[:10]
+        for item in ranked_items[:10]
     ]
 
     trend = [
         {"date": item["date"], "alerts": int(item.get("suspicious_conversions", 0) or 0)}
         for item in reporting.get_daily_stats(repo, 14, resolved_date)
     ]
+    review_outcomes = _build_review_outcomes(backlog_items)
+    operations = _build_operational_insights(repo, backlog_items)
 
     return {
         "date": resolved_date,
+        "target_date": resolved_date,
         "available_dates": reporting.get_available_dates(repo),
         "kpis": {
             "fraud_rate": {"value": fraud_rate, "label": "Fraud Rate", "unit": "%"},
@@ -100,6 +135,8 @@ def get_dashboard(repo: ConsoleRepository, target_date: str | None = None) -> di
         "trend": trend,
         "case_ranking": case_ranking,
         "ranking": case_ranking,
+        "review_outcomes": review_outcomes,
+        "operations": operations,
         "quality": summary.get("quality") or {},
         "job_status_summary": _get_job_status_summary(repo),
     }
@@ -138,6 +175,7 @@ def list_alerts(
         [row for row in filtered_rows if _requires_summary_fallback(row)],
     )
     items = [_build_case_item(row, transaction_summary.get(str(row["finding_key"]))) for row in filtered_rows]
+    _attach_case_context(repo, items)
     status_counts = _fetch_alert_status_counts(
         repo,
         start_date=resolved_start,
@@ -240,19 +278,33 @@ def get_alert_detail(
         for item in _fetch_entity_transactions(repo, row["date"], row["ipaddress"], row["useragent"])
     ]
     affiliate_recent_transactions: list[dict[str, Any]] = []
-    if len(affected_affiliates) == 1 and affected_affiliates[0]["id"] != DEFAULT_AFFILIATE_ID:
+    affiliate_recent_scope: dict[str, str] | None = None
+    primary_affiliate = next(
+        (
+            item
+            for item in affected_affiliates
+            if item["id"] and item["id"] != DEFAULT_AFFILIATE_ID
+        ),
+        None,
+    )
+    if primary_affiliate is not None:
         affiliate_recent_transactions = [
             _present_transaction(item)
-            for item in _fetch_recent_affiliate_transactions(repo, affected_affiliates[0]["id"])
+            for item in _fetch_recent_affiliate_transactions(repo, primary_affiliate["id"])
         ]
+        affiliate_recent_scope = primary_affiliate
+
+    assignment_map = _fetch_case_assignments(repo, [str(row.get("case_key") or row["finding_key"])])
+    followup_map = _fetch_followup_tasks(repo, [str(row.get("case_key") or row["finding_key"])])
+    case_key = str(row.get("case_key") or row["finding_key"])
+    related_cases = _fetch_related_cases(repo, row)
 
     if access_context is not None:
         logger.info(
-            "console_alert_detail_access case=%s finding=%s viewer=%s role=%s request_id=%s",
+            "console_alert_detail_access case=%s finding=%s viewer=%s request_id=%s",
             row["case_key"],
             row["finding_key"],
             access_context.user_id,
-            access_context.role,
             access_context.request_id,
         )
 
@@ -280,7 +332,11 @@ def get_alert_detail(
         "reasons": reasons,
         "evidence_transactions": evidence_transactions,
         "affiliate_recent_transactions": affiliate_recent_transactions,
+        "affiliate_recent_scope": affiliate_recent_scope,
         "review_history": _fetch_review_history(repo, row["case_key"], row["finding_key"]),
+        "follow_up_tasks": followup_map.get(case_key, []),
+        "assignee": assignment_map.get(case_key),
+        "related_cases": related_cases,
         "actions": ["confirmed_fraud", "white", "investigating", "unhandled"],
         "affiliate_id": summary["affiliate_id"],
         "affiliate_name": summary["affiliate_name"],
@@ -298,6 +354,7 @@ def apply_review_action(
     *,
     access_context: ConsoleAccessContext | None = None,
     reason: str | None = None,
+    filters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if status not in ALERT_REVIEW_STATUSES:
         raise ValueError(f"Unsupported review status: {status}")
@@ -308,7 +365,7 @@ def apply_review_action(
     if len(normalized_reason) > 500:
         raise ValueError("Review reason must be 500 characters or fewer")
 
-    unique_keys = sorted({value for value in finding_keys if value})
+    unique_keys = _resolve_review_case_keys(repo, finding_keys, filters)
     if not unique_keys:
         return {
             "requested_count": 0,
@@ -326,15 +383,13 @@ def apply_review_action(
         updated_at=now_local(),
         reason=normalized_reason,
         reviewed_by=access_context.user_id if access_context is not None else "system",
-        reviewed_role=access_context.role if access_context is not None else "system",
         source_surface="console",
         request_id=access_context.request_id if access_context is not None else "system-request",
     )
     if access_context is not None:
         logger.info(
-            "console_alert_review viewer=%s role=%s request_id=%s status=%s requested=%s matched=%s",
+            "console_alert_review viewer=%s request_id=%s status=%s requested=%s matched=%s",
             access_context.user_id,
-            access_context.role,
             access_context.request_id,
             status,
             len(unique_keys),
@@ -347,6 +402,48 @@ def apply_review_action(
         "missing_keys": missing_keys,
         "status": status,
     }
+
+
+def assign_alert_cases(
+    repo: ConsoleRepository,
+    finding_keys: list[str],
+    *,
+    access_context: ConsoleAccessContext,
+    action: str,
+) -> dict[str, Any]:
+    unique_keys = sorted({value for value in finding_keys if value})
+    if not unique_keys:
+        return {"updated_count": 0, "action": action}
+    if action not in {"claim", "release"}:
+        raise ValueError(f"Unsupported assignment action: {action}")
+
+    updated_count = repo.assign_alert_cases(
+        unique_keys,
+        assignee_user_id=access_context.user_id if action == "claim" else None,
+        assigned_by=access_context.user_id,
+        assigned_at=now_local(),
+    )
+    return {"updated_count": updated_count, "action": action}
+
+
+def update_followup_task_status(
+    repo: ConsoleRepository,
+    task_id: str,
+    *,
+    status: str,
+    access_context: ConsoleAccessContext,
+) -> dict[str, Any]:
+    if status not in {"open", "completed"}:
+        raise ValueError(f"Unsupported follow-up status: {status}")
+    updated = repo.update_followup_task_status(
+        task_id,
+        status=status,
+        updated_by=access_context.user_id,
+        updated_at=now_local(),
+    )
+    if updated is None:
+        raise ValueError("Follow-up task not found")
+    return _serialize_followup_task(updated)
 
 
 def _findings_column_exists(repo: ConsoleRepository, column_name: str) -> bool:
@@ -436,24 +533,7 @@ def _resolve_alert_window(
         return start_date, start_date
     if end_date:
         return end_date, end_date
-
-    try:
-        latest_finding_date = repo.fetch_one(
-            """
-            SELECT MAX(date) AS latest_date
-            FROM suspicious_conversion_findings
-            WHERE is_current = TRUE
-            """
-        )
-    except sa.exc.SQLAlchemyError:
-        logger.exception("Failed to resolve latest alert window")
-        latest_finding_date = None
-    value = latest_finding_date.get("latest_date") if latest_finding_date else None
-    if value is None:
-        fallback = reporting.resolve_summary_date(repo, None)
-        return fallback, fallback
-    resolved = value.isoformat() if hasattr(value, "isoformat") else str(value)
-    return resolved, resolved
+    return None, None
 
 
 def _build_alert_conditions(
@@ -518,6 +598,8 @@ def _fetch_alert_rows(
     order_by = {
         "risk_desc": "f.risk_score DESC, f.computed_at DESC",
         "risk_asc": "f.risk_score ASC, f.computed_at DESC",
+        "damage_desc": "COALESCE(f.estimated_damage_yen, 0) DESC, f.risk_score DESC, f.computed_at DESC",
+        "damage_asc": "COALESCE(f.estimated_damage_yen, 0) ASC, f.risk_score DESC, f.computed_at DESC",
         "detected_desc": "f.computed_at DESC, f.risk_score DESC",
         "detected_asc": "f.computed_at ASC, f.risk_score DESC",
     }.get(sort, "f.risk_score DESC, f.computed_at DESC")
@@ -544,7 +626,7 @@ def _fetch_alert_rows(
         )
     except sa.exc.SQLAlchemyError:
         logger.exception("Failed to fetch console alert rows")
-        return []
+        raise
     return [_deserialize_alert_row(row) for row in rows]
 
 
@@ -572,7 +654,7 @@ def _fetch_alert_detail_row(repo: ConsoleRepository, alert_key: str) -> dict[str
         )
     except sa.exc.SQLAlchemyError:
         logger.exception("Failed to fetch console alert detail row")
-        return None
+        raise
     return _deserialize_alert_row(rows[0]) if rows else None
 
 
@@ -608,7 +690,7 @@ def _fetch_alert_status_counts(
         )
     except sa.exc.SQLAlchemyError:
         logger.exception("Failed to fetch console alert status counts")
-        return {}
+        raise
     return {
         str(row["review_status"]): int(row.get("row_count") or 0)
         for row in rows
@@ -646,8 +728,31 @@ def _count_alert_rows(
         )
     except sa.exc.SQLAlchemyError:
         logger.exception("Failed to count console alert rows")
-        return 0
+        raise
     return int((row or {}).get("row_count") or 0)
+
+
+def _resolve_review_case_keys(
+    repo: ConsoleRepository,
+    finding_keys: list[str],
+    filters: dict[str, Any] | None,
+) -> list[str]:
+    explicit_keys = sorted({value for value in finding_keys if value})
+    if explicit_keys:
+        return explicit_keys
+    if not filters:
+        return []
+
+    rows = _fetch_alert_rows(
+        repo,
+        start_date=(filters.get("start_date") or "").strip() or None,
+        end_date=(filters.get("end_date") or "").strip() or None,
+        risk_level=(filters.get("risk_level") or "").strip() or None,
+        search=(filters.get("search") or "").strip() or None,
+        status=(filters.get("status") or "").strip() or "unhandled",
+        sort=(filters.get("sort") or "risk_desc").strip() or "risk_desc",
+    )
+    return sorted({str(row.get("case_key") or row["finding_key"]) for row in rows})
 
 
 def _fetch_matching_case_keys(repo: ConsoleRepository, requested_keys: list[str]) -> tuple[set[str], set[str]]:
@@ -672,7 +777,7 @@ def _fetch_matching_case_keys(repo: ConsoleRepository, requested_keys: list[str]
         )
     except sa.exc.SQLAlchemyError:
         logger.exception("Failed to match alert case keys")
-        return set(), set()
+        raise
 
     matched_case_keys: set[str] = set()
     matched_inputs: set[str] = set()
@@ -698,7 +803,6 @@ def _fetch_review_history(repo: ConsoleRepository, case_key: str, finding_key: s
                     review_status,
                     reason,
                     reviewed_by,
-                    reviewed_role,
                     source_surface,
                     request_id,
                     finding_key_at_review,
@@ -716,7 +820,6 @@ def _fetch_review_history(repo: ConsoleRepository, case_key: str, finding_key: s
                     review_status,
                     reason,
                     reviewed_by,
-                    reviewed_role,
                     source_surface,
                     request_id,
                     finding_key_at_review,
@@ -733,7 +836,6 @@ def _fetch_review_history(repo: ConsoleRepository, case_key: str, finding_key: s
                     review_status,
                     '' AS reason,
                     'legacy' AS reviewed_by,
-                    'legacy' AS reviewed_role,
                     'legacy_table' AS source_surface,
                     'legacy-request' AS request_id,
                     finding_key AS finding_key_at_review,
@@ -747,20 +849,263 @@ def _fetch_review_history(repo: ConsoleRepository, case_key: str, finding_key: s
             rows = []
     except sa.exc.SQLAlchemyError:
         logger.exception("Failed to fetch review history")
-        return []
+        raise
 
     return [
         {
             "status": row.get("review_status") or "unhandled",
             "reason": row.get("reason") or "",
             "reviewed_by": row.get("reviewed_by") or "unknown",
-            "reviewed_role": row.get("reviewed_role") or "unknown",
             "source_surface": row.get("source_surface") or "unknown",
             "request_id": row.get("request_id") or "",
             "finding_key_at_review": row.get("finding_key_at_review"),
             "reviewed_at": _iso(row.get("reviewed_at")),
         }
         for row in rows
+    ]
+
+
+def _fetch_case_assignments(repo: ConsoleRepository, case_keys: list[str]) -> dict[str, dict[str, Any]]:
+    resolved_case_keys = sorted({value for value in case_keys if value})
+    if not resolved_case_keys or not _table_exists(repo, "fraud_alert_case_assignments"):
+        return {}
+
+    placeholders, params = _sequence_placeholders("assignment_case_", resolved_case_keys)
+    rows = repo.fetch_all(
+        f"""
+        SELECT case_key, assignee_user_id, assigned_by, assigned_at, updated_at
+        FROM fraud_alert_case_assignments
+        WHERE case_key IN ({placeholders})
+        """,
+        params,
+    )
+    return {
+        str(row["case_key"]): {
+            "user_id": row.get("assignee_user_id"),
+            "assigned_by": row.get("assigned_by"),
+            "assigned_at": _iso(row.get("assigned_at")),
+            "updated_at": _iso(row.get("updated_at")),
+        }
+        for row in rows
+        if row.get("case_key")
+    }
+
+
+def _fetch_followup_tasks(repo: ConsoleRepository, case_keys: list[str]) -> dict[str, list[dict[str, Any]]]:
+    resolved_case_keys = sorted({value for value in case_keys if value})
+    if not resolved_case_keys or not _table_exists(repo, "fraud_alert_followup_tasks"):
+        return {}
+
+    placeholders, params = _sequence_placeholders("followup_case_", resolved_case_keys)
+    rows = repo.fetch_all(
+        f"""
+        SELECT
+            id,
+            case_key,
+            task_type,
+            label,
+            task_status,
+            created_by,
+            created_at,
+            due_at,
+            completed_by,
+            completed_at
+        FROM fraud_alert_followup_tasks
+        WHERE case_key IN ({placeholders})
+        ORDER BY created_at ASC, id ASC
+        """,
+        params,
+    )
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[str(row["case_key"])].append(_serialize_followup_task(row))
+    return grouped
+
+
+def _serialize_followup_task(row: Mapping[str, Any]) -> dict[str, Any]:
+    due_at = row.get("due_at")
+    status = row.get("task_status") or row.get("status") or "open"
+    return {
+        "id": row["id"],
+        "task_type": row.get("task_type"),
+        "label": row.get("label") or FOLLOW_UP_TASK_LABELS.get(row.get("task_type"), row.get("task_type")),
+        "status": status,
+        "created_by": row.get("created_by") or "system",
+        "created_at": _iso(row.get("created_at")),
+        "due_at": _iso(due_at),
+        "is_overdue": bool(status == "open" and due_at and due_at < now_local()),
+        "completed_by": row.get("completed_by"),
+        "completed_at": _iso(row.get("completed_at")),
+    }
+
+
+def _attach_case_context(repo: ConsoleRepository, items: list[dict[str, Any]]) -> None:
+    if not items:
+        return
+    assignments = _fetch_case_assignments(repo, [str(item["case_key"]) for item in items])
+    followups = _fetch_followup_tasks(repo, [str(item["case_key"]) for item in items])
+    for item in items:
+        case_key = str(item["case_key"])
+        item["assignee"] = assignments.get(case_key)
+        item["follow_up_open_count"] = sum(
+            1 for task in followups.get(case_key, []) if task.get("status") in FOLLOW_UP_OPEN_STATUSES
+        )
+
+
+def _build_review_outcomes(items: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = Counter(str(item.get("status") or "unhandled") for item in items)
+    reviewed_total = counts.get("confirmed_fraud", 0) + counts.get("white", 0)
+    confirmed_ratio = (
+        round((counts.get("confirmed_fraud", 0) / reviewed_total) * 100, 1)
+        if reviewed_total
+        else None
+    )
+    return {
+        "confirmed_fraud": counts.get("confirmed_fraud", 0),
+        "white": counts.get("white", 0),
+        "investigating": counts.get("investigating", 0),
+        "reviewed_total": reviewed_total,
+        "confirmed_ratio": confirmed_ratio,
+    }
+
+
+def _build_operational_insights(repo: ConsoleRepository, items: list[dict[str, Any]]) -> dict[str, Any]:
+    unhandled_items = [
+        item
+        for item in items
+        if item.get("status") == "unhandled" and item.get("environment", {}).get("date")
+    ]
+    oldest_unhandled_days = None
+    stale_unhandled_count = 0
+    if unhandled_items:
+        today = now_local().date()
+        ages = []
+        for item in unhandled_items:
+            try:
+                detected_date = parse_iso_date(str(item["environment"]["date"]))
+            except ValueError:
+                continue
+            age_days = (today - detected_date).days
+            ages.append(age_days)
+            if age_days >= 3:
+                stale_unhandled_count += 1
+        if ages:
+            oldest_unhandled_days = max(ages)
+
+    failed_jobs: list[dict[str, Any]] = []
+    schedules: list[dict[str, Any]] = []
+    database_url = getattr(repo, "database_url", None)
+    if database_url:
+        try:
+            store = JobStatusStorePG(database_url)
+            failed_jobs = store.list_recent_failed_runs(limit=3)
+            schedules = _build_schedule_metadata(now_local())
+        except Exception:
+            logger.exception("Failed to build operational insights")
+
+    return {
+        "oldest_unhandled_days": oldest_unhandled_days,
+        "stale_unhandled_count": stale_unhandled_count,
+        "failed_jobs": failed_jobs,
+        "schedules": schedules,
+    }
+
+
+def _build_schedule_metadata(reference_time: datetime) -> list[dict[str, str]]:
+    return [
+        {
+            "key": "refresh_hourly",
+            "label": "データ再取得",
+            "description": "毎時 0 分",
+            "next_run_at": _iso(_next_hourly_run(reference_time, minute=0)),
+        },
+        {
+            "key": "backfill_6hourly",
+            "label": "バックフィル",
+            "description": "6 時間ごと 15 分",
+            "next_run_at": _iso(_next_every_six_hours_run(reference_time, minute=15)),
+        },
+        {
+            "key": "master_sync_daily",
+            "label": "マスター同期",
+            "description": "毎日 03:30",
+            "next_run_at": _iso(_next_daily_run(reference_time, hour=3, minute=30)),
+        },
+        {
+            "key": "queue_runner",
+            "label": "ワーカー起動",
+            "description": "毎分",
+            "next_run_at": _iso(reference_time.replace(second=0, microsecond=0) + timedelta(minutes=1)),
+        },
+    ]
+
+
+def _next_hourly_run(reference_time: datetime, *, minute: int) -> datetime:
+    candidate = reference_time.replace(minute=minute, second=0, microsecond=0)
+    if candidate <= reference_time:
+        candidate += timedelta(hours=1)
+    return candidate
+
+
+def _next_every_six_hours_run(reference_time: datetime, *, minute: int) -> datetime:
+    candidate = reference_time.replace(minute=minute, second=0, microsecond=0)
+    while candidate.hour % 6 != 0 or candidate <= reference_time:
+        candidate += timedelta(hours=1)
+        candidate = candidate.replace(minute=minute, second=0, microsecond=0)
+    return candidate
+
+
+def _next_daily_run(reference_time: datetime, *, hour: int, minute: int) -> datetime:
+    candidate = reference_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= reference_time:
+        candidate += timedelta(days=1)
+    return candidate
+
+
+def _fetch_related_cases(repo: ConsoleRepository, row: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(row.get("date"), date):
+        return []
+    select_columns = _findings_select_columns(repo)
+    join_sql, review_status_sql = _review_join_sql(repo)
+    current_case_key = str(row.get("case_key") or row.get("finding_key") or "")
+    related_rows = repo.fetch_all(
+        f"""
+        SELECT
+            {select_columns},
+            {review_status_sql} AS review_status
+        FROM suspicious_conversion_findings f
+        {join_sql}
+        WHERE f.is_current = TRUE
+          AND f.ipaddress = :ipaddress
+          AND f.useragent = :useragent
+          AND f.date <> :target_date
+          AND {_case_key_expr(repo)} <> :current_case_key
+          AND f.date >= :lookback_start
+        ORDER BY f.date DESC, f.computed_at DESC
+        LIMIT :limit
+        """,
+        {
+            "ipaddress": row.get("ipaddress"),
+            "useragent": row.get("useragent"),
+            "target_date": row.get("date"),
+            "current_case_key": current_case_key,
+            "lookback_start": row["date"] - timedelta(days=30),
+            "limit": DEFAULT_RELATED_CASE_LIMIT,
+        },
+    )
+    items = [_build_case_item(_deserialize_alert_row(item), None) for item in related_rows]
+    _attach_case_context(repo, items)
+    return [
+        {
+            "case_key": item["case_key"],
+            "display_label": item["display_label"],
+            "secondary_label": item["secondary_label"],
+            "status": item["status"],
+            "risk_score": item["risk_score"],
+            "risk_level": item["risk_level"],
+            "latest_detected_at": item["latest_detected_at"],
+        }
+        for item in items
     ]
 
 
@@ -941,6 +1286,64 @@ def _representative_unit_price(prices: list[int]) -> int | None:
     return Counter(positive_prices).most_common(1)[0][0] if positive_prices else None
 
 
+def _priority_score(*, risk_score: int, reward_amount: int) -> int:
+    return (max(0, int(risk_score)) * 1000) + min(max(0, int(reward_amount)), 9_999_999) // 100
+
+
+def _case_display_label(item: dict[str, Any]) -> str:
+    affiliate_name = _first_entity_name(item.get("affected_affiliates"))
+    program_name = _first_entity_name(item.get("affected_programs"))
+    if affiliate_name and program_name:
+        return f"{affiliate_name} / {program_name}"
+    if affiliate_name:
+        return affiliate_name
+    if program_name:
+        return program_name
+    return item.get("environment", {}).get("ipaddress") or "ケース"
+
+
+def _case_secondary_label(item: dict[str, Any]) -> str:
+    date_value = item.get("environment", {}).get("date")
+    ipaddress = item.get("environment", {}).get("ipaddress")
+    reason = item.get("primary_reason") or "-"
+    pieces = [str(value) for value in [date_value, ipaddress] if value]
+    if pieces:
+        return " / ".join(pieces + [reason])
+    return reason
+
+
+def _first_entity_name(values: Any) -> str | None:
+    if not isinstance(values, list):
+        return None
+    for value in values:
+        if isinstance(value, dict):
+            name = str(value.get("name") or value.get("id") or "").strip()
+            if name:
+                return name
+    return None
+
+
+def _format_transaction_state(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    label = {
+        "1": "承認",
+        "approved": "承認",
+        "0": "保留",
+        "pending": "保留",
+        "2": "却下",
+        "rejected": "却下",
+        "denied": "却下",
+        "3": "キャンセル",
+        "cancelled": "キャンセル",
+        "canceled": "キャンセル",
+    }.get(normalized)
+    if not label:
+        return str(value or "不明")
+    if normalized.isdigit():
+        return f"{label} ({value})"
+    return label
+
+
 def _build_entities(
     ids: Any,
     names: Any,
@@ -993,21 +1396,29 @@ def _build_case_item(row: dict[str, Any], transaction_summary: dict[str, Any] | 
         default_name=DEFAULT_OUTCOME_TYPE,
     )
     latest_detected_at = _iso(row.get("computed_at")) or _iso(row.get("last_time"))
+    environment = {
+        "date": row["date"].isoformat() if isinstance(row.get("date"), date) else row.get("date"),
+        "ipaddress": row.get("ipaddress"),
+        "useragent": row.get("useragent"),
+    }
+    primary_reason = reasons[0] if reasons else "No pattern available"
+    display_context = {
+        "environment": environment,
+        "affected_affiliates": affected_affiliates,
+        "affected_programs": affected_programs,
+        "primary_reason": primary_reason,
+    }
     return {
         "case_key": row.get("case_key") or row["finding_key"],
         "finding_key": row["finding_key"],
-        "environment": {
-            "date": row["date"].isoformat() if isinstance(row.get("date"), date) else row.get("date"),
-            "ipaddress": row.get("ipaddress"),
-            "useragent": row.get("useragent"),
-        },
+        "environment": environment,
         "affected_affiliate_count": len(affected_affiliates),
         "affected_affiliates": affected_affiliates,
         "affected_program_count": len(affected_programs),
         "affected_programs": affected_programs,
         "risk_score": row["risk_score"],
         "risk_level": row["risk_level"],
-        "primary_reason": reasons[0] if reasons else "No pattern available",
+        "primary_reason": primary_reason,
         "reasons": reasons,
         "status": row["review_status"],
         "reward_amount": summary["reward_amount"],
@@ -1019,7 +1430,13 @@ def _build_case_item(row: dict[str, Any], transaction_summary: dict[str, Any] | 
         "affiliate_id": summary["affiliate_id"],
         "affiliate_name": summary["affiliate_name"],
         "outcome_type": summary["outcome_type"],
-        "pattern": reasons[0] if reasons else "No pattern available",
+        "pattern": primary_reason,
+        "display_label": _case_display_label(display_context),
+        "secondary_label": _case_secondary_label(display_context),
+        "priority_score": _priority_score(
+            risk_score=int(row["risk_score"] or 0),
+            reward_amount=summary["reward_amount"],
+        ),
     }
 
 
@@ -1131,13 +1548,15 @@ def _fetch_recent_affiliate_transactions(repo: ConsoleRepository, user_id: str) 
 
 
 def _present_transaction(row: dict[str, Any]) -> dict[str, Any]:
+    raw_state = row.get("state")
     return {
         "transaction_id": row["transaction_id"],
         "occurred_at": _iso(row.get("conversion_time")),
         "outcome_type": row.get("promotion_name") or DEFAULT_OUTCOME_TYPE,
         "program_name": row.get("promotion_name") or DEFAULT_OUTCOME_TYPE,
         "reward_amount": _reward_from_payload(row.get("raw_payload")),
-        "state": row.get("state") or "unknown",
+        "state": _format_transaction_state(raw_state),
+        "state_raw": raw_state,
         "affiliate_id": row.get("user_id") or DEFAULT_AFFILIATE_ID,
         "affiliate_name": row.get("affiliate_name") or DEFAULT_AFFILIATE_NAME,
     }

@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from ..api_dependencies import require_admin, require_analyst_access
+from ..api_dependencies import require_protected_access, require_read_access
 from ..api_models import IngestResponse
 from ..service_dependencies import get_repository
 from ..services.jobs import JobConflictError, enqueue_master_sync_job
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["masters"])
 
 
-@router.post("/sync/masters", response_model=IngestResponse, dependencies=[Depends(require_admin)])
+@router.post("/sync/masters", response_model=IngestResponse, dependencies=[Depends(require_protected_access)])
 def sync_masters(background_tasks: BackgroundTasks):
     try:
         job = enqueue_master_sync_job(background_tasks=background_tasks)
@@ -26,7 +26,7 @@ def sync_masters(background_tasks: BackgroundTasks):
     )
 
 
-@router.get("/masters/status", dependencies=[Depends(require_analyst_access)])
+@router.get("/masters/status", dependencies=[Depends(require_read_access)])
 def get_masters_status():
     try:
         return get_repository().get_all_masters()

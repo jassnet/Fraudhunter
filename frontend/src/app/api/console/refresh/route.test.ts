@@ -15,14 +15,11 @@ describe("refresh route", () => {
     proxyToBackend.mockReset();
   });
 
-  it("rejects analyst viewers on admin routes", async () => {
+  it("rejects missing gateway headers", async () => {
     const request = new Request("http://localhost/api/console/refresh", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "X-Auth-Request-User": "analyst-1",
-        "X-Auth-Request-Email": "analyst@example.com",
-        "X-Auth-Request-Role": "analyst",
       },
       body: JSON.stringify({ hours: 1, clicks: true, conversions: true, detect: true }),
     });
@@ -31,12 +28,12 @@ describe("refresh route", () => {
 
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({
-      detail: "Forbidden",
+      detail: "Console gateway identity is required.",
     });
     expect(proxyToBackend).not.toHaveBeenCalled();
   });
 
-  it("allows admin viewers and forwards the refresh payload", async () => {
+  it("allows trusted viewers and forwards the refresh payload", async () => {
     proxyToBackend.mockResolvedValue(
       new Response(JSON.stringify({ success: true }), {
         status: 200,
@@ -51,7 +48,6 @@ describe("refresh route", () => {
         "content-type": "application/json",
         "X-Auth-Request-User": "admin-1",
         "X-Auth-Request-Email": "admin@example.com",
-        "X-Auth-Request-Role": "admin",
       },
       body,
     });
@@ -62,13 +58,12 @@ describe("refresh route", () => {
     expect(proxyToBackend).toHaveBeenCalledTimes(1);
     expect(proxyToBackend).toHaveBeenCalledWith(
       expect.objectContaining({
-        path: "/api/console/admin/refresh",
+        path: "/api/console/refresh",
         method: "POST",
         body,
         viewer: expect.objectContaining({
           userId: "admin-1",
           email: "admin@example.com",
-          role: "admin",
         }),
       }),
     );

@@ -90,3 +90,19 @@ class ConsoleRepository(Protocol):
     def _table_exists(self, name: str) -> bool: ...
     def _column_exists(self, table_name: str, column_name: str) -> bool: ...
     def apply_alert_reviews(self, finding_keys: list[str], *, status: str, updated_at: datetime) -> int: ...
+    def assign_alert_cases(
+        self,
+        case_keys: list[str],
+        *,
+        assignee_user_id: str | None,
+        assigned_by: str,
+        assigned_at: datetime,
+    ) -> int: ...
+    def update_followup_task_status(
+        self,
+        task_id: str,
+        *,
+        status: str,
+        updated_by: str,
+        updated_at: datetime,
+    ) -> dict[str, object] | None: ...

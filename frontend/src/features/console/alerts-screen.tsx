@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useConsoleDisplayMode } from "@/components/console-display-mode";
 import {
   ActionButton,
   EmptyState,
@@ -14,7 +15,7 @@ import {
   StatusBadge,
   StatusCountStrip,
 } from "@/components/console-ui";
-import { buildAlertsCsvUrl, getAlerts, reviewAlerts } from "@/lib/console-api";
+import { buildAlertsCsvUrl, getAlerts, reviewAlerts, reviewAlertsByFilter } from "@/lib/console-api";
 import type {
   AlertFilterStatus,
   AlertListItem,
@@ -22,8 +23,13 @@ import type {
   AlertsResponse,
   ReviewStatus,
 } from "@/lib/console-types";
-import type { ConsoleViewerRole } from "@/lib/console-viewer";
 import { formatCurrency, formatDateTime } from "@/lib/format";
+import {
+  reviewReasonPresets,
+  reviewStatusActionLabel,
+  reviewStatusConfirmTone,
+  useReviewReasonDialog,
+} from "./review-reason-dialog";
 
 type AlertFilters = {
   status: AlertFilterStatus;
@@ -49,8 +55,9 @@ const DEFAULT_FILTERS: AlertFilters = {
 
 type AlertsScreenProps = {
   searchParams?: Record<string, string | string[] | undefined>;
-  viewerRole: ConsoleViewerRole;
 };
+
+type ReviewScope = "selected" | "filtered";
 
 function firstSearchParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
@@ -113,9 +120,9 @@ function namedPreview(items: AlertListItem["affected_affiliates"]) {
     return "なし";
   }
   if (items.length === 1) {
-    return items[0]?.name ?? items[0]?.id ?? "None";
+    return items[0]?.name ?? items[0]?.id ?? "なし";
   }
-  return `${items[0]?.name ?? items[0]?.id} +${items.length - 1}`;
+  return `${items[0]?.name ?? items[0]?.id} 他${items.length - 1}件`;
 }
 
 function programPreview(item: AlertListItem) {
@@ -123,22 +130,18 @@ function programPreview(item: AlertListItem) {
     return "なし";
   }
   if (item.affected_programs.length === 1) {
-    return item.affected_programs[0]?.name ?? item.affected_programs[0]?.id ?? "None";
+    return item.affected_programs[0]?.name ?? item.affected_programs[0]?.id ?? "なし";
   }
-  return `${item.affected_programs[0]?.name ?? item.affected_programs[0]?.id} +${item.affected_programs.length - 1}`;
+  return `${item.affected_programs[0]?.name ?? item.affected_programs[0]?.id} 他${item.affected_programs.length - 1}件`;
 }
 
-function statusActionLabel(status: ReviewStatus) {
-  if (status === "confirmed_fraud") {
-    return "不正として確定";
-  }
-  if (status === "white") {
-    return "ホワイトとして確定";
-  }
-  return "調査中に変更";
+function buildAlertDetailHref(caseKey: string, returnTo: string) {
+  const searchParams = new URLSearchParams();
+  searchParams.set("returnTo", returnTo);
+  return `/alerts/${encodeURIComponent(caseKey)}?${searchParams.toString()}`;
 }
 
-export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
+export function AlertsScreen({ searchParams }: AlertsScreenProps) {
   const routeFilters = useMemo(() => buildInitialFilters(searchParams), [searchParams]);
   const [draftFilters, setDraftFilters] = useState(routeFilters);
   const [data, setData] = useState<AlertsResponse | null>(null);
@@ -148,11 +151,13 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
   const [submittingStatus, setSubmittingStatus] = useState<ReviewStatus | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
-  const [reviewStatus, setReviewStatus] = useState<ReviewStatus | null>(null);
-  const [reviewReason, setReviewReason] = useState("");
-  const [reviewReasonError, setReviewReasonError] = useState<string | null>(null);
+  const [reviewScope, setReviewScope] = useState<ReviewScope>("selected");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const rowLinkRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   const { replace } = useRouter();
   const pathname = usePathname();
+  const reviewDialog = useReviewReasonDialog(submittingStatus !== null);
+  const { showAdvanced } = useConsoleDisplayMode();
 
   const loadAlerts = useCallback(
     async (filters: AlertFilters) => {
@@ -171,6 +176,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
         });
         setData(response);
         setSelectedKeys([]);
+        setReviewScope("selected");
         const canonicalFilters = filtersFromResponse(response);
         if (toFilterQuery(filters) !== toFilterQuery(canonicalFilters)) {
           replace(`${pathname}?${toFilterQuery(canonicalFilters)}`, { scroll: false });
@@ -190,23 +196,12 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
   }, [loadAlerts, routeFilters]);
 
   useEffect(() => {
-    if (reviewStatus === null) {
+    if (!data?.items.length) {
+      setActiveIndex(0);
       return;
     }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && submittingStatus === null) {
-        setReviewStatus(null);
-        setReviewReason("");
-        setReviewReasonError(null);
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [reviewStatus, submittingStatus]);
+    setActiveIndex((current) => Math.min(current, data.items.length - 1));
+  }, [data?.items.length]);
 
   function setDraftFilter<K extends keyof AlertFilters>(key: K, value: AlertFilters[K]) {
     setDraftFilters((current) => ({ ...current, [key]: value }));
@@ -219,57 +214,67 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
   }
 
   function openBulkAction(status: ReviewStatus) {
-    if (selectedKeys.length === 0) {
+    if (reviewScope === "selected" && selectedKeys.length === 0) {
       return;
     }
-    setReviewStatus(status);
-    setReviewReason("");
-    setReviewReasonError(null);
+    if (reviewScope === "filtered" && total === 0) {
+      return;
+    }
+    reviewDialog.openReviewDialog(status);
     setWarning(null);
-  }
-
-  function closeReviewDialog() {
-    if (submittingStatus !== null) {
-      return;
-    }
-    setReviewStatus(null);
-    setReviewReason("");
-    setReviewReasonError(null);
   }
 
   async function submitBulkAction() {
-    if (reviewStatus === null || selectedKeys.length === 0) {
+    if (reviewDialog.reviewStatus === null) {
       return;
     }
 
-    const reason = reviewReason.trim();
+    const reason = reviewDialog.validateReviewReason();
     if (!reason) {
-      setReviewReasonError("レビュー理由を入力してください。");
       return;
     }
 
-    setSubmittingStatus(reviewStatus);
+    setSubmittingStatus(reviewDialog.reviewStatus);
     setError(null);
     setWarning(null);
-    setReviewReasonError(null);
+    reviewDialog.clearReviewReasonError();
     try {
-      const result = await reviewAlerts(selectedKeys, reviewStatus, reason);
-      closeReviewDialog();
-      setFeedback(`${result.updated_count}件のケースを更新しました。`);
-      setWarning(result.missing_keys.length > 0 ? `見つからないケース: ${result.missing_keys.join(", ")}` : null);
+      const result =
+        reviewScope === "filtered"
+          ? await reviewAlertsByFilter(
+              {
+                status: activeFilters.status,
+                riskLevel: activeFilters.riskLevel !== "all" ? activeFilters.riskLevel : undefined,
+                startDate: activeFilters.startDate,
+                endDate: activeFilters.endDate,
+                search: activeFilters.search,
+                sort: activeFilters.sort,
+              },
+              reviewDialog.reviewStatus,
+              reason,
+            )
+          : await reviewAlerts(selectedKeys, reviewDialog.reviewStatus, reason);
+      reviewDialog.closeReviewDialog();
+      setFeedback(
+        reviewScope === "filtered"
+          ? `絞り込み条件に合う${result.updated_count}件のケースを更新しました。`
+          : `${result.updated_count}件のケースを更新しました。`,
+      );
+      setWarning(result.missing_keys.length > 0 ? `見つからなかったケースがあります：${result.missing_keys.join("、")}` : null);
       await loadAlerts(routeFilters);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "レビューの更新に失敗しました。");
+      setError(caughtError instanceof Error ? caughtError.message : "判定結果の更新に失敗しました。");
     } finally {
       setSubmittingStatus(null);
     }
   }
 
-  const items = data?.items ?? [];
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
   const allSelected = items.length > 0 && selectedKeys.length === items.length;
   const activeFilters = data ? filtersFromResponse(data) : routeFilters;
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / activeFilters.pageSize));
+  const currentListHref = `${pathname}?${toFilterQuery(activeFilters)}`;
   const exportUrl = buildAlertsCsvUrl({
     status: activeFilters.status,
     riskLevel: activeFilters.riskLevel !== "all" ? activeFilters.riskLevel : undefined,
@@ -278,6 +283,53 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
     search: activeFilters.search,
     sort: activeFilters.sort,
   });
+  const pageStart = (activeFilters.page - 1) * activeFilters.pageSize + (items.length > 0 ? 1 : 0);
+  const pageEnd = (activeFilters.page - 1) * activeFilters.pageSize + items.length;
+  const selectionCount = reviewScope === "filtered" ? total : selectedKeys.length;
+  const showSelectionBar = reviewScope === "filtered" || selectedKeys.length > 0 || (showAdvanced && total > 0);
+
+  useEffect(() => {
+    function isTypingTarget(target: EventTarget | null) {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+      return Boolean(target.closest("input, textarea, select, button, [contenteditable='true']"));
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (reviewDialog.reviewStatus !== null || isTypingTarget(event.target) || items.length === 0) {
+        return;
+      }
+
+      if (event.key === "j" || event.key === "k") {
+        event.preventDefault();
+        const delta = event.key === "j" ? 1 : -1;
+        setActiveIndex((current) => {
+          const nextIndex = Math.max(0, Math.min(items.length - 1, current + delta));
+          rowLinkRefs.current[nextIndex]?.focus();
+          return nextIndex;
+        });
+        return;
+      }
+
+      if (event.key.toLowerCase() === "x") {
+        event.preventDefault();
+        const caseKey = items[activeIndex]?.case_key;
+        if (!caseKey) {
+          return;
+        }
+        setReviewScope("selected");
+        setSelectedKeys((current) =>
+          current.includes(caseKey) ? current.filter((value) => value !== caseKey) : [...current, caseKey],
+        );
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [activeIndex, items, reviewDialog.reviewStatus]);
 
   return (
     <div className="alerts-page">
@@ -285,22 +337,25 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
         <div className="alerts-topbar-left">
           <h1 className="alerts-title">アラート一覧</h1>
           {data ? <StatusCountStrip counts={data.status_counts} /> : null}
-          <p className="table-secondary">件数は現在のフィルター条件に基づきます。</p>
+          <p className="table-secondary">初期表示では全期間の最新ケースを表示します。</p>
+          {showAdvanced ? <p className="table-secondary">キー操作：J/K で行の移動、X でチェックの切り替え</p> : null}
         </div>
-        <div className="alerts-topbar-right">
-          <a className="button button-default" href={exportUrl}>
-            CSVエクスポート
-          </a>
-        </div>
+        {showAdvanced ? (
+          <div className="alerts-topbar-right">
+            <a className="button button-default" href={exportUrl}>
+              CSV形式でダウンロード
+            </a>
+          </div>
+        ) : null}
       </div>
 
       <div className="alerts-filters">
         <div className="alerts-filters-fields">
           <div className="form-field form-field--compact">
-            <label htmlFor="alert-status">ステータス</label>
+            <label htmlFor="alert-status">対応状態</label>
             <select
               id="alert-status"
-              aria-label="ステータス"
+              aria-label="対応状態"
               value={draftFilters.status}
               onChange={(event) => setDraftFilter("status", event.target.value as AlertFilterStatus)}
             >
@@ -321,12 +376,44 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
               onChange={(event) => setDraftFilter("riskLevel", event.target.value as AlertRiskFilter)}
             >
               <option value="all">すべて</option>
-              <option value="critical">重大</option>
               <option value="high">高</option>
               <option value="medium">中</option>
               <option value="low">低</option>
             </select>
           </div>
+
+          <div className="form-field form-field--compact">
+            <label htmlFor="alert-sort">並び順</label>
+            <select
+              id="alert-sort"
+              aria-label="並び順"
+              value={draftFilters.sort}
+              onChange={(event) => setDraftFilter("sort", event.target.value)}
+            >
+              <option value="risk_desc">リスク高い順</option>
+              <option value="risk_asc">リスク低い順</option>
+              <option value="damage_desc">被害額高い順</option>
+              <option value="damage_asc">被害額低い順</option>
+              <option value="detected_desc">新しい順</option>
+              <option value="detected_asc">古い順</option>
+            </select>
+          </div>
+
+          {showAdvanced ? (
+            <div className="form-field form-field--compact">
+              <label htmlFor="alert-page-size">表示件数</label>
+              <select
+                id="alert-page-size"
+                aria-label="表示件数"
+                value={draftFilters.pageSize}
+                onChange={(event) => setDraftFilter("pageSize", Number(event.target.value))}
+              >
+                <option value={50}>50件</option>
+                <option value={100}>100件</option>
+                <option value={200}>200件</option>
+              </select>
+            </div>
+          ) : null}
 
           <div className="form-field form-field--compact">
             <label htmlFor="alert-start-date">開始日</label>
@@ -358,16 +445,16 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
               type="search"
               value={draftFilters.search}
               onChange={(event) => setDraftFilter("search", event.target.value)}
-              placeholder="アフィリエイト、IP、UA"
+              placeholder={showAdvanced ? "アフィリエイト名、案件名、IPアドレス、ブラウザ情報、検知理由" : "アフィリエイト名、案件名、検知理由"}
             />
           </div>
 
           <div className="alerts-filters-actions">
             <ActionButton onClick={() => replaceRoute({ ...draftFilters, page: 1 })} disabled={loading}>
-              適用
+              この条件で絞り込む
             </ActionButton>
             <ActionButton onClick={() => replaceRoute(DEFAULT_FILTERS)} disabled={loading}>
-              リセット
+              条件を初期状態に戻す
             </ActionButton>
           </div>
         </div>
@@ -381,44 +468,53 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
       {warning ? <ErrorState message={warning} /> : null}
       {error && !data ? <ErrorState message={error} /> : null}
 
-      {viewerRole === "admin" && selectedKeys.length > 0 ? (
+      {showSelectionBar ? (
         <div className="selection-bar">
-          <span className="selection-bar-count">{selectedKeys.length}件選択中</span>
+          <span className="selection-bar-count">
+            {reviewScope === "filtered" ? `絞り込み条件に合う全 ${selectionCount} 件を対象にします` : `${selectionCount}件を選択中`}
+          </span>
           <div className="selection-bar-actions">
-            <ActionButton tone="danger" disabled={submittingStatus !== null} onClick={() => openBulkAction("confirmed_fraud")}>
-              不正確定
+            {showAdvanced && reviewScope === "selected" && total > items.length ? (
+              <ActionButton onClick={() => setReviewScope("filtered")} disabled={loading || total === 0}>
+                絞り込み全件を対象にする
+              </ActionButton>
+            ) : null}
+            {showAdvanced && reviewScope === "filtered" ? (
+              <ActionButton onClick={() => setReviewScope("selected")} disabled={loading}>
+                選択したケースだけに戻す
+              </ActionButton>
+            ) : null}
+            <ActionButton tone="danger" disabled={submittingStatus !== null || selectionCount === 0} onClick={() => openBulkAction("confirmed_fraud")}>
+              不正と確定
             </ActionButton>
-            <ActionButton disabled={submittingStatus !== null} onClick={() => openBulkAction("white")}>
-              ホワイト確定
+            <ActionButton disabled={submittingStatus !== null || selectionCount === 0} onClick={() => openBulkAction("white")}>
+              正常（ホワイト）と確定
             </ActionButton>
-            <ActionButton tone="warning" disabled={submittingStatus !== null} onClick={() => openBulkAction("investigating")}>
-              調査中に変更
+            <ActionButton tone="warning" disabled={submittingStatus !== null || selectionCount === 0} onClick={() => openBulkAction("investigating")}>
+              調査中へ変更
             </ActionButton>
           </div>
         </div>
       ) : null}
 
       <ReviewReasonDialog
-        open={reviewStatus !== null}
-        title="レビュー理由"
-        description="ステータスを変更する理由を入力してください。"
-        confirmLabel={reviewStatus ? statusActionLabel(reviewStatus) : "レビューを適用"}
-        value={reviewReason}
-        error={reviewReasonError}
+        open={reviewDialog.reviewStatus !== null}
+        title="判定理由の入力"
+        description="対応状態を変更する理由を入力してください。"
+        confirmLabel={reviewDialog.reviewStatus ? reviewStatusActionLabel(reviewDialog.reviewStatus) : "この内容で登録"}
+        confirmTone={reviewDialog.reviewStatus ? reviewStatusConfirmTone(reviewDialog.reviewStatus) : "warning"}
+        value={reviewDialog.reviewReason}
+        error={reviewDialog.reviewReasonError}
         busy={submittingStatus !== null}
-        onChange={(value) => {
-          setReviewReason(value);
-          if (reviewReasonError) {
-            setReviewReasonError(null);
-          }
-        }}
-        onCancel={closeReviewDialog}
+        onChange={reviewDialog.setReviewReasonValue}
+        onCancel={reviewDialog.closeReviewDialog}
         onConfirm={() => void submitBulkAction()}
+        presets={reviewDialog.reviewStatus ? reviewReasonPresets(reviewDialog.reviewStatus) : []}
         textareaProps={{
           autoFocus: true,
           rows: 5,
           maxLength: 500,
-          placeholder: "ステータスを変更する理由を記入してください。",
+          placeholder: "対応状態を変更する理由を記入してください。",
         }}
       />
 
@@ -426,75 +522,91 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
 
       <div className="alerts-table-area">
         {error && data ? <ErrorState message={error} /> : null}
-        {loading && data ? <LoadingState message="アラートを更新中..." /> : null}
+        {loading && data ? <LoadingState message="アラート一覧を更新しています..." /> : null}
         {!loading && items.length === 0 ? (
-          <EmptyState message={activeFilters.search ? "条件に一致するアラートはありません。" : "アラートはありません。"} />
+          <EmptyState message={activeFilters.search ? "条件に合うアラートは見つかりませんでした。" : "表示するアラートはありません。"} />
         ) : (
           <table aria-label="不正アラート一覧" className="table-sticky-head">
             <thead>
               <tr>
-                <th>
+                <th className="alerts-cell-select">
                   <input
-                    aria-label="すべてのアラートを選択"
+                    aria-label="すべてのアラートを選択する"
                     type="checkbox"
                     checked={allSelected}
-                    onChange={() => setSelectedKeys(allSelected ? [] : items.map((item) => item.case_key))}
+                    onChange={() => {
+                      setReviewScope("selected");
+                      setSelectedKeys(allSelected ? [] : items.map((item) => item.case_key));
+                    }}
                   />
                 </th>
-                <th>リスク</th>
-                <th>対象アフィリエイト</th>
-                <th>アクセス環境</th>
-                <th>ステータス</th>
-                <th>被害額</th>
-                <th>検知日時</th>
+                <th className="alerts-cell-risk">リスク</th>
+                <th className="alerts-cell-affiliate">対象アフィリエイト</th>
+                {showAdvanced ? <th className="alerts-cell-environment">アクセス情報</th> : null}
+                <th className="alerts-cell-status">状態</th>
+                <th className="alerts-cell-amount">想定被害額</th>
+                <th className="alerts-cell-detected">検知日時</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
-                <tr key={item.case_key}>
-                  <td>
+              {items.map((item, index) => (
+                <tr key={item.case_key} className={activeIndex === index ? "alerts-row-active" : undefined}>
+                  <td className="alerts-cell-select" data-label="選択">
                     <input
-                      aria-label={`Select ${namedPreview(item.affected_affiliates)}`}
+                      aria-label={`${namedPreview(item.affected_affiliates)}を選択`}
                       type="checkbox"
                       checked={selectedKeys.includes(item.case_key)}
-                      onChange={() =>
+                      onChange={() => {
+                        setReviewScope("selected");
                         setSelectedKeys((current) =>
                           current.includes(item.case_key)
                             ? current.filter((value) => value !== item.case_key)
                             : [...current, item.case_key],
-                        )
-                      }
+                        );
+                      }}
                     />
                   </td>
-                  <td>
+                  <td className="alerts-cell-risk" data-label="リスク">
                     <RiskBadge score={item.risk_score} level={item.risk_level} />
                   </td>
-                  <td>
-                    <Link className="table-link" href={`/alerts/${item.case_key}`}>
-                      <span className="table-primary">{namedPreview(item.affected_affiliates)}</span>
-                      <span className="table-secondary">{`${item.affected_affiliate_count}件のアフィリエイト / ${programPreview(item)}`}</span>
+                  <td className="alerts-cell-affiliate" data-label="対象アフィリエイト">
+                    <Link
+                      ref={(element) => {
+                        rowLinkRefs.current[index] = element;
+                      }}
+                      className="table-link"
+                      href={buildAlertDetailHref(item.case_key, currentListHref)}
+                      onFocus={() => setActiveIndex(index)}
+                    >
+                      <span className="table-primary">{item.display_label || namedPreview(item.affected_affiliates)}</span>
+                      <span className="table-secondary">{`アフィリエイト ${item.affected_affiliate_count}件 / ${programPreview(item)}`}</span>
                       <span className="table-tertiary">{item.primary_reason}</span>
+                      <span className="table-tertiary">{`担当者：${item.assignee?.user_id ?? "未割り当て"} / 未完了の対応 ${item.follow_up_open_count ?? 0}件`}</span>
                     </Link>
                   </td>
-                  <td>
-                    <div className="table-link">
-                      <span className="table-primary">{item.environment.ipaddress ?? "IP なし"}</span>
-                      <span className="table-secondary">{item.environment.useragent ?? "UA なし"}</span>
-                      <span className="table-tertiary">{item.environment.date ?? "日付なし"}</span>
-                    </div>
-                  </td>
-                  <td>
+                  {showAdvanced ? (
+                    <td className="alerts-cell-environment" data-label="アクセス情報">
+                      <div className="table-link">
+                        <span className="table-primary">{item.environment.ipaddress ?? "IPアドレスなし"}</span>
+                        <span className="table-secondary">{item.environment.useragent ?? "ブラウザ情報なし"}</span>
+                        <span className="table-tertiary">{item.environment.date ?? "日付なし"}</span>
+                      </div>
+                    </td>
+                  ) : null}
+                  <td className="alerts-cell-status" data-label="状態">
                     <StatusBadge status={item.status} />
                   </td>
-                  <td>
-                    <div className="amount-cell">
+                  <td className="alerts-cell-amount" data-label="想定被害額">
+                    <div className={`amount-cell ${item.reward_amount_is_estimated ? "amount-cell-estimated" : "amount-cell-actual"}`}>
                       <span>{formatCurrency(item.reward_amount)}</span>
                       <span className={`meta-badge ${item.reward_amount_is_estimated ? "meta-badge-warning" : "meta-badge-muted"}`}>
-                        {item.reward_amount_is_estimated ? "推定" : "実績"}
+                        {item.reward_amount_is_estimated ? "推定の金額" : "実績の金額"}
                       </span>
                     </div>
                   </td>
-                  <td>{item.latest_detected_at ? formatDateTime(item.latest_detected_at) : "-"}</td>
+                  <td className="alerts-cell-detected" data-label="検知日時">
+                    {item.latest_detected_at ? formatDateTime(item.latest_detected_at) : "-"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -505,8 +617,7 @@ export function AlertsScreen({ searchParams, viewerRole }: AlertsScreenProps) {
       {data ? (
         <div className="alerts-pagination">
           <span className="table-secondary">
-            {total} total, showing {(activeFilters.page - 1) * activeFilters.pageSize + (items.length > 0 ? 1 : 0)}-
-            {(activeFilters.page - 1) * activeFilters.pageSize + items.length}
+            全{total}件のうち {pageStart}〜{pageEnd}件を表示しています
           </span>
           <div className="selection-bar-actions">
             <ActionButton

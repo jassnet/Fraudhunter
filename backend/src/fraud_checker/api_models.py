@@ -96,9 +96,20 @@ class SettingsModel(BaseModel):
 
 
 class ConsoleReviewRequest(BaseModel):
-    case_keys: list[str]
+    case_keys: list[str] = []
     status: str
     reason: str
+    filters: Optional[dict] = None
+
+
+class ConsoleAssignmentRequest(BaseModel):
+    case_keys: list[str]
+    action: str
+
+
+class ConsoleFollowUpTaskUpdateRequest(BaseModel):
+    task_id: str
+    status: str
 
 
 class ConsoleReviewResponse(BaseModel):

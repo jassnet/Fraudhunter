@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 from sqlalchemy import Boolean, Date, DateTime, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import CheckConstraint, Index
+from sqlalchemy import CheckConstraint, Index, UniqueConstraint
 from . import Base
 
 
@@ -416,7 +416,6 @@ class FraudAlertReviewState(Base):
     review_status: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     reviewed_by: Mapped[str] = mapped_column(Text, nullable=False)
-    reviewed_role: Mapped[str] = mapped_column(Text, nullable=False)
     source_surface: Mapped[str] = mapped_column(Text, nullable=False)
     request_id: Mapped[str] = mapped_column(Text, nullable=False)
     finding_key_at_review: Mapped[str | None] = mapped_column(Text)
@@ -436,7 +435,38 @@ class FraudAlertReviewEvent(Base):
     review_status: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     reviewed_by: Mapped[str] = mapped_column(Text, nullable=False)
-    reviewed_role: Mapped[str] = mapped_column(Text, nullable=False)
     source_surface: Mapped[str] = mapped_column(Text, nullable=False)
     request_id: Mapped[str] = mapped_column(Text, nullable=False)
     reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class FraudAlertCaseAssignment(Base):
+    __tablename__ = "fraud_alert_case_assignments"
+    __table_args__ = (
+        Index("idx_fraud_alert_case_assignments_user_updated", "assignee_user_id", "updated_at"),
+    )
+
+    case_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    assignee_user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    assigned_by: Mapped[str] = mapped_column(Text, nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class FraudAlertFollowUpTask(Base):
+    __tablename__ = "fraud_alert_followup_tasks"
+    __table_args__ = (
+        Index("idx_fraud_alert_followup_tasks_case_status", "case_key", "task_status"),
+        UniqueConstraint("case_key", "task_type", name="uq_fraud_alert_followup_tasks_case_type"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    case_key: Mapped[str] = mapped_column(Text, nullable=False)
+    task_type: Mapped[str] = mapped_column(Text, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    task_status: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_by: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)

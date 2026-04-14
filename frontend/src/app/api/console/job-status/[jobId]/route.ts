@@ -14,7 +14,7 @@ export async function GET(request: Request, { params }: JobStatusRouteProps) {
     const { jobId } = await params;
     return proxyToBackend({
       path: `/api/console/job-status/${encodeURIComponent(jobId)}`,
-      viewer: requireConsoleViewer(request, "analyst"),
+      viewer: requireConsoleViewer(request),
     });
   } catch (error) {
     return toConsoleAuthErrorResponse(error);

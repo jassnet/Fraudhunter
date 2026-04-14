@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
@@ -42,9 +43,24 @@ def test_public_health_is_available_without_auth(monkeypatch):
 
 def test_validation_errors_include_error_code_for_console_filters(monkeypatch):
     monkeypatch.setenv("FC_ALLOW_PUBLIC_READ", "true")
+    monkeypatch.setenv("FC_INTERNAL_PROXY_SECRET", "proxy-secret")
     client = TestClient(api.app)
 
-    response = client.get("/api/console/alerts", params={"page": 0})
+    signature = hmac.new(
+        b"proxy-secret",
+        b"analyst-user\nanalyst@example.com\nreq-analyst",
+        "sha256",
+    ).hexdigest()
+    response = client.get(
+        "/api/console/alerts",
+        params={"page": 0},
+        headers={
+            "X-Console-User-Id": "analyst-user",
+            "X-Console-User-Email": "analyst@example.com",
+            "X-Console-Request-Id": "req-analyst",
+            "X-Console-User-Signature": signature,
+        },
+    )
 
     assert response.status_code == 422
     assert response.json() == {
@@ -332,7 +348,7 @@ def _deprecated_test_suspicious_click_detail_returns_single_finding(monkeypatch)
     assert captured["event"] == "sensitive_detail_access"
     assert captured["fields"]["finding_key"] == "f-1"
     assert captured["fields"]["finding_type"] == "click"
-    assert captured["fields"]["access_level"] == "analyst"
+    assert "access_level" not in captured["fields"]
     assert captured["fields"]["unmasked_access"] is True
 
 

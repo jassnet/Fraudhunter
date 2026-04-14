@@ -28,10 +28,27 @@ describe("AppFrame", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "メニューを開く" }));
-    expect(screen.getByRole("dialog", { name: "主なナビゲーション" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "メインメニュー" })).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
 
-    expect(screen.queryByRole("dialog", { name: "主なナビゲーション" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "メインメニュー" })).not.toBeInTheDocument();
+  });
+
+  it("shows advanced-only navigation after the display mode is switched", async () => {
+    const user = userEvent.setup();
+    render(
+      <AppFrame>
+        <div>content</div>
+      </AppFrame>,
+    );
+
+    expect(screen.queryByRole("link", { name: "検知の仕組み" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "検知設定" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "詳細表示に切り替える" }));
+
+    expect(screen.getByRole("link", { name: "検知の仕組み" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "検知設定" })).toBeInTheDocument();
   });
 });

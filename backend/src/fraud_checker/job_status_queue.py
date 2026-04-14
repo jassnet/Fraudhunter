@@ -467,6 +467,31 @@ class JobStatusQueueStore:
             "oldest_queued_age_seconds": oldest_queued_age_seconds,
         }
 
+    def list_recent_failed_runs(self, *, limit: int = 3) -> list[dict[str, Any]]:
+        with self.engine.begin() as conn:
+            rows = conn.execute(
+                sa.text(
+                    """
+                    SELECT id, job_type, message, error_message, finished_at
+                    FROM job_runs
+                    WHERE status = 'failed'
+                    ORDER BY CASE WHEN finished_at IS NULL THEN 1 ELSE 0 END, finished_at DESC, queued_at DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"limit": max(1, int(limit))},
+            ).mappings().all()
+        return [
+            {
+                "job_id": row["id"],
+                "job_type": row.get("job_type"),
+                "message": row.get("message"),
+                "error_message": row.get("error_message"),
+                "finished_at": row.get("finished_at").isoformat() if row.get("finished_at") else None,
+            }
+            for row in rows
+        ]
+
     @contextmanager
     def advisory_lock(self, concurrency_key: str | None):
         if not concurrency_key:
@@ -515,7 +540,17 @@ class JobStatusQueueStore:
         return min(MAX_RETRY_BACKOFF_SECONDS, seconds)
 
     def _serialize_queue_metrics(self, metrics: dict[str, Any]) -> dict[str, Any]:
-        serialized = dict(metrics)
-        if isinstance(serialized.get("oldest_queued_at"), datetime):
-            serialized["oldest_queued_at"] = serialized["oldest_queued_at"].isoformat()
-        return serialized
+        oldest_queued_at = metrics.get("oldest_queued_at")
+        if isinstance(oldest_queued_at, datetime):
+            oldest_queued_at = oldest_queued_at.isoformat()
+
+        return {
+            "queued": int(metrics.get("queued_jobs_count") or metrics.get("queued") or 0),
+            "retry_scheduled": int(
+                metrics.get("retry_scheduled_jobs_count") or metrics.get("retry_scheduled") or 0
+            ),
+            "running": int(metrics.get("running_jobs_count") or metrics.get("running") or 0),
+            "failed": int(metrics.get("failed_jobs_count") or metrics.get("failed") or 0),
+            "oldest_queued_at": oldest_queued_at,
+            "oldest_queued_age_seconds": metrics.get("oldest_queued_age_seconds"),
+        }

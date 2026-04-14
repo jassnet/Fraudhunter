@@ -13,7 +13,6 @@ describe("proxyToBackend", () => {
   const viewer = {
     userId: "user-1",
     email: "viewer@example.com",
-    role: "analyst" as const,
     requestId: "req-1",
   };
 
@@ -43,7 +42,6 @@ describe("proxyToBackend", () => {
     const headers = init.headers as Headers;
     expect(headers.get("X-Console-User-Id")).toBe("user-1");
     expect(headers.get("X-Console-User-Email")).toBe("viewer@example.com");
-    expect(headers.get("X-Console-User-Role")).toBe("analyst");
     expect(headers.get("X-Console-Request-Id")).toBe("req-1");
     expect(headers.get("X-Console-User-Signature")).toBeTruthy();
     expect(response.status).toBe(200);

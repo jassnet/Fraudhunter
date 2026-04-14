@@ -8,9 +8,8 @@ Fraud Checker is a fraud monitoring console for affiliate traffic. It ingests AC
 - Production refresh and master sync flows are enqueue-only.
 - Findings are persisted and exposed as stable environment cases.
 - Console triage is case-centric, not affiliate-centric.
-- Console authorization is split by viewer role:
-  - `analyst` can read
-  - `admin` can review, refresh, and master sync
+- Console authorization is identity-based:
+  - authenticated viewers can read, review, refresh, and master sync
 
 ## Core concepts
 
@@ -88,15 +87,11 @@ Console access relies on a trusted gateway in front of the frontend.
 
 - `X-Auth-Request-User`
 - `X-Auth-Request-Email`
-- `X-Auth-Request-Role`
-
-Accepted roles are `analyst` and `admin`.
 
 ### Internal headers from Next.js to backend
 
 - `X-Console-User-Id`
 - `X-Console-User-Email`
-- `X-Console-User-Role`
 - `X-Console-Request-Id`
 - `X-Console-User-Signature`
 
@@ -188,7 +183,7 @@ Notes:
 
 ## Console API
 
-### Analyst read routes
+### Read routes
 
 - `GET /api/console/dashboard`
 - `GET /api/console/alerts`
@@ -196,11 +191,11 @@ Notes:
 - `GET /api/console/alerts/export`
 - `GET /api/console/job-status/{job_id}`
 
-### Admin mutation routes
+### Mutation routes
 
 - `POST /api/console/alerts/review`
-- `POST /api/console/admin/refresh`
-- `POST /api/console/admin/master-sync`
+- `POST /api/console/refresh`
+- `POST /api/console/master-sync`
 
 ## Tests
 

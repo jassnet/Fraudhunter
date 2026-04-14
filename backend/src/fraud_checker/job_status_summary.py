@@ -24,7 +24,7 @@ class JobStatusSummaryMixin:
 
         if run.status == "queued":
             return JobStatus(
-                status="running",
+                status="queued",
                 job_id=run.id,
                 message=run.message or QUEUED_JOB_STATUS_MESSAGE,
                 started_at=run.started_at,
