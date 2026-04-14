@@ -1,3 +1,5 @@
+const JAPAN_TIME_ZONE = "Asia/Tokyo";
+
 export function formatCurrency(value: number) {
   return `¥${new Intl.NumberFormat("ja-JP", {
     maximumFractionDigits: 0,
@@ -17,6 +19,7 @@ export function formatDateLabel(value: string) {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    timeZone: JAPAN_TIME_ZONE,
   }).format(date);
 }
 
@@ -31,6 +34,7 @@ export function formatDateTime(value: string) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: JAPAN_TIME_ZONE,
   }).format(date);
 }
 
@@ -42,5 +46,6 @@ export function formatShortDate(value: string) {
   return new Intl.DateTimeFormat("ja-JP", {
     month: "2-digit",
     day: "2-digit",
+    timeZone: JAPAN_TIME_ZONE,
   }).format(date);
 }
